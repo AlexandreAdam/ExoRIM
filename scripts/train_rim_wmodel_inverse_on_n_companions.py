@@ -1,7 +1,7 @@
 from exorim import RIM, PhysicalModel
-from exorim.definitions import DTYPE, RIM_HPARAMS, MODEL_HPARAMS
+from exorim.definitions import DTYPE, RIM_HPARAMS, MODEL_W_INVERSE_HPARAMS
 from exorim.datasets import NCompanions
-from exorim.models import Model, UnetModel
+from exorim.models import Model, UnetModel, UnetModelwithInverseFunc
 from exorim.utils import residual_plot, plot_to_image
 from datetime import datetime
 import os, time, json
@@ -41,34 +41,24 @@ def main(args):
         batch_size=args.batch_size,
         width=args.width
     )
-    if args.architecture == "unet":
-        model = UnetModel(
-            filters=args.filters,
-            kernel_size=args.kernel_size,
-            filter_scaling=args.filter_scaling,
-            input_kernel_size=args.input_kernel_size,
-            layers=args.layers,
-            block_conv_layers=args.block_conv_layers,
-            strides=args.strides,
-            activation=args.activation,
-            upsampling_interpolation=args.upsampling_interpolation
-        )
-    elif args.architecture == "hourglass":
-        model = Model(
-            filters=args.filters,
-            kernel_size=args.kernel_size,
-            filter_scaling=args.filter_scaling,
-            input_kernel_size=args.input_kernel_size,
-            layers=args.layers,
-            block_conv_layers=args.block_conv_layers,
-            strides=args.strides,
-            activation=args.activation,
-            upsampling_interpolation=args.upsampling_interpolation
-        )
-    else:
-        raise ValueError("architecture parameters must be in ['hourglass', 'unet']")
+    model = UnetModelwithInverseFunc(
+        pixels=phys.pixels,
+        number_of_baselines=phys.nbuv,
+        number_of_closure_phases=phys.nbcp,
+        filters=args.filters,
+        kernel_size=args.kernel_size,
+        filter_scaling=args.filter_scaling,
+        input_kernel_size=args.input_kernel_size,
+        layers=args.layers,
+        block_conv_layers=args.block_conv_layers,
+        strides=args.strides,
+        activation=args.activation,
+        upsampling_interpolation=args.upsampling_interpolation,
+        inverse_layers=args.inverse_layers,
+        inverse_filters=args.inverse_filters
+    )
 
-    vars(args)["inverse_function"] = "phys"
+    vars(args)["inverse_function"] = "model"
     rim = RIM(
         model=model,
         physical_model=phys,
@@ -140,7 +130,7 @@ def main(args):
             with open(os.path.join(checkpoints_dir, "script_params.json"), "w") as f:
                 json.dump(vars(args), f, indent=4)
             with open(os.path.join(checkpoints_dir, "model_hparams.json"), "w") as f:
-                hparams_dict = {key: vars(args)[key] for key in MODEL_HPARAMS}
+                hparams_dict = {key: vars(args)[key] for key in MODEL_W_INVERSE_HPARAMS}
                 json.dump(hparams_dict, f, indent=4)
             with open(os.path.join(checkpoints_dir, "rim_hparams.json"), "w") as f:
                 hparams_dict = {key: vars(args)[key] for key in RIM_HPARAMS}
@@ -312,6 +302,8 @@ if __name__ == '__main__':
     parser.add_argument("--upsampling_interpolation",                   action="store_true")
     parser.add_argument("--activation",                                 default="tanh")
     parser.add_argument("--initializer",                                default="glorot_normal")
+    parser.add_argument("--inverse_layers",                             default=2,      type=int,   help="Number of conv layers for the inverse function in the model")
+    parser.add_argument("--inverse_filters",                            default=32,     type=int,   help="Number filters for each conv layers for the inverse function in the model")
 
     # Optimization params
     parser.add_argument("--epochs",                 default=10,     type=int,      help="Number of epochs for training.")

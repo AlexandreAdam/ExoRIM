@@ -9,9 +9,8 @@
 #SBATCH --job-name=Gridsearch_exorim
 #SBATCH --output=%x-%j.out
 source $HOME/environments/exorim3.8/bin/activate
-python $EXORIM_PATH/scripts/gridsearch.py\
+python $EXORIM_PATH/scripts/gridsearch_rm_w_inverse.py\
   --dataset n_companions\
-  --architecture unet hourglass unet_with_inverse\
   --n_models=100\
   --max_time=23.5\
   --strategy=uniform\
@@ -26,6 +25,8 @@ python $EXORIM_PATH/scripts/gridsearch.py\
   --block_conv_layers 1 2 3\
   --input_kernel_size 3 5 7\
   --activation leaky_relu tanh\
+  --inverse_layers 2 4 6\
+  --inverse_filters 4 8 16 32\
   --epochs 200\
   --initial_learning_rate 1e-4 1e-5\
   --decay_rate 1 0.9\
@@ -33,5 +34,5 @@ python $EXORIM_PATH/scripts/gridsearch.py\
   --residual_weights uniform sqrt linear\
   --logdir=$EXORIM_PATH/logs/\
   --model_dir=$EXORIM_PATH/models/\
-  --logname_prefixe=RIM_wide_search\
+  --logname_prefixe=RIMwI_wide_search\
   --seed 42

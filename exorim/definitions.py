@@ -10,7 +10,8 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 LOG10 = tf.cast(tf.math.log(10.), DTYPE)
 LOGFLOOR = tf.constant(1e-6, DTYPE)  # sets the dynamic range of the images, defined at 1e-6 to include the detection limit of JWST at 1e-4
 RIM_HPARAMS = [
-    "steps"
+    "steps",
+    "inverse_function"
 ]
 MODEL_HPARAMS = [
     "filters",
@@ -22,6 +23,22 @@ MODEL_HPARAMS = [
     "activation",
     "upsampling_interpolation",
     "strides"
+]
+MODEL_W_INVERSE_HPARAMS = [
+    "pixels",
+    "number_of_baselines",
+    "number_of_closure_phases",
+    "filters",
+    "filter_scaling",
+    "kernel_size",
+    "input_kernel_size",
+    "layers",
+    "block_conv_layers",
+    "activation",
+    "upsampling_interpolation",
+    "strides",
+    "inverse_filters",
+    "inverse_layers"
 ]
 
 

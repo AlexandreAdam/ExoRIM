@@ -1,0 +1,205 @@
+import numpy as np
+import tensorflow as tf
+from exorim.models.layers import UnetDecodingLayer, UnetEncodingLayer, ConvGRU
+from exorim.models.utils import get_activation
+from exorim.definitions import DTYPE
+
+
+class UnetModelwithInverseFunc(tf.keras.Model):
+    def __init__(
+            self,
+            pixels,
+            number_of_baselines,
+            number_of_closure_phases,
+            name="UnetModelwithInverseFunction",
+            filters=128,
+            filter_scaling=2,
+            kernel_size=3,
+            layers=5,
+            block_conv_layers=2,
+            strides=2,
+            inverse_layers=4,
+            inverse_filters=32,
+            bottleneck_kernel_size=None,
+            resampling_kernel_size=None,
+            input_kernel_size=11,
+            gru_kernel_size=None,
+            batch_norm=False,
+            dropout_rate=None,
+            upsampling_interpolation=False,
+            kernel_l1_amp=0.,
+            bias_l1_amp=0.,
+            kernel_l2_amp=0.,
+            bias_l2_amp=0.,
+            activation="tanh",
+            use_bias=True,
+            trainable=True,
+            initializer="glorot_uniform",
+            filter_cap=1024
+    ):
+        super(UnetModelwithInverseFunc, self).__init__(name=name)
+        assert inverse_layers % 2 == 0, "Inverse layers should be an even number"
+        self.trainable = trainable
+
+        common_params = {"padding": "same", "kernel_initializer": initializer,
+                         "data_format": "channels_last", "use_bias": use_bias,
+                         "kernel_regularizer": tf.keras.regularizers.L1L2(l1=kernel_l1_amp, l2=kernel_l2_amp)}
+        if use_bias:
+            common_params.update({"bias_regularizer": tf.keras.regularizers.L1L2(l1=bias_l1_amp, l2=bias_l2_amp)})
+
+        kernel_size = (kernel_size,)*2
+        resampling_kernel_size = resampling_kernel_size if resampling_kernel_size is not None else kernel_size
+        bottleneck_kernel_size = bottleneck_kernel_size if bottleneck_kernel_size is not None else kernel_size
+        gru_kernel_size = gru_kernel_size if gru_kernel_size is not None else kernel_size
+        self.filter_cap = filter_cap if isinstance(filter_cap, int) else np.inf
+        activation = get_activation(activation)
+
+        self._num_layers = layers
+        self._strides = strides
+        self._init_filters = filters
+        self._filter_scaling = filter_scaling
+
+        self.encoding_layers = []
+        self.decoding_layers = []
+        self.gated_recurrent_blocks = []
+        for i in range(layers):
+            self.encoding_layers.append(
+                UnetEncodingLayer(
+                    kernel_size=kernel_size,
+                    downsampling_kernel_size=resampling_kernel_size,
+                    filters=min(self.filter_cap, int(filter_scaling**(i) * filters)),
+                    downsampling_filters=min(self.filter_cap, int(filter_scaling**(i + 1) * filters)),
+                    conv_layers=block_conv_layers,
+                    activation=activation,
+                    strides=strides,
+                    batch_norm=batch_norm,
+                    dropout_rate=dropout_rate,
+                    **common_params
+                )
+            )
+            self.decoding_layers.append(
+                UnetDecodingLayer(
+                    kernel_size=kernel_size,
+                    upsampling_kernel_size=resampling_kernel_size,
+                    filters=min(self.filter_cap, int(filter_scaling**(i) * filters)),
+                    conv_layers=block_conv_layers,
+                    activation=activation,
+                    bilinear=upsampling_interpolation,
+                    batch_norm=batch_norm,
+                    dropout_rate=dropout_rate,
+                    **common_params
+                )
+            )
+            self.gated_recurrent_blocks.append(
+                    ConvGRU(
+                        filters=min(self.filter_cap, int(filter_scaling**(i) * filters)),
+                        kernel_size=gru_kernel_size
+                )
+            )
+
+        self.decoding_layers = self.decoding_layers[::-1]
+
+        self.bottleneck_gru = ConvGRU(
+            filters=min(self.filter_cap, int(filters * filter_scaling**(layers))),
+            kernel_size=bottleneck_kernel_size
+        )
+
+        self.output_layer = tf.keras.layers.Conv2D(
+            filters=1,
+            kernel_size=(1, 1),
+            activation="linear",
+            **common_params
+        )
+
+        self.input_layer = tf.keras.layers.Conv2D(
+            filters=filters,
+            kernel_size=input_kernel_size,
+            activation=activation,
+            **common_params
+        )
+
+        self.inverse_function_layers = []
+        y_dim = 2 * number_of_closure_phases + number_of_baselines
+        self.mlp_size = pixels ** 2 // 4 ** (inverse_layers)
+        self.inverse_mlp = tf.keras.layers.Dense(self.mlp_size, activation=activation)
+        for i in range(inverse_layers):
+            self.inverse_function_layers.append(
+                tf.keras.layers.Conv2DTranspose(
+                    filters=inverse_filters,
+                    kernel_size=(3, 3),
+                    activation=activation,
+                    strides=2,
+                    **common_params
+                )
+            )
+
+        self.p = number_of_baselines
+        self.q = number_of_closure_phases
+
+    def encode_observation(self, y):
+        vis = y[..., :self.p]
+        cp = y[..., self.p:]
+        cp_sin = tf.sin(cp)
+        cp_cos = tf.cos(cp)
+        return tf.concat([vis, cp_sin, cp_cos], axis=-1)
+
+    def inverse_function(self, y):
+        B, *_ = y.shape
+        x_dim = int(self.mlp_size**(1/2))
+        x_hat = self.encode_observation(y)
+        x_hat = self.inverse_mlp(x_hat)
+        x_hat = tf.reshape(x_hat, [B, x_dim, x_dim, 1])
+        for layer in self.inverse_function_layers:
+            x_hat = layer(x_hat)
+        return x_hat
+
+    def __call__(self, y, x, states, training=True):
+        return self.call(y, x, states, training)
+
+    def call(self, y, x, states, training=True):
+        x_hat = self.inverse_function(y)
+        delta_xt = self.input_layer(tf.concat([x, x_hat], axis=-1), training=training)
+        skip_connections = []
+        new_states = []
+        for i in range(self._num_layers):
+            c_i, delta_xt = self.encoding_layers[i](delta_xt, training=training)
+            c_i, new_state = self.gated_recurrent_blocks[i](c_i, states[i])  # Pass skip connections through GRU and update states
+            skip_connections.append(c_i)
+            new_states.append(new_state)
+        skip_connections = skip_connections[::-1]
+        delta_xt, new_state = self.bottleneck_gru(delta_xt, states[-1])
+        new_states.append(new_state)
+        for i in range(self._num_layers):
+            delta_xt = self.decoding_layers[i](delta_xt, skip_connections[i], training=training)
+        delta_xt = self.output_layer(delta_xt, training=training)
+        return delta_xt, new_states
+
+    def init_hidden_states(self, input_pixels, batch_size):
+        hidden_states = []
+        for i in range(self._num_layers):
+            pixels = input_pixels // self._strides**(i)
+            filters = min(self.filter_cap, int(self._filter_scaling**(i) * self._init_filters))
+            hidden_states.append(
+                tf.zeros(shape=[batch_size, pixels, pixels, filters], dtype=DTYPE)
+            )
+        pixels = input_pixels // self._strides ** (self._num_layers)
+        hidden_states.append(
+            tf.zeros(shape=[batch_size, pixels, pixels, min(self.filter_cap, int(self._init_filters * self._filter_scaling**(self._num_layers)))], dtype=DTYPE)
+        )
+        return hidden_states
+
+
+if __name__ == '__main__':
+    y = tf.random.normal(shape=[5, 13])
+    p = 8
+    q = 5
+    x = tf.random.normal(shape=[5, 128, 128, 2])
+    unet = UnetModelwithInverseFunc(
+        pixels=128,
+        number_of_baselines=p,
+        number_of_closure_phases=q,
+        inverse_layers=4,
+        inverse_filters=32
+    )
+    states = unet.init_hidden_states(128, batch_size=5)
+    unet.call(y, x, states)

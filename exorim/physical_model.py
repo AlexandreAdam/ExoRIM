@@ -61,6 +61,7 @@ class PhysicalModel:
         self.V3 = tf.constant(V3, MYCOMPLEX)
         self.logim = logim
         self.nbuv = self.operators.nbuv
+        self.nbcp = self.operators.CPO.shape[0]
         self.beta = beta
 
         if self.logim:
@@ -77,8 +78,8 @@ class PhysicalModel:
         grad, chi_squared = chisq.chisq_gradients[self._chi_squared](image=image, X=X, phys=self, sigma=sigma, beta=self.beta)
         return self.gradient_link(image, grad), chi_squared
 
-    def chi_squared(self, image, X, sigma):
-        image = self.image_link(image)
+    def chi_squared(self, xi, X, sigma):
+        image = self.image_link(xi)
         return chisq.chi_squared[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
 
     def forward(self, image):
