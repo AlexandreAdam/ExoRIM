@@ -1,5 +1,6 @@
 from tensorflow.python.keras.layers.merge import concatenate
 from astropy.cosmology import Planck15 as cosmo
+import tensorflow as tf
 
 def lrelu(x, alpha=0.3):
     return tf.maximum(x, tf.multiply(x, alpha))
@@ -107,18 +108,18 @@ def lrelu4p(x, alpha=0.04):
     
 class RIM_CELL(tf.nn.rnn_cell.RNNCell):
     def __init__(self, batch_size, num_steps ,num_pixels, state_size , input_size=None, activation=tf.tanh):
-	self.num_pixels = num_pixels
+        self.num_pixels = num_pixels
         self.num_steps = num_steps
         self._num_units = state_size
         
         self.single_RIM_state_size = state_size/2
         self.gru_state_size = state_size/4
-	self.gru_state_pixel_downsampled = 16*2
+        self.gru_state_pixel_downsampled = 16*2
         self._activation = activation
         self.model_1 = Model(self.single_RIM_state_size)
-        
-	self.batch_size = batch_size
-	self.initial_output_state()
+            
+        self.batch_size = batch_size
+        self.initial_output_state()
 
     def initial_output_state(self):
         self.inputs_1 = tf.zeros(shape=(self.batch_size , self.num_pixels , self.num_pixels , 1))
@@ -139,9 +140,9 @@ class RIM_CELL(tf.nn.rnn_cell.RNNCell):
 
     def forward_pass(self, data):
 
-	if (data.shape[0] != self.batch_size):
-	    self.batch_size = data.shape[0]
-	    self.initial_output_state()
+        if (data.shape[0] != self.batch_size):
+           self.batch_size = data.shape[0]
+           self.initial_output_state()
 
 
         output_series_1 = []
@@ -177,8 +178,11 @@ class RIM_CELL(tf.nn.rnn_cell.RNNCell):
 
 class Data_Generator(object):
 
-    def __init__(self,train_batch_size=1,test_batch_size=1, impix_side = 192):
+    def __init__(self,train_batch_size=1,test_batch_size=1, impix_side = 192, im_size=128):
         self.im_size = im_size
+        self.train_batch_size = train_batch_size
+        self.test_batch_size = test_batch_size
+        self.impix_side = impix_side
 
     def gen_source(self):
         Im = np.ones((self.im_size,self.im_size))
@@ -192,7 +196,7 @@ class Data_Generator(object):
             np.random.seed(seed=136)
             num_samples = self.test_batch_size
         
-        
+        self.IM_tr = np.zeros((num_samples,self.im_size,self.im_size))
         for i in range(num_samples):
             
             #parameters for im, here it's just an example  
@@ -200,10 +204,10 @@ class Data_Generator(object):
             
             
             if (train_or_test=="train"):
-                self.IM_tr[i,:,:,0] = self.gen_source()
+                self.IM_tr[i,:,:] = self.gen_source()
 
             if (train_or_test=="test"):
-                self.IM_ts[i,:,:,0] = self.gen_source()
+                self.IM_ts[i,:,:] = self.gen_source()
  
         return
 
@@ -216,12 +220,16 @@ class Phys_Mod(object):
                 
     def physical_model(self, IM):
         
-        IM = tf.identity(IM)
-        return IM        
+        sin_model = tf.tensordot(IM.ravel(),sin_tensor,axes=1)
+        cos_model = tf.tensordot(IM.ravel(),cos_tensor,axes=1)
+        vis2s = tf.abs(sin_model**2+cos_model**2)  
+        phases = tf.angle(tf.complex(data_cos,data_sin))
+        cps = tf.tensordot(bs_tensor,phases,axes=1)
+        return tf.concat([vis2s,cps],axis=0)
 
-    def simulate_noisy_lensed_image(self, IM, noise_rms=0.1):
+    def simulate_noisy_image(self, IM, noise_rms=0.1):
         IM = self.physical_model(IM)
-        noise = tf.random_normal(tf.shape(IM),mean=0.0,stddev = noise_rms)
+        noise = tf.random_normal(tf.shape(IM),mean=0.0,stddev = noise_rms,dtype=T)
         IM = IM + noise
         self.noise_rms = noise_rms
         return IM
@@ -230,5 +238,4 @@ class Phys_Mod(object):
         #logL = 0.5 * tf.reduce_mean(tf.reduce_mean((Data - Model)**2, axis=2 ), axis=1 )
         logL = 0.5 * tf.math.reduce_mean(tf.square(D - M), axis=1 )/ noise_sig**2
         return logL
-
 
