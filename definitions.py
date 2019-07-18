@@ -202,12 +202,11 @@ class Data_Generator(object):
             #parameters for im, here it's just an example  
             x = np.random.uniform(low=-1.0, high=1.)
             
-            
             if (train_or_test=="train"):
                 self.IM_tr[i,:,:] = self.gen_source()
 
-            if (train_or_test=="test"):
-                self.IM_ts[i,:,:] = self.gen_source()
+        if (train_or_test=="test"):
+            self.IM_ts = self.gen_source()
  
         return
 

@@ -15,29 +15,24 @@ checkpoint_path_1 = "checkpoints/model"
 
 
 
-RESTORE=True
+RESTORE=False
 
 
 
-with tf.device('/gpu:0'):
+# with tf.device('/gpu:0'):
+with tf.device('/cpu:0'):
 
     RIM = RIM_CELL(train_batch_size , num_steps , num_features , state_size)
-
-
 
     IM_gen = Data_Generator(train_batch_size=train_batch_size,test_batch_size=train_batch_size)
     Phys_Mod_obj = Phys_Mod()
 
-    physical_model = lens_util_obj.physical_model
-
-
+    physical_model = Phys_Mod_obj.physical_model
 
     optimizer = tf.train.AdamOptimizer(1e-3)
     
-    
     if (RESTORE==True):
         RIM.model_1.load_weights(checkpoint_path_1)
-
 
     noise_rms = 0.01
     IM_gen.draw_im("test")
@@ -46,7 +41,7 @@ with tf.device('/gpu:0'):
         #if ((train_iter%1)==0):
         #    print train_iter
         IM_gen.draw_im("train")
-        noisy_data = Phys_Mod_obj.simulate_noisy_lensed_image(  IM_gen.IM_tr[:,:,:,:],noise_rms)
+        noisy_data = Phys_Mod_obj.simulate_noisy_image(  IM_gen.IM_tr[:,:,:,:],noise_rms)
         tf_IM =  tf.identity(IM_gen.IM_tr[:,:,:,:])
 
 
