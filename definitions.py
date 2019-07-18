@@ -206,7 +206,7 @@ class Data_Generator(object):
                 self.IM_tr[i,:,:,0] = self.gen_source()
 
         if (train_or_test=="test"):
-            self.IM_ts = self.gen_source()
+            self.IM_ts[i,:,:,0] = self.gen_source()
  
         return
 

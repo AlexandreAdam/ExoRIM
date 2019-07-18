@@ -35,7 +35,7 @@ with tf.device('/cpu:0'):
         RIM.model_1.load_weights(checkpoint_path_1)
 
     noise_rms = 0.01
-    IM_gen.IM_tr = np.zeros((IM_gen.test_batch_size,IM_gen.im_size,IM_gen.im_size, 1))
+    IM_gen.IM_ts = np.zeros((IM_gen.test_batch_size,IM_gen.im_size,IM_gen.im_size, 1))
     IM_gen.draw_im("test")
 
     for train_iter in range(100):
