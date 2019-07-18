@@ -196,7 +196,7 @@ class Data_Generator(object):
             np.random.seed(seed=136)
             num_samples = self.test_batch_size
         
-        self.IM_tr = np.zeros((num_samples,self.im_size,self.im_size))
+        self.IM_tr = np.zeros((num_samples,self.im_size,self.im_size,1))
         for i in range(num_samples):
             
             #parameters for im, here it's just an example  
