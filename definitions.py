@@ -2,6 +2,11 @@ from tensorflow.python.keras.layers.merge import concatenate
 from astropy.cosmology import Planck15 as cosmo
 import tensorflow as tf
 
+from kpi import kpi
+
+T = tf.float64
+T = tf.float32 # faster
+
 def lrelu(x, alpha=0.3):
     return tf.maximum(x, tf.multiply(x, alpha))
 
@@ -16,7 +21,7 @@ def xsquared(x):
     return (x/4)**2
 
 
-datatype = tf.float32
+# datatype = tf.float32 # should this be here?
 
 
 kernel_size = 5
@@ -122,8 +127,8 @@ class RIM_CELL(tf.nn.rnn_cell.RNNCell):
         self.initial_output_state()
 
     def initial_output_state(self):
-        self.inputs_1 = tf.zeros(shape=(self.batch_size , self.num_pixels , self.num_pixels , 1))
-        self.state_1 = tf.zeros(shape=(self.batch_size,  self.num_pixels/self.gru_state_pixel_downsampled, self.num_pixels/self.gru_state_pixel_downsampled , self.single_RIM_state_size ))
+        self.inputs_1 = tf.zeros(shape=(self.batch_size , self.num_pixels , self.num_pixels , 1),dtype=T)
+        self.state_1 = tf.zeros(shape=(self.batch_size,  self.num_pixels/self.gru_state_pixel_downsampled, self.num_pixels/self.gru_state_pixel_downsampled , self.single_RIM_state_size ),dtype=T)
 
 
     @property
@@ -172,7 +177,7 @@ class RIM_CELL(tf.nn.rnn_cell.RNNCell):
         final_log_L = log_likelihood(data,physical_model(output_1),noise_rms)
         return output_series_1 , final_log_L
 
-    def cost_function( self, data,labels_x_1):
+    def cost_function(self, data, labels_x_1):
         output_series_1 , final_log_L = self.forward_pass(data)
         return tf.reduce_mean(tf.square(output_series_1 - labels_x_1)), output_series_1 ,output_series_1[-1].numpy() 
 
@@ -185,10 +190,11 @@ class Data_Generator(object):
         self.impix_side = impix_side
 
     def gen_source(self):
-        Im = np.ones((self.im_size,self.im_size))
+        Im = np.ones((self.im_size,self.im_size)) # generate the true sky model - read in with imgen in batches from a folder of inputs or generate randomly
         return Im
 
     def draw_im(self,train_or_test):
+        print('Drawing im')
         if (train_or_test=="train"):
             np.random.seed(seed=None)
             num_samples = self.train_batch_size
@@ -200,7 +206,7 @@ class Data_Generator(object):
         for i in range(num_samples):
             
             #parameters for im, here it's just an example  
-            x = np.random.uniform(low=-1.0, high=1.)
+            x = np.random.uniform(low=-1.0, high=1.) # these are things you pass to gen source
             
             if (train_or_test=="train"):
                 self.IM_tr[i,:,:,0] = self.gen_source()
@@ -214,27 +220,80 @@ class Data_Generator(object):
 
 class Phys_Mod(object):
 
-    def __init__(self, numpix_side = 192):
+    def __init__(self, numpix_side = 128):
+        print('initializing Phys_Mod')
         self.numpix_side = numpix_side
-                
+        try:
+            bs = kpi(file='coords.txt',bsp_mat='sparse')
+            print('Loaded coords.txt')
+        except:
+            ## define your interferometric array
+            coords = np.random.randn(6,2)
+            plt.plot(coords[:,0],coords[:,1],'.')
+            np.savetxt('coords.txt',coords)
+            print('Generated random array and saved to coords.txt')
+            bs = kpi(file='coords.txt',bsp_mat='sparse')
+            print('Loaded coords.txt')
+
+        ## create p2vm matrix
+
+        x = np.arange(self.numpix_side)
+        xx, yy = np.meshgrid(x,x)
+
+        p2vm_sin = np.zeros((bs.uv.shape[0],xx.ravel().shape[0]))
+
+        for j in range(bs.uv.shape[0]):
+            p2vm_sin[j,:] = np.ravel(np.sin(xx*bs.uv[j,0]+yy*bs.uv[j,1]))
+            
+        p2vm_cos = np.zeros((bs.uv.shape[0],xx.ravel().shape[0]))
+
+        for j in range(bs.uv.shape[0]):
+            p2vm_cos[j,:] = np.ravel(np.cos(xx*bs.uv[j,0]+yy*bs.uv[j,1]))
+
+        # create tensor to hold cosine and sine projection operators
+        self.cos_tensor = tf.constant(p2vm_cos.T,dtype=T)
+        self.sin_tensor = tf.constant(p2vm_sin.T,dtype=T)
+        self.bs_tensor = tf.constant(bs.uv_to_bsp,dtype=T)
+
+        vis2s = np.zeros(p2vm_cos.shape[0])
+        closure_phases = np.zeros(bs.uv_to_bsp.shape[0])
+        # create tensor to hold your data
+        self.vis2s_tensor = tf.constant(vis2s,dtype=T)
+        self.cp_tensor = tf.constant(closure_phases,dtype=T)
+        self.data_tensor = tf.concat([self.vis2s_tensor,self.cp_tensor],0)
+
+        # create tensor to hold your uncertainties
+        self.vis2s_err_tensor = tf.constant(np.ones_like(vis2s),dtype=T) # actually figure out what to do with these
+        self.cp_err_tensor = tf.constant(np.ones_like(closure_phases),dtype=T)
+        self.error_tensor = tf.concat([self.vis2s_err_tensor,self.cp_err_tensor],0)
+
     def physical_model(self, IM):
-        
-        sin_model = tf.tensordot(IM.ravel(),sin_tensor,axes=1)
-        cos_model = tf.tensordot(IM.ravel(),cos_tensor,axes=1)
+        print('physical_model')
+        print(IM.shape)
+        tfim = tf.constant(IM,dtype=T)
+        flat = tf.reshape(tfim, [-1])
+        print('flattened')
+        sin_model = tf.tensordot(flat,self.sin_tensor,axes=1)
+        cos_model = tf.tensordot(flat,self.cos_tensor,axes=1)
+        print('dotted')
         vis2s = tf.abs(sin_model**2+cos_model**2)  
-        phases = tf.angle(tf.complex(data_cos,data_sin))
-        cps = tf.tensordot(bs_tensor,phases,axes=1)
+        phases = tf.angle(tf.complex(cos_model,sin_model))
+        cps = tf.tensordot(self.bs_tensor,phases,axes=1)
+        print('done')
         return tf.concat([vis2s,cps],axis=0)
 
     def simulate_noisy_image(self, IM, noise_rms=0.1):
-        IM = self.physical_model(IM)
-        noise = tf.random_normal(tf.shape(IM),mean=0.0,stddev = noise_rms,dtype=T)
-        IM = IM + noise
+        print('simulate_noisy_image')
+        out = self.physical_model(IM) 
+        noise = tf.random_normal(tf.shape(out),mean=0.0,stddev = noise_rms,dtype=T)
+        out = out + noise
         self.noise_rms = noise_rms
-        return IM
 
-    def log_likelihood(Data,Model,noise_rms):
-        #logL = 0.5 * tf.reduce_mean(tf.reduce_mean((Data - Model)**2, axis=2 ), axis=1 )
-        logL = 0.5 * tf.math.reduce_mean(tf.square(D - M), axis=1 )/ noise_sig**2
-        return logL
+        return out
+
+def log_likelihood(Data,Model,noise_rms):
+    print('log_likelihood')
+    #logL = 0.5 * tf.reduce_mean(tf.reduce_mean((Data - Model)**2, axis=2 ), axis=1 )
+    logL = 0.5 * tf.math.reduce_mean(tf.square(D - M), axis=1 )/ noise_sig**2
+    return logL
 
