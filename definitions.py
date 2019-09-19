@@ -148,7 +148,8 @@ class RIM_CELL(tf.nn.rnn_cell.RNNCell):
 
         output_series_1 = []
       
-
+        print('forward pass')
+        print('self.inputs_1.shape:',self.inputs_1.shape)
         with tf.GradientTape() as g:
             g.watch(self.inputs_1)
             
