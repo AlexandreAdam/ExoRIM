@@ -40,12 +40,15 @@ with tf.device('/cpu:0'):
         #if ((train_iter%1)==0):
         #    print train_iter
         IM_gen.draw_im("train")
-        noisy_data = Phys_Mod_obj.simulate_noisy_image( IM_gen.IM_tr[train_iter,:,:,:],noise_rms) 
+        print('Drawn im')
+        noisy_data = Phys_Mod_obj.simulate_noisy_image(IM_gen.IM_tr[train_iter,:,:,:],noise_rms) 
+        print('simulated noisy image')
         tf_IM =  tf.identity(IM_gen.IM_tr[train_iter,:,:,:])
 
         with tf.GradientTape() as tape:
             tape.watch(RIM.model_1.variables)
             cost_value, os1 = RIM.cost_function(noisy_data, tf_IM)
+        print('gradient calculated')
         weight_grads = tape.gradient(cost_value, r )
 
         clipped_grads_1 = [tf.clip_by_value(grads_i,-10,10) for grads_i in weight_grads[0]]

@@ -106,10 +106,6 @@ class GRU_COMPONENT(tf.keras.Model):
 def lrelu4p(x, alpha=0.04):
     return tf.maximum(x, tf.multiply(x, alpha))
 
-
-
-
-    
     
 class RIM_CELL(tf.nn.rnn_cell.RNNCell):
     def __init__(self, batch_size, num_steps ,num_pixels, state_size , input_size=None, activation=tf.tanh):
@@ -169,7 +165,6 @@ class RIM_CELL(tf.nn.rnn_cell.RNNCell):
                 
                 y = log_likelihood(data,physical_model(output_1),noise_rms)
             grads = g.gradient(y, output_1 )
-
 
             output_1, state_1 = self.__call__(output_1, state_1 , grads)
             output_series_1.append(output_1)
