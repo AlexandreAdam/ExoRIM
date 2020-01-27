@@ -1,14 +1,19 @@
 from tensorflow.python.keras.layers.merge import concatenate
 from astropy.cosmology import Planck15 as cosmo
 import tensorflow as tf
-
 from kpi import kpi
 
 T = tf.float64
 T = tf.float32 # faster
+kernel_size = 5
+initializer = tf.random_normal_initializer(stddev=0.06)
+kernal_reg_amp = 0.0
+bias_reg_amp = 0.0
+kernel_size = 6
 
 def lrelu(x, alpha=0.3):
     return tf.maximum(x, tf.multiply(x, alpha))
+
 
 def endlrelu(x, alpha=0.06):
     return tf.maximum(x, tf.multiply(x, alpha))
@@ -17,22 +22,38 @@ def endlrelu(x, alpha=0.06):
 def m_softplus(x):
     return tf.keras.activations.softplus(x) - tf.keras.activations.softplus( -x -5.0 ) 
 
+
 def xsquared(x):
     return (x/4)**2
 
 
-# datatype = tf.float32 # should this be here?
-
-
-kernel_size = 5
-
 class Conv_GRU(tf.keras.Model):
+
     def __init__(self , num_features):
         super(Conv_GRU, self).__init__()
         num_filters = num_features
-        self.conv_1 = tf.keras.layers.Conv2D(filters = num_filters, kernel_size=[kernel_size,kernel_size], strides=1, activation='sigmoid',padding='same')
-        self.conv_2 = tf.keras.layers.Conv2D(filters = num_filters, kernel_size=[kernel_size,kernel_size], strides=1, activation='sigmoid',padding='same')
-        self.conv_3 = tf.keras.layers.Conv2D(filters = num_filters, kernel_size=[kernel_size,kernel_size], strides=1, activation='tanh',padding='same')
+        self.conv_1 = tf.keras.layers.Conv2D(
+		filters = num_filters,
+		kernel_size=[kernel_size,kernel_size], 
+		strides=1,
+		activation='sigmoid',
+		padding='same'
+	)
+        self.conv_2 = tf.keras.layers.Conv2D(
+		filters=num_filters,
+		kernel_size=[kernel_size,kernel_size],
+		strides=1,
+		activation='sigmoid',
+		padding='same'
+	)
+        self.conv_3 = tf.keras.layers.Conv2D(
+		filters=num_filters,
+		kernel_size=[kernel_size,kernel_size],
+		strides=1,
+		activation='tanh',
+		padding='same'
+	)
+
     def call(self, inputs, state):
         stacked_input = tf.concat([inputs , state], axis=3)
         z = self.conv_1(stacked_input)
@@ -43,10 +64,6 @@ class Conv_GRU(tf.keras.Model):
         new_state = tf.multiply( 1-z , state) + tf.multiply(z , update_info)
         return new_state , new_state
 
-initializer = tf.initializers.random_normal( stddev=0.06)
-kernal_reg_amp = 0.0
-bias_reg_amp = 0.0
-kernel_size = 6
 
 class Model(tf.keras.Model):
     def __init__(self,num_cell_features):
@@ -57,16 +74,88 @@ class Model(tf.keras.Model):
         num_filt_emb2 = self.num_gru_features
         num_filt_emb3_1 = self.num_gru_features
         num_filt_emb3_2 = self.num_gru_features
-        self.conv1_1 = tf.keras.layers.Conv2D(filters = num_filt_emb1_1, kernel_size=[kernel_size,kernel_size], strides=4, activation='relu',padding='same',kernel_regularizer= tf.keras.regularizers.l2(l=kernal_reg_amp), bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp), kernel_initializer = initializer)
-        self.conv1_2 = tf.keras.layers.Conv2D(filters = num_filt_emb1_2, kernel_size=[kernel_size,kernel_size], strides=4, activation='relu',padding='same',kernel_regularizer= tf.keras.regularizers.l2(l=kernal_reg_amp), bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp), kernel_initializer = initializer)
-        self.conv1_3 = tf.keras.layers.Conv2D(filters = num_filt_emb1_2, kernel_size=[kernel_size,kernel_size], strides=2, activation='relu',padding='same',kernel_regularizer= tf.keras.regularizers.l2(l=kernal_reg_amp), bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp), kernel_initializer = initializer)
-        self.conv2 = tf.keras.layers.Conv2D(filters = num_filt_emb2, kernel_size=[5,5], strides=1, activation='relu',padding='same',kernel_regularizer= tf.keras.regularizers.l2(l=kernal_reg_amp), bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp), kernel_initializer = initializer)
-        self.conv3_1 = tf.keras.layers.Conv2DTranspose(filters = num_filt_emb3_1, kernel_size=[kernel_size,kernel_size], strides=4, activation='relu',padding='same',kernel_regularizer= tf.keras.regularizers.l2(l=kernal_reg_amp), bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp), kernel_initializer = initializer)
-        self.conv3_2 = tf.keras.layers.Conv2DTranspose(filters = num_filt_emb3_2, kernel_size=[kernel_size,kernel_size], strides=4, activation='relu',padding='same',kernel_regularizer= tf.keras.regularizers.l2(l=kernal_reg_amp), bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp), kernel_initializer = initializer)
-        self.conv3_3 = tf.keras.layers.Conv2DTranspose(filters = num_filt_emb3_2, kernel_size=[kernel_size,kernel_size], strides=2, activation='relu',padding='same',kernel_regularizer= tf.keras.regularizers.l2(l=kernal_reg_amp), bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp), kernel_initializer = initializer)
-        self.conv4 = tf.keras.layers.Conv2D(filters = 1, kernel_size=[5,5], strides=1, activation='linear',padding='same',kernel_regularizer= tf.keras.regularizers.l2(l=kernal_reg_amp), bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp), kernel_initializer = initializer)
+        self.conv1_1 = tf.keras.layers.Conv2D(
+		filters=num_filt_emb1_1,
+		kernel_size=[kernel_size,kernel_size],
+		strides=4,
+		activation='relu',
+		padding='same',
+		kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
+		bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+		kernel_initializer=initializer
+	)
+        self.conv1_2 = tf.keras.layers.Conv2D(
+		filters=num_filt_emb1_2,
+		kernel_size=[kernel_size,kernel_size],
+		strides=4,
+		activation='relu',
+		padding='same',
+		kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
+		bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+		kernel_initializer=initializer
+	)
+        self.conv1_3 = tf.keras.layers.Conv2D(
+		filters=num_filt_emb1_2,
+		kernel_size=[kernel_size,kernel_size],
+		strides=2,
+		activation='relu',
+		padding='same',
+		kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
+		bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+		kernel_initializer=initializer
+	)
+        self.conv2 = tf.keras.layers.Conv2D(
+		filters=num_filt_emb2, kernel_size=[5,5],
+		strides=1,
+		activation='relu',
+		padding='same',
+		kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
+		bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+		kernel_initializer=initializer
+	)
+        self.conv3_1 = tf.keras.layers.Conv2DTranspose(
+		filters=num_filt_emb3_1,
+		kernel_size=[kernel_size,kernel_size],
+		strides=4,
+		activation='relu',
+		padding='same',
+		kernel_regularizer= tf.keras.regularizers.l2(l=kernal_reg_amp),
+		bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+		kernel_initializer=initializer
+	)
+        self.conv3_2 = tf.keras.layers.Conv2DTranspose(
+		filters=num_filt_emb3_2,
+		kernel_size=[kernel_size,kernel_size],
+		strides=4,
+		activation='relu',
+		padding='same',
+		kernel_regularizer= tf.keras.regularizers.l2(l=kernal_reg_amp),
+		bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+		kernel_initializer=initializer
+	)
+        self.conv3_3 = tf.keras.layers.Conv2DTranspose(
+		filters=num_filt_emb3_2, 
+		kernel_size=[kernel_size,kernel_size],
+		strides=2,
+		activation='relu',
+		padding='same',
+		kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
+		bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+		kernel_initializer=initializer
+	)
+        self.conv4 = tf.keras.layers.Conv2D(
+		filters=1,
+		kernel_size=[5,5],
+		strides=1,
+		activation='linear',
+		padding='same',
+		kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
+		bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+		kernel_initializer=initializer
+	)
         self.gru1 = Conv_GRU(self.num_gru_features)
         self.gru2 = Conv_GRU(self.num_gru_features)
+
     def call(self, inputs, state, grad):
         stacked_input = tf.concat([inputs , grad], axis=3)
         xt_1E = self.conv1_1(stacked_input)
@@ -91,9 +180,16 @@ class GRU_COMPONENT(tf.keras.Model):
         super(GRU_COMPONENT, self).__init__()
         self.kernel_size = 5
         self.num_gru_features = num_cell_features/2
-        self.conv1 = tf.keras.layers.Conv2D(filters = self.num_gru_features, kernel_size=self.kernel_size, strides=1, activation='relu',padding='same')
+        self.conv1 = tf.keras.layers.Conv2D(
+		filters=self.num_gru_features,
+		kernel_size=self.kernel_size,
+		strides=1,
+		activation='relu',
+		padding='same'
+	)
         self.gru1 = Conv_GRU(self.num_gru_features)
         self.gru2 = Conv_GRU(self.num_gru_features)
+
     def call(self, inputs, state):
         ht_11 , ht_12 = tf.split(state, 2, axis=3)
         gru_1_out,_ = self.gru1( inputs ,ht_11)
@@ -107,7 +203,7 @@ def lrelu4p(x, alpha=0.04):
     return tf.maximum(x, tf.multiply(x, alpha))
 
     
-class RIM_CELL(tf.nn.rnn_cell.RNNCell):
+class RIM_CELL(tf.compat.v1.nn.rnn_cell.RNNCell):
     def __init__(self, batch_size, num_steps ,num_pixels, state_size , input_size=None, activation=tf.tanh):
         self.num_pixels = num_pixels
         self.num_steps = num_steps
@@ -124,7 +220,12 @@ class RIM_CELL(tf.nn.rnn_cell.RNNCell):
 
     def initial_output_state(self):
         self.inputs_1 = tf.zeros(shape=(self.batch_size , self.num_pixels , self.num_pixels , 1),dtype=T)
-        self.state_1 = tf.zeros(shape=(self.batch_size,  self.num_pixels/self.gru_state_pixel_downsampled, self.num_pixels/self.gru_state_pixel_downsampled , self.single_RIM_state_size ),dtype=T)
+        self.state_1 = tf.zeros(shape=(
+				self.batch_size, 
+				self.num_pixels/self.gru_state_pixel_downsampled, 
+				self.num_pixels/self.gru_state_pixel_downsampled, 
+				self.single_RIM_state_size
+				), dtype=T)
 
 
     @property
