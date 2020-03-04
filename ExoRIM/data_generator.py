@@ -1,4 +1,5 @@
 import numpy as np
+from ExoRIM.definitions import
 
 
 class DataGenerator:
