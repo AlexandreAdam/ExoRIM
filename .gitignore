@@ -1,4 +1,11 @@
 .idea/
+build/
+dist/
+ExoRIM.egg-info/
 __pycache__/
 .git/
 .ipynb_checkpoints/
+*.egg-info
+*.egg-info/
+.pytest_cache/
+*.swp

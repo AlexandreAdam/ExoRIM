@@ -24,18 +24,12 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-import copy
 import pickle
-import os
 import sys
 import gzip
 import time 
 from scipy.sparse.linalg import svds
 
-# from core import *
-
-from scipy.io.idl import readsav
 
 class kpi(object):
     ''' Fundamental kernel-phase relations
@@ -51,64 +45,17 @@ class kpi(object):
     # =========================================================================
     # =========================================================================
 
-    def __init__(self, file=None, maskname=None,bsp_mat=None,verbose=False,Ns=3):
-        ''' Default instantiation of a KerPhase_Relation object:
+    def __init__(self, file, bsp_mat='sparse', verbose=False, ns=3):
+        '''
+        :param file: Coordinate of apertures .txt form
+        :param bsp_mat: Bispectrum matrix format
+        :param ns: Number of samples, set < 2 if undersampled data
+        '''
 
-        -------------------------------------------------------------------
-        Default instantiation of this KerPhase_Relation class is achieved
-        by loading a pre-made file, containing all the relevant information
-        -------------------------------------------------------------------'''
-        # try:
-        #     # -------------------------------
-        #     # load the pickled data structure
-        #     # -------------------------------
-        #     # myf = gzip.GzipFile(file, "r")
-        #     # data = pickle.load(myf)
-        #     # myf.close()
+        print('Creating from coordinate file')
+        self.from_coord_file(file, bsp_mat=bsp_mat, verbose=verbose, ns=ns)
 
-        #     # -------------------------------
-        #     # restore the variables for this 
-        #     # session of Ker-phase use!
-        #     # -------------------------------
-
-        #     try:    self.name = data['name']
-        #     except: self.name = "UNKNOWN"
-
-        #     self.uv  = data['uv']
-        #     self.mask   = data['mask']
-        #     self.RED    = data['RED']
-        #     self.KerPhi = data['KerPhi']
-        #     self.TFM    = data['TFM']
-        #     try:
-        #         self.uv_to_bsp = data['uv_to_bsp']
-        #         self.bsp_s = data['bsp_s']
-        #         self.nbsp = self.uv_to_bsp.shape[0]
-                                             
-        #     except:
-        #         print('No bispec')
-        
-        #     self.nbh   = self.mask.shape[0]
-        #     self.nbuv  = self.uv.shape[0]
-        #     self.nkphi = self.KerPhi.shape[0]
-       
-        #     try : self.uvrel = data['uvrel']    
-        #     except: self.uvrel = np.array([])
-        
-        # except: 
-        print("File %s isn't a valid Ker-phase data structure" % (file))
-        # try: 
-        if maskname == None:
-            print('Creating from coordinate file')
-            self.from_coord_file(file,bsp_mat = bsp_mat,verbose=verbose,Ns=Ns)
-            # except:
-            #     print("Failed.")
-            #     return None
-
-
-    # =========================================================================
-    # =========================================================================
-
-    def from_coord_file(self, file, array_name="", Ns=3,verbose=False, bsp_mat='sparse'):
+    def from_coord_file(self, file, array_name="", bsp_mat='sparse', verbose=False, ns=3):
         ''' Creation of the KerPhase_Relation object from a pupil mask file:
 
         ----------------------------------------------------------------
@@ -157,7 +104,7 @@ class kpi(object):
                     k+=1
 
         a = np.unique(np.round(uvx, ndgt)) # distinct u-component of baselines
-        nbx = a.shape[0]    # number of distinct u-components
+        nbx = a.shape[0]                    # number of distinct u-components
         uv_sel = np.zeros((0,2))           # array for "selected" baselines
 
         for i in range(nbx):     # identify distinct v-coords and fill uv_sel
@@ -168,16 +115,16 @@ class kpi(object):
             uv_sel = np.append(uv_sel, np.array([app,c]).T, axis=0)
 
         self.nbuv = int(np.shape(uv_sel)[0]/2) # actual number of distinct uv points
-        self.uv   = uv_sel[:self.nbuv,:]  # discard second half (symmetric)
+        self.uv = uv_sel[:self.nbuv,:]  # discard second half (symmetric)
         print("%d distinct baselines were identified" % (self.nbuv,))
 
         # 1.5. Special case for undersampled data
         # ---------------------------------------
-        if (Ns < 2):
+        if (ns < 2):
             uv_sampl = self.uv.copy()   # copy previously identified baselines
             uvm = np.abs(self.uv).max() # max baseline length
-            keep = (np.abs(uv_sampl[:,0]) < (uvm*Ns/2.)) * \
-                (np.abs(uv_sampl[:,1]) < (uvm*Ns/2.))
+            keep = (np.abs(uv_sampl[:,0]) < (uvm * ns / 2.)) * \
+                   (np.abs(uv_sampl[:,1]) < (uvm * ns / 2.))
             self.uv = uv_sampl[keep]
             self.nbuv = (self.uv.shape)[0]
 
@@ -361,70 +308,70 @@ class kpi(object):
         for ix1 in range(self.nbh):
             
             # Loop over the second pupil sampling point
-            for ix2 in range(ix1+1,self.nbh):
+            for ix2 in range(ix1 + 1, self.nbh):
                 # Rather than a for loop, vectorize it!
-                ix3s=np.arange(ix2+1,self.nbh)
-                n_ix3s=ix3s.size
+                ix3s=np.arange(ix2 + 1, self.nbh)
+                n_ix3s = ix3s.size
                 
                 if (bsp_ix+n_ix3s) > n_guess_bsp:
                     raise IndexError('Number of calculated bispectra exceeds the initial guess for the matrix size!')
                 
                 # Find the baseline indices
-                b1_ix=uvrel[ix1,ix2]
-                b2_ixs=uvrel[ix2,ix3s]
-                b3_ixs=uvrel[ix1,ix3s] # we actually want the negative of this baseline
-                b1_ixs=np.repeat(b1_ix,n_ix3s)
+                b1_ix = uvrel[ix1, ix2]
+                b2_ixs = uvrel[ix2, ix3s]
+                b3_ixs = uvrel[ix1, ix3s]  # we actually want the negative of this baseline
+                b1_ixs = np.repeat(b1_ix, n_ix3s)
                 
                 # What uv points are these?
-                uv1=self.uv[b1_ixs,:]
-                uv2=self.uv[b2_ixs,:]
-                uv3=self.uv[b3_ixs,:]
+                uv1 = self.uv[b1_ixs, :]
+                uv2 = self.uv[b2_ixs, :]
+                uv3 = self.uv[b3_ixs, :]
                     
                 # Are they already in the array? (any permutation of these baselines is the same)
                 # Convert to a single number to find out.
-                bl_ixs=np.array([b1_ixs,b2_ixs,b3_ixs])
-                bl_ixs=np.sort(bl_ixs,axis=0)
-                these_triplet_nums=(10**(2*nbits))*bl_ixs[2,:]+ (10**nbits)*bl_ixs[1,:]+bl_ixs[0,:]
+                bl_ixs = np.array([b1_ixs, b2_ixs, b3_ixs])
+                bl_ixs = np.sort(bl_ixs, axis=0)
+                these_triplet_nums = (10**(2*nbits))*bl_ixs[2, :] + (10**nbits)*bl_ixs[1, :] + bl_ixs[0, :]
                 
                 # Just add them all and remove the duplicates later.
-                already_done[bsp_ix:bsp_ix+n_ix3s]=these_triplet_nums
+                already_done[bsp_ix:bsp_ix+n_ix3s] = these_triplet_nums
                     
                 # add to all the arrays
-                uv_to_bsp_line=np.zeros((n_ix3s,self.nbuv))
-                diag=np.arange(n_ix3s)
-                uv_to_bsp_line[diag,b1_ixs]+=1
-                uv_to_bsp_line[diag,b2_ixs]+=1
-                uv_to_bsp_line[diag,b3_ixs]+=-1
-                uv_to_bsp[bsp_ix:bsp_ix+n_ix3s,:]=uv_to_bsp_line
+                uv_to_bsp_line = np.zeros((n_ix3s, self.nbuv))
+                diag = np.arange(n_ix3s)
+                uv_to_bsp_line[diag, b1_ixs] += 1
+                uv_to_bsp_line[diag, b2_ixs] += 1
+                uv_to_bsp_line[diag, b3_ixs] += -1
+                uv_to_bsp[bsp_ix:bsp_ix + n_ix3s, :] = uv_to_bsp_line
 
-                bsp_u[bsp_ix:bsp_ix+n_ix3s,:]=np.transpose(np.array([uv1[:,0],uv2[:,0],uv3[:,0]]))
-                bsp_v[bsp_ix:bsp_ix+n_ix3s,:]=np.transpose(np.array([uv1[:,1],uv2[:,1],uv3[:,1]]))
-                bsp_ix+=n_ix3s
+                bsp_u[bsp_ix:bsp_ix+n_ix3s, :] = np.transpose(np.array([uv1[:, 0], uv2[:, 0], uv3[:, 0]]))
+                bsp_v[bsp_ix:bsp_ix+n_ix3s, :] = np.transpose(np.array([uv1[:, 1], uv2[:, 1], uv3[:, 1]]))
+                bsp_ix += n_ix3s
                 
             # remove the duplicates every n loops
             if (ix1 % n) == ((self.nbh-1) % n):
                 # the (nbh-1 mod n) ensures we do this on the last iteration as well
-                dummy,unique_ix=np.unique(already_done[0:bsp_ix+n_ix3s],return_index=True)
-                bsp_ix=len(unique_ix)
-                already_done[0:bsp_ix]=already_done[unique_ix]
-                already_done[bsp_ix:]=0
-                uv_to_bsp[0:bsp_ix]=uv_to_bsp[unique_ix]
-                bsp_u[0:bsp_ix]=bsp_u[unique_ix]
-                bsp_v[0:bsp_ix]=bsp_v[unique_ix]
+                dummy, unique_ix = np.unique(already_done[0:bsp_ix + n_ix3s], return_index=True)
+                bsp_ix = len(unique_ix)
+                already_done[0:bsp_ix] = already_done[unique_ix]
+                already_done[bsp_ix:] = 0
+                uv_to_bsp[0:bsp_ix] = uv_to_bsp[unique_ix]
+                bsp_u[0:bsp_ix] = bsp_u[unique_ix]
+                bsp_v[0:bsp_ix] = bsp_v[unique_ix]
                 
                 # Only print(the status every 5*n iterations)
                 if (ix1 % (5*n)) == ((self.nbh-1) % n):
-                    print('Done',ix1,'of',self.nbh,'. ',bsp_ix,' bispectra found. Time taken:',np.round(time.time()-tstart,decimals=1),'sec')
+                    print('Done', ix1, 'of', self.nbh, '. ', bsp_ix, ' bispectra found. Time taken:',np.round(time.time()-tstart,decimals=1),'sec')
             
         print('Done. Total time taken:',np.round((time.time()-tstart)/60.,decimals=1),'mins')
         
         # Remove the excess parts of each array and attach them to the kpi.
-        nbsp=bsp_ix
-        self.already_done=already_done
-        self.nbsp=bsp_ix
-        self.uv_to_bsp=uv_to_bsp[0:bsp_ix]
-        self.bsp_u=bsp_u[0:bsp_ix]
-        self.bsp_v=bsp_v[0:bsp_ix]
+        nbsp = bsp_ix
+        self.already_done = already_done
+        self.nbsp = bsp_ix
+        self.uv_to_bsp = uv_to_bsp[0:bsp_ix]
+        self.bsp_u = bsp_u[0:bsp_ix]
+        self.bsp_v = bsp_v[0:bsp_ix]
         print('Found',nbsp,'bispectra')
         t_start2 = time.time()
 
@@ -445,7 +392,6 @@ class kpi(object):
             sys.stdout.flush()
 
             self.uv_to_bsp_raw = np.copy(uv_to_bsp)
-
             self.uv_to_bsp = u.T
             self.nbsp = rank 
             self.bsp_s = s

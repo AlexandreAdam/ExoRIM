@@ -1,1 +1,1 @@
-from . import defininitions, kpi
+from .pysco.kpi import kpi
