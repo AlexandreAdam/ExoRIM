@@ -213,7 +213,7 @@ class RIM(tf.keras.Model):
 
     def initial_guess(self, batch_size):
         # Initial guess cannot be zeros, it blows up the gradient of the log-likelihood
-        x0 = tf.zeros(shape=(batch_size, self.pixels, self.pixels, self.channels), dtype=self._dtype) + self.noise_std
+        x0 = tf.zeros(shape=(batch_size, self.pixels, self.pixels, self.channels), dtype=self._dtype) + 1e-4
         return x0
 
     def log_likelihood(self, xt, y):
@@ -254,7 +254,7 @@ class MSE(tf.keras.losses.Loss):
         :return:
         """
         x_true_ = tf.reshape(x_true, (x_true.shape + [1]))
-        cost = tf.reduce_mean(tf.square(x_true_ - x_preds), axis=[1, 2, 3])
+        cost = tf.reduce_sum(tf.square(x_true_ - x_preds), axis=[1, 2, 3])
         cost = tf.reduce_sum(cost, axis=1)  # Sum over time steps (this one could be weighted)
         cost = tf.reduce_sum(cost, axis=0)  # Sum over the batch
         return cost
