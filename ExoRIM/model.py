@@ -33,8 +33,7 @@ class ConvGRU(tf.keras.Model):
     def call(self, features, ht):
         """
         Compute the new state tensor.
-        :param features: Convolved features of the image xt
-        :param ht: hidden state
+        :param inputs: List = [features(xt), ht]
         :return:
         """
         stacked_input = tf.concat([features, ht], axis=3)
@@ -43,7 +42,7 @@ class ConvGRU(tf.keras.Model):
         r_state = tf.multiply(r, ht)
         stacked_r_state = tf.concat([features, r_state], axis=3)
         tilde_h = self.candidate_activation_gate(stacked_r_state)
-        new_state = tf.multiply(1 - z, ht) + tf.multiply(z, tilde_h)
+        new_state = tf.multiply(z, ht) + tf.multiply(1 - z, tilde_h)
         return new_state  # h_{t+1}
 
 
@@ -144,12 +143,12 @@ class Model(tf.keras.Model):
 
     def call(self, xt, ht, grad):
         """
-
-        :param xt: Image tensor of shape (batch size, num of pixel, num of pixel, filters=1)
-        :param ht: Hidden state list: [h^0_t, h^1_t, ...]
-                (batch size, downsampled image size, downsampled image size, state_size)
-            The downsampled image size is defined num_cell_features in RIM
-        :param grad: Gradient of the log-likelihood function for y (data) given xt
+        :param inputs: List = [xt, ht, grad]
+            xt: Image tensor of shape (batch size, num of pixel, num of pixel, filters=1)
+            ht: Hidden state list: [h^0_t, h^1_t, ...]
+                    (batch size, downsampled image size, downsampled image size, state_size)
+                The downsampled image size is defined num_cell_features in RIM
+            grad: Gradient of the log-likelihood function for y (data) given xt
         :return: x_{t+1}, h_{t+1}
         """
         stacked_input = tf.concat([xt, grad], axis=3)
@@ -198,14 +197,14 @@ class RIM(tf.keras.Model):
             g.watch(x0)
             likelihood = self.log_likelihood(x0, y)
         grad = g.gradient(likelihood, x0)
-        xt, ht = self.model.call(x0, h0, grad)
+        xt, ht = self.model(x0, h0, grad)
         outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
         for current_step in range(self.steps - 1):
             with tf.GradientTape() as g:
                 g.watch(xt)
                 likelihood = self.log_likelihood(xt, y)
             grad = g.gradient(likelihood, xt)
-            xt, ht = self.model.call(xt, ht, grad)
+            xt, ht = self.model(xt, ht, grad)
             outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
         return outputs
 
@@ -263,7 +262,7 @@ class MSE(tf.keras.losses.Loss):
 
 class PhysicalModel(object):
 
-    def __init__(self, pixels=128, noise_std=0.01):
+    def __init__(self, pixels=32, noise_std=0.1):
         """
         :param pixels: Number of pixel on the side of a square camera
         :param noise_std: Standard deviation of the noise

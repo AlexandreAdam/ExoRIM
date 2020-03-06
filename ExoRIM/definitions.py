@@ -1,5 +1,6 @@
 from tensorflow.python.keras.layers.merge import concatenate
 from astropy.cosmology import Planck15 as cosmo
+from scipy.special import factorial
 import tensorflow as tf
 import ExoRIM.pysco.kpi as kpi
 import numpy as np
@@ -15,6 +16,10 @@ bias_reg_amp = 0.0
 basedir = os.path.abspath("/home/aadam/Desktop/Projects/ExoRIM")
 ################################################
 datadir = os.path.join(basedir, "data")
+lossdir = os.path.join(datadir, "loss")
+modeldir = os.path.join(basedir, "models")
+
+######## For the data generator ###############
 
 
 def lrelu(x, alpha=0.3):
@@ -35,4 +40,11 @@ def xsquared(x):
 
 def lrelu4p(x, alpha=0.04):
     return tf.maximum(x, tf.multiply(x, alpha))
+
+def poisson(k, mu):
+    return np.exp(-mu) * mu ** k / factorial(k)
+
+def k_truncated_poisson(k, mu):
+    probabilities = poisson(k, mu)
+    return probabilities / probabilities.sum()
 
