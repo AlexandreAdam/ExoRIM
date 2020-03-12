@@ -157,6 +157,7 @@ class SimpleGenerator:
     def __init__(
             self,
             total_items=1000,
+            seed=42,
             split=0.8,
             train_batch_size=1,
             test_batch_size=1,
@@ -179,6 +180,7 @@ class SimpleGenerator:
         :param save_ratio: Number between 0 and 1, percentages of individual samples to be saved
         """
         assert channels == 1
+        np.random.seed(seed)
         self.train_batch_size = train_batch_size
         self.test_batch_size = test_batch_size
 

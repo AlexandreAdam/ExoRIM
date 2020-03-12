@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+from tensorflow_addons.layers import InstanceNormalization
 from .definitions import kernal_reg_amp, bias_reg_amp, kernel_size, dtype, initializer
 from .pysco.kpi import kpi
 
@@ -55,11 +56,12 @@ class Model(tf.keras.Model):
         num_filt_emb1_2 = self.num_gru_features
         num_filt_emb3_1 = self.num_gru_features
         num_filt_emb3_2 = self.num_gru_features
+
         self.conv1_1 = tf.keras.layers.Conv2D(
             filters=num_filt_emb1_1,
             kernel_size=[kernel_size, kernel_size],
             strides=2,
-            activation='relu',
+            activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
             bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
@@ -70,7 +72,7 @@ class Model(tf.keras.Model):
             filters=num_filt_emb1_2,
             kernel_size=[kernel_size, kernel_size],
             strides=2,
-            activation='relu',
+            activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
             bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
@@ -81,7 +83,7 @@ class Model(tf.keras.Model):
             filters=num_filt_emb1_2,
             kernel_size=[kernel_size, kernel_size],
             strides=2,
-            activation='relu',
+            activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
             bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
@@ -92,7 +94,7 @@ class Model(tf.keras.Model):
             filters=self.num_gru_features,
             kernel_size=[kernel_size, kernel_size],
             strides=1,
-            activation='relu',
+            activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
             bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
@@ -102,7 +104,7 @@ class Model(tf.keras.Model):
             filters=num_filt_emb3_1,
             kernel_size=[kernel_size, kernel_size],
             strides=2,
-            activation='relu',
+            activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
             bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
@@ -112,7 +114,7 @@ class Model(tf.keras.Model):
             filters=num_filt_emb3_2,
             kernel_size=[kernel_size, kernel_size],
             strides=2,
-            activation='relu',
+            activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
             bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
@@ -122,7 +124,7 @@ class Model(tf.keras.Model):
             filters=num_filt_emb3_2,
             kernel_size=[kernel_size, kernel_size],
             strides=2,
-            activation='relu',
+            activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
             bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
@@ -155,7 +157,7 @@ class Model(tf.keras.Model):
         features = self.conv1_1(stacked_input)
         features = self.conv1_2(features)
         features = self.conv1_3(features)  # shape needs to match ht_11 and ht_12, make sure strides add up
-        ht_1, ht_2 = tf.split(ht, 2, axis=3)  # TODO investigate if stride compression could be replaced by pooling
+        ht_1, ht_2 = tf.split(ht, 2, axis=3)
         ht_1 = self.gru1(features, ht_1)  # to be recombined in new state
         ht_1_features = self.conv2(ht_1)
         ht_2 = self.gru2(ht_1_features, ht_2)
@@ -163,9 +165,9 @@ class Model(tf.keras.Model):
         delta_xt = self.conv3_2(delta_xt)
         delta_xt = self.conv3_3(delta_xt)
         delta_xt = self.conv4(delta_xt)
-        xt += delta_xt
+        xt_1 = xt + delta_xt
         new_state = tf.concat([ht_1, ht_2], axis=3)
-        return xt, new_state
+        return xt_1, new_state
 
 
 class RIM(tf.keras.Model):
@@ -180,6 +182,7 @@ class RIM(tf.keras.Model):
         self.state_size = state_size
         self.state_depth = state_depth
         self.model = Model(state_size=state_size, num_cell_features=num_cell_features, dtype=self._dtype)
+        self.gradient_instance_norm = InstanceNormalization(center=False, scale=False)  # channel must be last dimension of input for this layer
         self.physical_model = PhysicalModel(pixels=pixels)
         self.noise_std = noise_std
 
@@ -196,14 +199,16 @@ class RIM(tf.keras.Model):
         with tf.GradientTape() as g:
             g.watch(x0)
             likelihood = self.log_likelihood(x0, y)
-        grad = g.gradient(likelihood, x0)
+        grad = self.gradient_instance_norm(g.gradient(likelihood, x0), )
+        #grad = g.gradient(likelihood, x0)
         xt, ht = self.model(x0, h0, grad)
         outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
         for current_step in range(self.steps - 1):
             with tf.GradientTape() as g:
                 g.watch(xt)
                 likelihood = self.log_likelihood(xt, y)
-            grad = g.gradient(likelihood, xt)
+            grad = self.gradient_instance_norm(g.gradient(likelihood, xt))
+            #grad = g.gradient(likelihood, xt)
             xt, ht = self.model(xt, ht, grad)
             outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
         return outputs
@@ -227,7 +232,7 @@ class RIM(tf.keras.Model):
         :return: Scalar L
         """
         yhat = self.physical_model.physical_model(xt)
-        return 0.5 * tf.math.reduce_mean(tf.square(y - yhat)) / self.noise_std**2  #* tf.ones_like(xt)
+        return 0.5 * tf.math.reduce_sum(tf.square(y - yhat)) #/ self.noise_std**2  #* tf.ones_like(xt)
 
 
 class MSE(tf.keras.losses.Loss):
@@ -314,18 +319,18 @@ class PhysicalModel(object):
 
     def physical_model(self, image):
         #tfim = tf.constant(image, dtype=dtype)  # TODO Image should be tensor already
-        flat = tf.reshape(image, [-1])  # TODO this flat is incompatible with a batch_size not = 1
-        sin_model = tf.tensordot(flat, self.sin_projector, axes=1)
-        cos_model = tf.tensordot(flat, self.cos_projector, axes=1)
-        visibility_amplitude = tf.square(sin_model) + tf.square(cos_model)
-        phases = tf.math.angle(tf.complex(cos_model, sin_model))
-        closure_phase = tf.tensordot(self.bispectra_projector, phases, axes=1)
-        y = tf.concat([visibility_amplitude, closure_phase], axis=0)
-        y = tf.reshape(y, [1, -1]) # TODO make this compatible with batch size
-        return y
+        # flat = tf.reshape(image, [-1])  # TODO this flat is incompatible with a batch_size not = 1
+        # sin_model = tf.tensordot(flat, self.sin_projector, axes=1)
+        # cos_model = tf.tensordot(flat, self.cos_projector, axes=1)
+        # visibility_squared = tf.square(sin_model) + tf.square(cos_model)
+        # phases = tf.math.angle(tf.complex(cos_model, sin_model))
+        # closure_phase = tf.tensordot(self.bispectra_projector, phases, axes=1)
+        # y = tf.concat([visibility_squared, closure_phase], axis=0)
+        # y = tf.reshape(y, [1, -1]) # TODO make this compatible with batch size
+        return image
 
     def simulate_noisy_image(self, image):
         out = self.physical_model(image)
-        noise = tf.random.normal(stddev=self.noise_std, shape=tf.shape(out), dtype=dtype)
-        out += noise
+        # noise = tf.random.normal(stddev=self.noise_std, shape=tf.shape(out), dtype=dtype)
+        # out += noise # TODO apply properly the noise
         return out

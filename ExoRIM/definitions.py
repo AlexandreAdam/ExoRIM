@@ -9,15 +9,16 @@ import os
 tf.keras.backend.set_floatx('float32')
 dtype = tf.float32  # faster, otherise tf.float64
 kernel_size = 3 # 3 or 1 for small input
-initializer = tf.initializers.RandomNormal(stddev=0.06)  # random_normal_initializer(stddev=0.06)
-kernal_reg_amp = 0.0
-bias_reg_amp = 0.0
+initializer = tf.initializers.GlorotNormal()  # random_normal_initializer(stddev=0.06)
+kernal_reg_amp = 0.01
+bias_reg_amp = 0.01
 ############### edit this line #################
 basedir = os.path.abspath("/home/aadam/Desktop/Projects/ExoRIM")
 ################################################
 datadir = os.path.join(basedir, "data")
 lossdir = os.path.join(datadir, "loss")
 modeldir = os.path.join(basedir, "models")
+image_dir = os.path.join(datadir, "generated_images")
 
 ######## For the data generator ###############
 
