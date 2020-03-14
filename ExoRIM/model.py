@@ -56,11 +56,14 @@ class Model(tf.keras.Model):
         num_filt_emb1_2 = self.num_gru_features
         num_filt_emb3_1 = self.num_gru_features
         num_filt_emb3_2 = self.num_gru_features
+        strides_conv1 = 2 # Make this not as arbitrary, function of pixels
+        strides_conv2 = 2
+        strides_conv3 = 1
 
         self.conv1_1 = tf.keras.layers.Conv2D(
             filters=num_filt_emb1_1,
             kernel_size=[kernel_size, kernel_size],
-            strides=2,
+            strides=strides_conv1,
             activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
@@ -71,7 +74,7 @@ class Model(tf.keras.Model):
         self.conv1_2 = tf.keras.layers.Conv2D(
             filters=num_filt_emb1_2,
             kernel_size=[kernel_size, kernel_size],
-            strides=2,
+            strides=strides_conv2,
             activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
@@ -82,7 +85,7 @@ class Model(tf.keras.Model):
         self.conv1_3 = tf.keras.layers.Conv2D(
             filters=num_filt_emb1_2,
             kernel_size=[kernel_size, kernel_size],
-            strides=2,
+            strides=strides_conv3,
             activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
@@ -103,7 +106,7 @@ class Model(tf.keras.Model):
         self.conv3_1 = tf.keras.layers.Conv2DTranspose(
             filters=num_filt_emb3_1,
             kernel_size=[kernel_size, kernel_size],
-            strides=2,
+            strides=strides_conv1,
             activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
@@ -113,7 +116,7 @@ class Model(tf.keras.Model):
         self.conv3_2 = tf.keras.layers.Conv2DTranspose(
             filters=num_filt_emb3_2,
             kernel_size=[kernel_size, kernel_size],
-            strides=2,
+            strides=strides_conv2,
             activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
@@ -123,7 +126,7 @@ class Model(tf.keras.Model):
         self.conv3_3 = tf.keras.layers.Conv2DTranspose(
             filters=num_filt_emb3_2,
             kernel_size=[kernel_size, kernel_size],
-            strides=2,
+            strides=strides_conv3,
             activation=tf.keras.layers.LeakyReLU(),
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),

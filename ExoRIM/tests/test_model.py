@@ -85,14 +85,14 @@ def test_model_learning_on_trivial_image():
         clipped_grads = [tf.clip_by_value(grads_i, -10, 10) for grads_i in weight_grads]  # normalize weights in [10, 10]
         optimizer.apply_gradients(zip(clipped_grads, rim.trainable_weights))
 
-    plt.figure()
-    plt.title("Test with centered gaussian blob")
-    epoch = np.linspace(0, epochs, len(losses))
-    plt.plot(epoch, losses, "k-", label="Loss")
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.savefig(os.path.join(lossdir, f"Test_loss_{date_time}.png"))
+    # plt.figure()
+    # plt.title("Test with centered gaussian blob")
+    # epoch = np.linspace(0, epochs, len(losses))
+    # plt.plot(epoch, losses, "k-", label="Loss")
+    # plt.xlabel("Epochs")
+    # plt.ylabel("Loss")
+    # plt.legend()
+    # plt.savefig(os.path.join(lossdir, f"Test_loss_{date_time}.png"))
 
     fig = plt.figure(figsize=(10, 10))
     camera = Camera(fig)
