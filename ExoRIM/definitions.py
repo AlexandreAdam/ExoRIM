@@ -17,9 +17,17 @@ basedir = os.path.abspath("/home/aadam/Desktop/Projects/ExoRIM")
 #basedir = os.path.abspath("/home/aadam/ExoRIM")
 ################################################
 datadir = os.path.join(basedir, "data")
+if not os.path.isidr(datadir):
+    os.mkdir(datadir)
 lossdir = os.path.join(datadir, "loss")
+if not os.path.isidr(lossdir):
+    os.mkdir(lossdir)
 modeldir = os.path.join(basedir, "models")
+if not os.path.isidr(modeldir):
+    os.mkdir(modeldir)
 image_dir = os.path.join(datadir, "generated_images")
+if not os.path.isidr(image_dir):
+    os.mkdir(image_dir)
 
 ######## For the data generator ###############
 
