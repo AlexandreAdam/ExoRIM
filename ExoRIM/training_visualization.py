@@ -103,9 +103,9 @@ class TrainViz(TrainMaster):
 
     def save_movies(self, title: str):
         # ffmpeg -i input.mov -r 0.25 output_%04d.png -- terminal command to unpack movie into jpg
-        for i, camera in enumerate(self.cams["train"]):
+        for i, camera in enumerate(self.cams["train"].values()):
             camera.animate().save(os.path.join(self.image_dir, f"{title}_train{i+1}.mp4"), writer="ffmpeg")
-        for i, camera in enumerate(self.cams["test"]):
+        for i, camera in enumerate(self.cams["test"].values()):
             camera.animate().save(os.path.join(self.image_dir, f"{title}_test{i+1}.mp4"), writer="ffmpeg")
 
     def loss_curve(self):
