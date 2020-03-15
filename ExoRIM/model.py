@@ -1,6 +1,5 @@
 import tensorflow as tf
 import numpy as np
-#from tensorflow_addons.layers import InstanceNormalization
 from .definitions import kernal_reg_amp, bias_reg_amp, kernel_size, dtype, initializer
 from .pysco.kpi import kpi
 
@@ -185,9 +184,10 @@ class RIM(tf.keras.Model):
         self.state_size = state_size
         self.state_depth = state_depth
         self.model = Model(state_size=state_size, num_cell_features=num_cell_features, dtype=self._dtype)
-#        self.gradient_instance_norm = InstanceNormalization(center=False, scale=False)  # channel must be last dimension of input for this layer
+        self.gradient_instance_norm = tf.keras.layers.BatchNormalization(axis=1)  # channel must be last dimension of input for this layer
         self.physical_model = PhysicalModel(pixels=pixels)
         self.noise_std = noise_std
+        self.trainable = True
 
     def call(self, y):
         """
@@ -202,16 +202,16 @@ class RIM(tf.keras.Model):
         with tf.GradientTape() as g:
             g.watch(x0)
             likelihood = self.log_likelihood(x0, y)
-#        grad = self.gradient_instance_norm(g.gradient(likelihood, x0), )
-        grad = g.gradient(likelihood, x0)
+        grad = self.gradient_instance_norm(g.gradient(likelihood, x0), )
+        #grad = g.gradient(likelihood, x0)
         xt, ht = self.model(x0, h0, grad)
         outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
         for current_step in range(self.steps - 1):
             with tf.GradientTape() as g:
                 g.watch(xt)
                 likelihood = self.log_likelihood(xt, y)
-            #grad = self.gradient_instance_norm(g.gradient(likelihood, xt))
-            grad = g.gradient(likelihood, xt)
+            grad = self.gradient_instance_norm(g.gradient(likelihood, xt))
+            #grad = g.gradient(likelihood, xt)
             xt, ht = self.model(xt, ht, grad)
             outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
         return outputs
