@@ -64,8 +64,8 @@ class TrainMaster:
         :return: Index list of image to be saved in an epoch
         """
         np.random.seed(42)
-        possible_train_index = np.arange(0, int(total_images * split))
-        possible_test_index = np.arange(0, int(total_images * (1 - split)))
+        possible_train_index = np.arange(1, int(total_images * split))
+        possible_test_index = np.arange(1, int(total_images * (1 - split)))
         train_to_save = round(total_images * split * save_percent)
         test_to_save = round(total_images * (1 - split) * save_percent)
         train_traces = np.random.choice(possible_train_index, size=train_to_save, replace=False)

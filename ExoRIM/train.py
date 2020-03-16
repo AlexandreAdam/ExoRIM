@@ -15,8 +15,9 @@ class Training(TrainViz, TrainMaster):
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
             loss=MSE(),
             model_name="RIM",
-            epochs=1,
+            epochs=2,
             total_images=100,
+            save_percent=0.01,
             split=0.8,
             steps=12,  # number of steps for the reconstruction
             pixels=32,
@@ -36,6 +37,7 @@ class Training(TrainViz, TrainMaster):
             model_name=model_name,
             epochs=epochs,
             total_images=total_images,
+            save_percent=save_percent,
             split=split,
             steps=steps,  # number of steps for the reconstruction
             pixels=pixels,
@@ -78,7 +80,7 @@ class Training(TrainViz, TrainMaster):
             output, train_trace_loss = self._train_batch(image, train_loss_trace)
             if self.generator.train_index in self.train_traces:
                 self.train_losses.append(np.mean(train_trace_loss))
-                self.snap(output, image, state="train")
+                self.snap(output, image, epoch, state="train")
                 if verbose > 0:
                     print(f"epoch {epoch + 1}: training loss = {np.mean(train_trace_loss)}")
                 train_loss_trace = []  # reset the trace
@@ -104,3 +106,4 @@ if __name__ == "__main__":
     train = Training()
     train.train_weights()
     train.save_movies("RIM")
+    train.loss_curve()

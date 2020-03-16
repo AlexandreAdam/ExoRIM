@@ -50,7 +50,7 @@ class TrainViz(TrainMaster):
         test_images = np.random.choice(test_pool, test_num, replace=False)
         return train_images, test_images
 
-    def snap(self, output, true_image, state: str):
+    def snap(self, output, true_image, epoch, state: str):
         """
         Place the output in the correct axe and the correct figure
         :param output: Output tensor of the model, of shape (batch_size, pixels, pixels, channels, steps)
@@ -64,13 +64,11 @@ class TrainViz(TrainMaster):
             gs = self.gs_train
             images = self._train_images
             losses = self.train_losses
-            h = 1/len(self.train_traces)  # percent of an epoch when loss is saved
         else:
             gs = self.gs_test
             fig = self.generator.test_index
             images = self._test_images
             losses = self.test_losses
-            h = 1 / len(self.test_traces)  # percent of an epoch when loss is saved
         loss_ax = self.movie_figs[state][fig].add_subplot(gs[-1, :])
         cbar_ax = self.movie_figs[state][fig].add_subplot(gs[:-1, -1])
         self.movie_figs[state][fig].colorbar(
@@ -79,7 +77,7 @@ class TrainViz(TrainMaster):
         )
         loss_ax.set_xlabel("Epochs")
         loss_ax.set_ylabel("Loss")
-        loss_x_axis = np.arange(0, len(losses)*h, h) + h
+        loss_x_axis = np.linspace(0, epoch * self.generator.total_items/fig, num=len(losses))
         loss_ax.plot(loss_x_axis, losses, "k-")
 
         for row, image in enumerate(images):
