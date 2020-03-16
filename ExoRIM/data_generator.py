@@ -185,6 +185,7 @@ class SimpleGenerator:
         self.test_batch_size = test_batch_size
 
         # Number of batches in an epoch
+        self.split = split
         self.train_batches_in_epoch = total_items * split // train_batch_size
         self.test_batches_in_epoch = total_items * (1 - split) // test_batch_size
         self.train_index = 0 # index to keep track of progress in an epoch

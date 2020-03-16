@@ -202,7 +202,7 @@ class RIM(tf.keras.Model):
         with tf.GradientTape() as g:
             g.watch(x0)
             likelihood = self.log_likelihood(x0, y)
-        grad = self.gradient_instance_norm(g.gradient(likelihood, x0), )
+        grad = self.gradient_instance_norm(g.gradient(likelihood, x0))
         #grad = g.gradient(likelihood, x0)
         xt, ht = self.model(x0, h0, grad)
         outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack

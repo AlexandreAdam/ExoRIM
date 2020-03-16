@@ -5,6 +5,9 @@ import numpy as np
 from ExoRIM.definitions import lossdir, image_dir
 from ExoRIM._train_master import TrainMaster
 from celluloid import Camera
+import warnings
+import matplotlib.cbook
+warnings.filterwarnings("ignore",category=matplotlib.cbook.mplDeprecation)
 plt.rcParams["figure.figsize"] = (10, 10)
 
 
@@ -64,11 +67,13 @@ class TrainViz(TrainMaster):
             gs = self.gs_train
             images = self._train_images
             losses = self.train_losses
+            loss_stop = epoch * self.generator.train_batches_in_epoch/fig
         else:
             gs = self.gs_test
             fig = self.generator.test_index
             images = self._test_images
             losses = self.test_losses
+            loss_stop = epoch * self.generator.test_batches_in_epoch / fig
         loss_ax = self.movie_figs[state][fig].add_subplot(gs[-1, :])
         cbar_ax = self.movie_figs[state][fig].add_subplot(gs[:-1, -1])
         self.movie_figs[state][fig].colorbar(
@@ -76,8 +81,8 @@ class TrainViz(TrainMaster):
             cax=cbar_ax
         )
         loss_ax.set_xlabel("Epochs")
-        loss_ax.set_ylabel("Loss")
-        loss_x_axis = np.linspace(0, epoch * self.generator.total_items/fig, num=len(losses))
+        loss_ax.set_ylabel("Average Loss (over all samples)")
+        loss_x_axis = np.linspace(0, loss_stop, num=len(losses))
         loss_ax.plot(loss_x_axis, losses, "k-")
 
         for row, image in enumerate(images):
