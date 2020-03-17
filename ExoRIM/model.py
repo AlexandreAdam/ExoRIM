@@ -270,7 +270,7 @@ class MSE(tf.keras.losses.Loss):
 
 class PhysicalModel(object):
 
-    def __init__(self, pixels=32, noise_std=0.1):
+    def __init__(self, pixels, noise_std):
         """
         :param pixels: Number of pixel on the side of a square camera
         :param noise_std: Standard deviation of the noise
@@ -316,26 +316,30 @@ class PhysicalModel(object):
         self.data_tensor = tf.concat([self.vis2s_tensor, self.cp_tensor], 0)
 
         # create tensor to hold your uncertainties
-        self.vis2s_err_tensor = tf.constant(np.ones_like(vis2s), dtype=dtype)  # actually figure out what to do with these
+        tf.random.normal(stddev=self.noise_std, shape=tf.shape(vis2s), dtype=dtype)
+        #self.vis2s_err_tensor = tf.constant(np.ones_like(vis2s), dtype=dtype)
+        self.vis2s_error = tf.random.normal(stddev=self.noise_std, shape=tf.shape(vis2s), dtype=dtype)
         self.cp_err_tensor = tf.constant(np.ones_like(closure_phases), dtype=dtype)
-        self.error_tensor = tf.concat([self.vis2s_err_tensor, self.cp_err_tensor], 0)
+        self.error_tensor = tf.concat([self.vis2s_err_tensor, self.cp_err_tensor], axis=0)
 
     def physical_model(self, image):
-        #tfim = tf.constant(image, dtype=dtype)  # TODO Image should be tensor already
-        # flat = tf.reshape(image, [-1])  # TODO this flat is incompatible with a batch_size not = 1
-        # sin_model = tf.tensordot(flat, self.sin_projector, axes=1)
-        # cos_model = tf.tensordot(flat, self.cos_projector, axes=1)
-        # visibility_squared = tf.square(sin_model) + tf.square(cos_model)
-        # phases = tf.math.angle(tf.complex(cos_model, sin_model))
-        # closure_phase = tf.tensordot(self.bispectra_projector, phases, axes=1)
-        # y = tf.concat([visibility_squared, closure_phase], axis=0)
-        # y = tf.reshape(y, [1, -1]) # TODO make this compatible with batch size
-        return image
+        if not tf.is_tensor(image):
+            tfim = tf.constant(image, dtype=dtype)
+        else:
+            tfim = image
+        flat = tf.keras.layers.Flatten(tfim, data_format="channels_last")
+        sin_model = tf.tensordot(flat, self.sin_projector, axes=1)
+        cos_model = tf.tensordot(flat, self.cos_projector, axes=1)
+        visibility_squared = tf.square(sin_model) + tf.square(cos_model)
+        #phases = tf.math.angle(tf.complex(cos_model, sin_model))
+        #closure_phase = tf.tensordot(self.bispectra_projector, phases, axes=1)
+        #y = tf.concat([visibility_squared, closure_phase], axis=0)
+        y = visibility_squared
+        return y
 
     def simulate_noisy_image(self, image):
         out = self.physical_model(image)
-        noise = tf.random.normal(stddev=self.noise_std, shape=tf.shape(out), dtype=dtype)
-        out += noise # TODO apply properly the noise
-        out =  (out - tf.math.reduce_min(out)) / (tf.math.reduce_max(out) - tf.math.reduce_min(out)) # normalize
+        out += self.vis2s_error
+        out = (out - tf.math.reduce_min(out)) / (tf.math.reduce_max(out) - tf.math.reduce_min(out)) # normalize
         return out
     
