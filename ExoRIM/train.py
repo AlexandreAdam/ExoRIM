@@ -15,7 +15,7 @@ class Training(TrainViz, TrainMaster):
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
             loss=MSE(),
             model_name="RIM",
-            epochs=2,
+            epochs=5,
             images_saved=10,
             steps=12,  # number of steps for the reconstruction
             pixels=32,
@@ -76,7 +76,7 @@ class Training(TrainViz, TrainMaster):
             output, train_trace_loss = self._train_batch(image, train_loss_trace)
             if self.generator.train_index in self.train_traces:
                 self.train_losses.append(np.mean(train_trace_loss)/self.generator.train_batch_size)
-                self.snap(output, image, epoch, state="train")
+                self.snap(output, image, state="train")
                 if verbose > 0:
                     print(f"epoch {epoch + 1}: training loss = {np.mean(train_trace_loss)/self.generator.train_batch_size}")
                 train_loss_trace = []  # reset the trace
@@ -85,7 +85,7 @@ class Training(TrainViz, TrainMaster):
             output, test_loss_trace = self._test_batch(image, test_loss_trace)
             if self.generator.test_index in self.test_traces:
                 self.test_losses.append(np.mean(test_loss_trace)/self.generator.test_batch_size)  # we plot the mean of the loss
-                self.snap(output, image, epoch, state="test")
+                self.snap(output, image, state="test")
                 if verbose > 0:
                     print(f"epoch {epoch + 1}: test loss = {np.mean(test_loss_trace)/self.generator.test_batch_size}")
                 test_loss_trace = []  # reset the trace

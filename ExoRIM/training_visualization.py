@@ -2,16 +2,21 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import os
 import numpy as np
+from operator import add
+from functools import reduce
 from ExoRIM.definitions import lossdir, image_dir
 from ExoRIM._train_master import TrainMaster
 from celluloid import Camera
 import warnings
 import matplotlib.cbook
-warnings.filterwarnings("ignore",category=matplotlib.cbook.mplDeprecation)
+warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
 plt.rcParams["figure.figsize"] = (10, 10)
 
 
 class TrainViz(TrainMaster):
+    """
+    Tools to plot loss curve and movie of the reconstruction through the training of the model.
+    """
     def __init__(self, step_trace: list, number_of_images=1, **kwargs):
         super(TrainViz, self).__init__(**kwargs)
         self.image_dir = os.path.join(image_dir, f"{self.model_name}_{self.init_time}")
@@ -34,6 +39,16 @@ class TrainViz(TrainMaster):
         self.gs_train = gridspec.GridSpec(len(self._train_images) + 1, len(step_trace) + 2,  width_ratios=widths)
         self.gs_test = gridspec.GridSpec(len(self._test_images) + 1, len(step_trace) + 2,  width_ratios=widths)
         self.step_trace = step_trace
+        self.loss_x_axis = self._loss_x_axis()
+
+    def _loss_x_axis(self):
+        # compute the percentage of an epoch that each trace represent, in term of number of batches
+        traces = np.array([batch/self.generator.train_batches_in_epoch for batch in np.sort(self.train_traces)])
+        # broadcast the percentages to each epochs, then flatten array
+        train_x_axis = reduce(add, [(epoch + traces).tolist() for epoch in range(0, self.epochs)])
+        traces = np.array([batch/self.generator.test_batches_in_epoch for batch in np.sort(self.test_traces)])
+        test_x_axis = reduce(add, [(epoch + traces).tolist() for epoch in range(0, self.epochs)])
+        return {"train": train_x_axis, "test": test_x_axis}
 
     def _image_in_batch(self, number_of_images):
         """
@@ -53,7 +68,7 @@ class TrainViz(TrainMaster):
         test_images = np.random.choice(test_pool, test_num, replace=False)
         return train_images, test_images
 
-    def snap(self, output, true_image, epoch, state: str):
+    def snap(self, output, true_image, state: str):
         """
         Place the output in the correct axe and the correct figure
         :param output: Output tensor of the model, of shape (batch_size, pixels, pixels, channels, steps)
@@ -67,13 +82,11 @@ class TrainViz(TrainMaster):
             gs = self.gs_train
             images = self._train_images
             losses = self.train_losses
-            loss_stop = epoch * self.generator.train_batches_in_epoch/fig
         else:
             gs = self.gs_test
             fig = self.generator.test_index
             images = self._test_images
             losses = self.test_losses
-            loss_stop = epoch * self.generator.test_batches_in_epoch / fig
         loss_ax = self.movie_figs[state][fig].add_subplot(gs[-1, :])
         cbar_ax = self.movie_figs[state][fig].add_subplot(gs[:-1, -1])
         self.movie_figs[state][fig].colorbar(
@@ -82,8 +95,8 @@ class TrainViz(TrainMaster):
         )
         loss_ax.set_xlabel("Epochs")
         loss_ax.set_ylabel("Average Loss (over all samples)")
-        loss_x_axis = np.linspace(0, loss_stop, num=len(losses))
-        loss_ax.plot(loss_x_axis, losses, "k-")
+
+        loss_ax.plot(self.loss_x_axis[state][:len(losses)], losses, "k-")
 
         for row, image in enumerate(images):
             # plot the ground truth to the right
@@ -113,10 +126,8 @@ class TrainViz(TrainMaster):
 
     def loss_curve(self):
         plt.figure()
-        trains = np.linspace(0, self.epochs, len(self.train_losses))
-        test = np.linspace(0, self.epochs, len(self.test_losses))
-        plt.plot(trains, self.train_losses, "k-", label="Training loss")
-        plt.plot(test, self.test_losses, "r-", label="Test loss")
+        plt.plot(self.loss_x_axis["train"], self.train_losses, "k-", label="Training loss")
+        plt.plot(self.loss_x_axis["test"], self.test_losses, "r-", label="Test loss")
         plt.xlabel("Epochs")
         plt.ylabel("Loss")
         plt.legend()
