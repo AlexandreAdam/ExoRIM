@@ -185,7 +185,7 @@ class RIM(tf.keras.Model):
         self.state_depth = state_depth
         self.model = Model(state_size=state_size, num_cell_features=num_cell_features, dtype=self._dtype)
         self.gradient_instance_norm = tf.keras.layers.BatchNormalization(axis=1)  # channel must be last dimension of input for this layer
-        self.physical_model = PhysicalModel(pixels=pixels)
+        self.physical_model = PhysicalModel(pixels=pixels, noise_std=noise_std)
         self.noise_std = noise_std
         self.trainable = True
 
@@ -316,18 +316,17 @@ class PhysicalModel(object):
         self.data_tensor = tf.concat([self.vis2s_tensor, self.cp_tensor], 0)
 
         # create tensor to hold your uncertainties
-        tf.random.normal(stddev=self.noise_std, shape=tf.shape(vis2s), dtype=dtype)
         #self.vis2s_err_tensor = tf.constant(np.ones_like(vis2s), dtype=dtype)
         self.vis2s_error = tf.random.normal(stddev=self.noise_std, shape=tf.shape(vis2s), dtype=dtype)
         self.cp_err_tensor = tf.constant(np.ones_like(closure_phases), dtype=dtype)
-        self.error_tensor = tf.concat([self.vis2s_err_tensor, self.cp_err_tensor], axis=0)
+        #self.error_tensor = tf.concat([self.vis2s_err_tensor, self.cp_err_tensor], axis=0)
 
     def physical_model(self, image):
         if not tf.is_tensor(image):
             tfim = tf.constant(image, dtype=dtype)
         else:
             tfim = image
-        flat = tf.keras.layers.Flatten(tfim, data_format="channels_last")
+        flat = tf.keras.layers.Flatten(data_format="channels_last")(tfim)
         sin_model = tf.tensordot(flat, self.sin_projector, axes=1)
         cos_model = tf.tensordot(flat, self.cos_projector, axes=1)
         visibility_squared = tf.square(sin_model) + tf.square(cos_model)
