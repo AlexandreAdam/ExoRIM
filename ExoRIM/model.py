@@ -337,6 +337,7 @@ class PhysicalModel(object):
         return y
 
     def simulate_noisy_image(self, image):
+        # apply noise to image before passing in physical model
         out = self.physical_model(image)
         out += self.vis2s_error
         out = (out - tf.math.reduce_min(out)) / (tf.math.reduce_max(out) - tf.math.reduce_min(out)) # normalize

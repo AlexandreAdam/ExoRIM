@@ -5,6 +5,7 @@ import tensorflow as tf
 class CenteredDataset:
     def __init__(
             self,
+            physical_model,
             total_items=1000,
             seed=42,
             split=0.8,
@@ -34,9 +35,15 @@ class CenteredDataset:
         self.widths = self._widths()
         split = int(self.train_batch_size * self.train_batches_in_epoch)
         images = self.generate_epoch_images()
-        self.train_set = tf.data.Dataset.from_tensor_slices(images[0:split, :, :, :])
-        self.train_set = self.train_set.batch(train_batch_size)
-        self.test_set = tf.data.Dataset.from_tensor_slices(images[split:, :, :, :])
+
+        # divide the dataset into true/noisy and train/test sets
+        self.true_train_set = tf.data.Dataset.from_tensor_slices(images[0:split, :, :, :])
+        self.true_train_set = self.true_train_set.batch(train_batch_size)
+        self.noisy_train_set = tf.data.Dataset.from_tensor_slices(physical_model.simulate_noisy_image(images[0:split, :, :, :]))
+        self.noisy_train_set = self.noisy_train_set.batch(train_batch_size)
+        self.true_test_set = tf.data.Dataset.from_tensor_slices(images[split:, :, :, :])
+        self.noisy_test_set = tf.data.Dataset.from_tensor_slices(physical_model.simulate_noisy_image(images[split:, :, :, :]))
+
 
     def gaussian_psf_convolution(self, sigma, xp=0, yp=0):
         """
@@ -75,9 +82,3 @@ class CenteredDataset:
         width = np.random.uniform(3, self.pixels / 8, size=self.total_items)  # max width is arbitrary
         return width
 
-    dataset = CenteredDataset(
-            total_items=10,
-            seed=42,
-            split=0.8,
-            train_batch_size=2,
-            pixels=32)
