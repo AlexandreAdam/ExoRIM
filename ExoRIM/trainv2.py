@@ -1,47 +1,13 @@
+from ExoRIM.dataset import CenteredDataset
 from ExoRIM.model import RIM, MSE
 from ExoRIM.definitions import modeldir, dtype
-from ExoRIM.data_generator import SimpleGenerator
-from ExoRIM.training_visualization import TrainViz
-from ExoRIM._train_master import TrainMaster
+#from ExoRIM.training_visualization import TrainViz
+#from ExoRIM._train_master import TrainMaster
 import tensorflow as tf
 import numpy as np
 import os
 
 
-class Training(TrainViz, TrainMaster):
-    def __init__(
-            self,
-            generator=SimpleGenerator(total_items=1000, split=0.8, train_batch_size=50, test_batch_size=20),
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
-            loss=MSE(),
-            model_name="RIM",
-            epochs=5,
-            images_saved=10,
-            steps=12,  # number of steps for the reconstruction
-            pixels=32,
-            state_size=8,  # hidden state 2D size
-            state_depth=2,  # Channel dimension of hidden state
-            noise_std=1e-9, # This is relative to the smallest complex visibility
-            num_cell_features=2,
-            step_trace=[3, 8, 11], # starting from 0
-            number_of_images=1
-    ):
-        super(Training, self).__init__(
-            step_trace=step_trace,
-            number_of_images=number_of_images,
-            generator=generator,
-            optimizer=optimizer,
-            loss=loss,
-            model_name=model_name,
-            epochs=epochs,
-            images_saved=images_saved,
-            steps=steps,  # number of steps for the reconstruction
-            pixels=pixels,
-            state_size=state_size,  # hidden state 2D size -- might be better if not param
-            state_depth=state_depth,  # Channel dimension of hidden state
-            noise_std=noise_std,
-            num_cell_features=num_cell_features,
-        )
 
     def _train_batch(self, image, loss_trace):
 
@@ -54,7 +20,7 @@ class Training(TrainViz, TrainMaster):
             loss_trace.append(cost_value)
         weight_grads = tape.gradient(cost_value, self.rim.trainable_weights)
         # prevent exploding gradient
-        clipped_grads = [tf.clip_by_value(grads_i, -10, 10) for grads_i in weight_grads]
+        clipped_grads = tf.clip_by_global_norm(weight_grads, 10)  # [tf.clip_by_value(grads_i, -10, 10) for grads_i in weight_grads]
         #self.weight_grads.append(clipped_grads)
         self.optimizer.apply_gradients(zip(clipped_grads, self.rim.trainable_weights))
         return output, loss_trace

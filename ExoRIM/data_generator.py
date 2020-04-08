@@ -1,8 +1,7 @@
 import numpy as np
-import astropy.units as u
-from ExoRIM.definitions import datadir, k_truncated_poisson
-from ExoRIM.model import PhysicalModel
-import os
+from ExoRIM.definitions import k_truncated_poisson, dtype
+import tensorflow as tf
+
 
 # Eventually, we could use to tagg information and produce more complicated cases
 # TODO add tagged information to images to keep trace of contrast, separation, orientation
@@ -143,7 +142,7 @@ class DataGenerator:
 
 # This generator is a simpler version of the previous one, to be used for testing the pipeline
 # It produces a random number of gaussian blobs to be reconstructed by the model
-class SimpleGenerator:
+class SimpleDataset:
     """ #TODO relate width of the PSF to intensity -- otherwise unphysical
     # TODO possibly makes this work for multiple channels?
      Generate blurred images of point sources from a chosen psf. The idea of this generator is to produce, ideally,
@@ -237,7 +236,7 @@ class SimpleGenerator:
             width = self._widths(nps=xp.size)
             # Make this work with multiple channels
             images[i, :, :, 0] += self.gaussian_psf_convolution(xp=xp, yp=yp, intensities=intensities, sigma=width)
-        return images
+        return tf.convert_to_tensor(images, dtype=dtype)
 
     def _nps(self, p="poisson", mu=2):
         """
@@ -299,10 +298,10 @@ class SimpleGenerator:
         self.train_index = 0  # reset after epoch
 
     def test_batch(self):
+        split = int(self.train_batch_size * self.train_batches_in_epoch)
+        li = split + self.test_index * self.test_batch_size
+        ui = li + self.test_batch_size
         while self.test_index <= self.test_batch_size:
-            split = int(self.train_batch_size * self.train_batches_in_epoch)
-            li = split + self.test_index * self.test_batch_size
-            ui = li + self.test_batch_size
             yield self.images[li:ui, :, :, :]
             self.test_index += 1
         self.test_index = 0

@@ -282,7 +282,7 @@ class PhysicalModel(object):
             bs = kpi(file='coords.txt', bsp_mat='sparse')
             print('Loaded coords.txt')
         except:
-            coords = np.random.randn(6, 2)
+            coords = np.random.randn(6, 2) # TODO
             #plt.plot(coords[:, 0], coords[:, 1], '.')
             np.savetxt('coords.txt', coords)
             print('Generated random array and saved to coords.txt')
