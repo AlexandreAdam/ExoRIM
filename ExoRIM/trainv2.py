@@ -133,7 +133,7 @@ class Training:
                 ax.set_title(f"Step {step}")
             # Smile!
             self.cam.snap()
-            self.cam.animate().save(os.path.join(image_dir, f"{title}_train_{self.init_time}.mp4"), writer="ffmpeg")
+        self.cam.animate().save(os.path.join(image_dir, f"{title}_train_{self.init_time}.mp4"), writer="ffmpeg")
 
 if __name__ == "__main__":
     coords = np.random.randn(10, 2)
