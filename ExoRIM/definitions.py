@@ -13,8 +13,8 @@ initializer = tf.initializers.GlorotNormal()  # random_normal_initializer(stddev
 kernal_reg_amp = 0.01
 bias_reg_amp = 0.01
 ############### edit this line #################
-basedir = os.path.abspath("/home/aadam/Desktop/Projects/ExoRIM")
-#basedir = os.path.abspath("/home/aadam/ExoRIM")
+#basedir = os.path.abspath("/home/aadam/Desktop/Projects/ExoRIM")
+basedir = os.path.abspath("/home/aadam/scratch/ExoRIM")
 ################################################
 datadir = os.path.join(basedir, "data")
 if not os.path.isdir(datadir):

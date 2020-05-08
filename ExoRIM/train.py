@@ -15,8 +15,8 @@ class Training(TrainViz, TrainMaster):
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
             loss=MSE(),
             model_name="RIM",
-            epochs=5,
             images_saved=10,
+            epochs=500,
             steps=12,  # number of steps for the reconstruction
             pixels=32,
             state_size=8,  # hidden state 2D size
@@ -101,5 +101,5 @@ class Training(TrainViz, TrainMaster):
 if __name__ == "__main__":
     train = Training()
     train.train_weights()
-    train.save_movies("RIM")
     train.loss_curve()
+    train.save_movies("RIM_with_BN")

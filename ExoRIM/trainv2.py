@@ -21,10 +21,10 @@ class Training:
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
             loss=MSE(),
             model_name="RIM",
-            epochs=5,
-            total_items=10,
+            epochs=500,
+            total_items=1000,
             split=0.8,
-            batch_size=2,
+            batch_size=20,
             checkpoints=None,
             images_saved=10,
             steps=12,  # number of steps for the reconstruction
@@ -136,7 +136,7 @@ class Training:
         self.cam.animate().save(os.path.join(image_dir, f"{title}_train_{self.init_time}.mp4"), writer="ffmpeg")
 
 if __name__ == "__main__":
-    coords = np.random.randn(10, 2)
+    coords = np.random.randn(20, 2)
     np.savetxt("coords.txt", coords)
     train = Training()
     train.train_weights()
