@@ -193,7 +193,7 @@ class RIM(tf.keras.Model):
         """
 
         :param y: Vector of complex visibilities amplitude and closure phases
-        :return: 4D Tensor of shape (batch_size, [image_size], steps)
+        :return: 5D Tensor of shape (batch_size, [image_size, channels], steps)
         """
         batch_size = y.shape[0]
         x0 = self.initial_guess(batch_size)
@@ -235,7 +235,7 @@ class RIM(tf.keras.Model):
         :return: Scalar L
         """
         yhat = self.physical_model.physical_model(xt)
-        return 0.5 * tf.math.reduce_sum(tf.square(y - yhat)) / self.noise_std**2  #* tf.ones_like(xt)
+        return 0.5 * tf.math.reduce_sum(tf.square(y - yhat)) / self.noise_std**2
 
 
 class MSE(tf.keras.losses.Loss):
