@@ -23,12 +23,12 @@ class Training:
             learning_rate=1e-4,
             loss=MSE(),
             model_name="RIM",
-            epochs=10,
-            total_items=10,
+            epochs=500,
+            total_items=1000,
             split=0.8,
             batch_size=2,
             checkpoints=None,
-            images_saved=1,
+            images_saved=10,
             steps=12,  # number of steps for the reconstruction
             pixels=32,
             state_size=8,  # hidden state 2D size
@@ -174,7 +174,7 @@ class Training:
 
 
 if __name__ == "__main__":
-    coords = np.random.randn(5, 2)
+    coords = np.random.randn(20, 2)
     np.savetxt("coords.txt", coords)
     train = Training()
     train.train_weights()
