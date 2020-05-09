@@ -20,20 +20,21 @@ plt.rcParams["figure.figsize"] = (10, 10)
 class Training:
     def __init__(
             self,
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
+            learning_rate=1e-4,
             loss=MSE(),
             model_name="RIM",
-            epochs=500,
-            total_items=1000,
+            epochs=10,
+            total_items=10,
             split=0.8,
-            batch_size=20,
+            batch_size=2,
             checkpoints=None,
             images_saved=1,
             steps=12,  # number of steps for the reconstruction
             pixels=32,
             state_size=8,  # hidden state 2D size
             state_depth=2,  # Channel dimension of hidden state
-            noise_std=0.0001, # This is relative to the smallest complex visibility
+            visibility_noise=1e-4, # This is relative to the smallest complex visibility
+            cp_noise=1e-5,
             num_cell_features=2,
             step_trace=[3, 8, 11]  # index of step
     ):
@@ -44,7 +45,8 @@ class Training:
             "pixels": pixels,
             "state_size": state_size,
             "state_depth": state_depth,
-            "noise_std": noise_std,
+            "visibility_noise": visibility_noise,
+            "cp_noise": cp_noise,
             "num_cell_features": num_cell_features
         }
         self.rim = RIM(**self.model_args)
@@ -59,7 +61,7 @@ class Training:
             pixels=pixels
         )
         self.loss = loss
-        self.optimizer = optimizer
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
         # utilities for plotting
         self.step_trace = step_trace
@@ -172,7 +174,7 @@ class Training:
 
 
 if __name__ == "__main__":
-    coords = np.random.randn(20, 2)
+    coords = np.random.randn(5, 2)
     np.savetxt("coords.txt", coords)
     train = Training()
     train.train_weights()

@@ -173,7 +173,7 @@ class Model(tf.keras.Model):
 
 
 class RIM(tf.keras.Model):
-    def __init__(self, steps, pixels, noise_std, state_size,
+    def __init__(self, steps, pixels, visibility_noise, cp_noise,  state_size,
                  state_depth, num_cell_features, channels=1, dtype=dtype):
         super(RIM, self).__init__(dtype=dtype)
         assert state_size % 2 == 0, "State size has to be a multiple of 2"
@@ -185,8 +185,7 @@ class RIM(tf.keras.Model):
         self.state_depth = state_depth
         self.model = Model(state_size=state_size, num_cell_features=num_cell_features, dtype=self._dtype)
         self.gradient_instance_norm = tf.keras.layers.BatchNormalization(axis=1)  # channel must be last dimension of input for this layer
-        self.physical_model = PhysicalModel(pixels=pixels, noise_std=noise_std)
-        self.noise_std = noise_std
+        self.physical_model = PhysicalModel(pixels=pixels, visibility_noise=visibility_noise, cp_noise=cp_noise)
         self.trainable = True
 
     def call(self, y):
@@ -235,7 +234,7 @@ class RIM(tf.keras.Model):
         :return: Scalar L
         """
         yhat = self.physical_model.physical_model(xt)
-        return 0.5 * tf.math.reduce_sum(tf.square(y - yhat)) / self.noise_std**2
+        return 0.5 * tf.math.reduce_sum(tf.square(y - yhat)) / self.physical_model.error_tensor**2
 
 
 class MSE(tf.keras.losses.Loss):
@@ -270,14 +269,16 @@ class MSE(tf.keras.losses.Loss):
 
 class PhysicalModel(object):
 
-    def __init__(self, pixels, noise_std):
+    def __init__(self, pixels, visibility_noise, cp_noise):
         """
         :param pixels: Number of pixel on the side of a square camera
-        :param noise_std: Standard deviation of the noise
+        :param visibility_noise: Standard deviation of the visibilty amplitude squared
+        :param cp_noise: Standard deviation of the closure phases
         """
         print('initializing Phys_Mod')
         self.pixels = pixels
-        self.noise_std = noise_std
+        self.visibility_noise = visibility_noise
+        self.cp_noise = cp_noise
         try:
             bs = kpi(file='coords.txt', bsp_mat='sparse')
             print('Loaded coords.txt')
@@ -307,7 +308,7 @@ class PhysicalModel(object):
         # create tensor to hold cosine and sine projection operators
         self.cos_projector = tf.constant(p2vm_cos.T, dtype=dtype)
         self.sin_projector = tf.constant(p2vm_sin.T, dtype=dtype)
-        self.bispectra_projector = tf.constant(bs.uv_to_bsp, dtype=dtype)
+        self.bispectra_projector = tf.constant(bs.uv_to_bsp.T, dtype=dtype)
 
         vis2s = np.zeros(p2vm_cos.shape[0])
         closure_phases = np.zeros(bs.uv_to_bsp.shape[0])
@@ -316,30 +317,28 @@ class PhysicalModel(object):
         self.data_tensor = tf.concat([self.vis2s_tensor, self.cp_tensor], 0)
 
         # create tensor to hold your uncertainties
-        #self.vis2s_err_tensor = tf.constant(np.ones_like(vis2s), dtype=dtype)
-        self.vis2s_error = tf.random.normal(stddev=self.noise_std, shape=tf.shape(vis2s), dtype=dtype)
-        self.cp_err_tensor = tf.constant(np.ones_like(closure_phases), dtype=dtype)
-        #self.error_tensor = tf.concat([self.vis2s_err_tensor, self.cp_err_tensor], axis=0)
+        self.vis2s_error = tf.constant(np.ones_like(vis2s) * self.visibility_noise, dtype=dtype)
+        self.cp_error = tf.constant(np.ones_like(closure_phases) * self.cp_noise, dtype=dtype)
+        self.error_tensor = tf.concat([self.vis2s_error, self.cp_error], axis=0)
 
     def physical_model(self, image):
         if not tf.is_tensor(image):
             tfim = tf.constant(image, dtype=dtype)
         else:
             tfim = image
-        flat = tf.keras.layers.Flatten(data_format="channels_last")(tfim)
+        flat = tf.keras.layers.Flatten(data_format="channels_last")(tfim) # To keep batch size as first dimension
         sin_model = tf.tensordot(flat, self.sin_projector, axes=1)
         cos_model = tf.tensordot(flat, self.cos_projector, axes=1)
         visibility_squared = tf.square(sin_model) + tf.square(cos_model)
-        #phases = tf.math.angle(tf.complex(cos_model, sin_model))
-        #closure_phase = tf.tensordot(self.bispectra_projector, phases, axes=1)
-        #y = tf.concat([visibility_squared, closure_phase], axis=0)
-        y = visibility_squared
+        phases = tf.math.angle(tf.complex(cos_model, sin_model))
+        closure_phase = tf.tensordot(phases, self.bispectra_projector, axes=1)
+        y = tf.concat([visibility_squared, closure_phase], axis=1)
         return y
 
     def simulate_noisy_image(self, image):
         # apply noise to image before passing in physical model
         out = self.physical_model(image)
-        out += self.vis2s_error
+        out += self.error_tensor
         out = (out - tf.math.reduce_min(out)) / (tf.math.reduce_max(out) - tf.math.reduce_min(out)) # normalize
         return out
     
