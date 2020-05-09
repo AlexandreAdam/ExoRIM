@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --gres=gpu:2			# request GPU "generic resource"
-#SBATCH --cpus-per-task=6		# maximum CPU on beluga=
+#SBATCH --gres=gpu:1			# request GPU "generic resource"
+#SBATCH --cpus-per-task=1		# maximum cpu per task is 3.5 per gpus
 #SBATCH --mem=32000M			# memory per node
-#SBATCH --time=0-03:00			# time (DD-HH:MM)
+#SBATCH --time=0-04:00			# time (DD-HH:MM)
 #SBATCH --account=def-lplevass
 #SBATCH --job-name=train_rim_with_bn_no_ph
 #SBATCH --output=%x-%j.out

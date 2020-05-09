@@ -26,7 +26,7 @@ class Training:
             epochs=500,
             total_items=1000,
             split=0.8,
-            batch_size=2,
+            batch_size=50,
             checkpoints=None,
             images_saved=10,
             steps=12,  # number of steps for the reconstruction
