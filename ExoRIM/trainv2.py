@@ -23,18 +23,18 @@ class Training:
             learning_rate=1e-4,
             loss=MSE(),
             model_name="RIM",
-            epochs=500,
+            epochs=300,
             total_items=1000,
             split=0.8,
-            batch_size=2,
+            batch_size=50,
             checkpoints=None,
             images_saved=10,
             steps=12,  # number of steps for the reconstruction
             pixels=32,
             state_size=8,  # hidden state 2D size
             state_depth=2,  # Channel dimension of hidden state
-            visibility_noise=1e-4, # This is relative to the smallest complex visibility
-            cp_noise=1e-5,
+            visibility_noise=1e-5, # This is relative to the smallest complex visibility
+            cp_noise=1e-8,
             num_cell_features=2,
             step_trace=[3, 8, 11]  # index of step
     ):
@@ -174,7 +174,7 @@ class Training:
 
 
 if __name__ == "__main__":
-    coords = np.random.randn(20, 2)
+    coords = np.random.randn(30, 2)
     np.savetxt("coords.txt", coords)
     train = Training()
     train.train_weights()
