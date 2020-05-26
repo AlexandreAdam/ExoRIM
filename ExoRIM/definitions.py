@@ -12,10 +12,7 @@ kernel_size = 3 # 3 or 1 for small input
 initializer = tf.initializers.GlorotNormal()  # random_normal_initializer(stddev=0.06)
 kernal_reg_amp = 0.01
 bias_reg_amp = 0.01
-############### edit this line #################
-#basedir = os.path.abspath("/home/aadam/Desktop/Projects/ExoRIM")
 basedir = os.getcwd() #os.path.abspath("/home/aadam/scratch/ExoRIM")
-################################################
 datadir = os.path.join(basedir, "data")
 if not os.path.isdir(datadir):
     os.mkdir(datadir)

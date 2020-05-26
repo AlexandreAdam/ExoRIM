@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --gres=gpu:1			# request GPU "generic resource"
-#SBATCH --cpus-per-task=3		# maximum CPU on beluga=
+#SBATCH --cpus-per-task=3		# maximum cpu per task is 3.5 per gpus
 #SBATCH --mem=32000M			# memory per node
 #SBATCH --time=0-05:00			# time (DD-HH:MM)
 #SBATCH --account=def-lplevass
-#SBATCH --job-name=train_rim_with_bn_no_ph
+#SBATCH --job-name=Train_ExoRIM
 #SBATCH --output=%x-%j.out
 module load python/3.6
 virtualenv $SLURM_TMPDIR/env
