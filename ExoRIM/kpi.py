@@ -408,3 +408,9 @@ class kpi(object):
             self.uv_to_bsp = uv_to_bsp 
             self.nbsp = nbsp 
         sys.stdout.flush()
+
+if __name__ == "__main__":
+    coords = np.random.randn(7, 2)
+    np.savetxt("coords.txt", coords)
+    bs = kpi(file='coords.txt', bsp_mat='sparse')
+    print('Loaded coords.txt')

@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from .definitions import kernal_reg_amp, bias_reg_amp, kernel_size, dtype, initializer
-from .pysco.kpi import kpi
+from .kpi import kpi
 
 
 class ConvGRU(tf.keras.Model):
@@ -172,7 +172,7 @@ class Model(tf.keras.Model):
         return xt_1, new_state
 
 
-class RIM(tf.keras.Model):
+class RIM:
     def __init__(self, steps, pixels, visibility_noise, cp_noise,  state_size,
                  state_depth, num_cell_features, channels=1, dtype=dtype):
         super(RIM, self).__init__(dtype=dtype)
@@ -297,13 +297,14 @@ class PhysicalModel(object):
 
         p2vm_sin = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
 
+        #TODO change this for FFT, might be too slow
         for j in range(bs.uv.shape[0]):
-            p2vm_sin[j, :] = np.ravel(np.sin(xx * bs.uv[j, 0] + yy * bs.uv[j, 1]))
+            p2vm_sin[j, :] = np.ravel(np.sin(2*np.pi*(xx * bs.uv[j, 0] + yy * bs.uv[j, 1])))
 
         p2vm_cos = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
 
         for j in range(bs.uv.shape[0]):
-            p2vm_cos[j, :] = np.ravel(np.cos(xx * bs.uv[j, 0] + yy * bs.uv[j, 1]))
+            p2vm_cos[j, :] = np.ravel(np.cos(2*np.pi*(xx * bs.uv[j, 0] + yy * bs.uv[j, 1])))
 
         # create tensor to hold cosine and sine projection operators
         self.cos_projector = tf.constant(p2vm_cos.T, dtype=dtype)
@@ -329,7 +330,7 @@ class PhysicalModel(object):
         flat = tf.keras.layers.Flatten(data_format="channels_last")(tfim) # To keep batch size as first dimension
         sin_model = tf.tensordot(flat, self.sin_projector, axes=1)
         cos_model = tf.tensordot(flat, self.cos_projector, axes=1)
-        visibility_squared = tf.square(sin_model) + tf.square(cos_model)
+        visibility_squared = tf.square(cos_model) + tf.square(sin_model)
         phases = tf.math.angle(tf.complex(cos_model, sin_model))
         closure_phase = tf.tensordot(phases, self.bispectra_projector, axes=1)
         y = tf.concat([visibility_squared, closure_phase], axis=1)

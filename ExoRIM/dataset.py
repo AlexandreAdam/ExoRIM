@@ -55,7 +55,7 @@ class CenteredDataset:
         self.true_test_set = images[split:, :, :, :]
         self.noisy_test_set = physical_model.simulate_noisy_image(images[split:, :, :, :])
 
-    def gaussian_psf_convolution(self, sigma, xp=0, yp=0):
+    def gaussian_psf_convolution(self, sigma, intensity,  xp=0, yp=0):
         """
         #TODO make the unit conversion between pixel, arcsec and meters in image plane explicit in this function
         :param xp: x coordinates of the points sources in meter (should be list of numpy array)
@@ -68,7 +68,7 @@ class CenteredDataset:
         xx, yy = np.meshgrid(image_coords, image_coords)
         image = np.zeros_like(xx)
         rho_squared = (xx - xp) ** 2 + (yy - yp) ** 2
-        image += 1 / (sigma * np.sqrt(2. * np.pi)) * np.exp(-0.5 * (rho_squared / sigma ** 2))
+        image += intensity / (sigma * np.sqrt(2. * np.pi)) * np.exp(-0.5 * (rho_squared / sigma ** 2))
         image = self.normalize(image)
         return image
 
@@ -84,9 +84,9 @@ class CenteredDataset:
         images = np.zeros(shape=(self.total_items, self.pixels, self.pixels, 1))  # one channel
         for i in range(self.total_items):
             # central object
-            images[i, :, :, 0] += self.gaussian_psf_convolution(self.widths[i][0])
+            images[i, :, :, 0] += self.gaussian_psf_convolution(self.widths[i][0], 1)
             for j, _ in enumerate(range(1, self.nps[i]+1)):
-                images[i, :, :, 0] += self.gaussian_psf_convolution(self.widths[i][j], *self.coordinates[i][j])
+                images[i, :, :, 0] += self.gaussian_psf_convolution(self.widths[i][j], 1 - self.contrast[i][j], *self.coordinates[i][j])
             images[i, :, :, 0] = self.normalize(images[i, :, :, 0])
         return tf.convert_to_tensor(images, dtype=dtype)
 

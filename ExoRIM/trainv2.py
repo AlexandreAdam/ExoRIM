@@ -3,6 +3,7 @@ from ExoRIM.model import RIM, MSE
 from ExoRIM.definitions import modeldir
 import tensorflow as tf
 from datetime import datetime
+import time
 import os
 import warnings
 from celluloid import Camera
@@ -23,12 +24,12 @@ class Training:
             learning_rate=1e-4,
             loss=MSE(),
             model_name="RIM",
-            epochs=300,
-            total_items=1000,
+            epochs=100,
+            total_items=10,
             split=0.8,
-            batch_size=50,
+            batch_size=4,
             checkpoints=None,
-            images_saved=10,
+            images_saved=2,
             steps=12,  # number of steps for the reconstruction
             pixels=32,
             state_size=8,  # hidden state 2D size
@@ -103,9 +104,11 @@ class Training:
         for step, trace in enumerate(self.step_trace):
             self.images[epoch, :, step, 1, :, :] += output[:self._image_saved, :, :, 0, trace]
 
-    def train_weights(self):
+    def train_weights(self, max_time=3600*0.5):
+        start = time.time()
         for epoch in range(self.epochs):
             self._epoch(epoch)
+            if time.time() - start > max_time: break
         self.trained = True
         # self.trainable = False #- eventually to freeze the BatchNorm in place
 
@@ -169,12 +172,12 @@ class Training:
                 cam.animate().save(os.path.join(run_dir, f"({image+1})_{title}_{_state}_{self.init_time}.mp4"), writer="ffmpeg")
 
         with open(os.path.join(run_dir, f"{title}_{self.init_time}.pickle"), 'wb') as f:
-            data = {"images": self.images, "loss": self.losses}
+            data = {"images": self.images, "loss": self.losses, "g_truth": self.true_images}
             pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 
 
 if __name__ == "__main__":
-    coords = np.random.randn(30, 2)
+    coords = np.random.randn(7, 2)
     np.savetxt("coords.txt", coords)
     train = Training()
     train.train_weights()
