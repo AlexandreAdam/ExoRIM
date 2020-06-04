@@ -13,3 +13,6 @@ models/
 data/*
 *.out
 coords.txt
+results/*
+
+

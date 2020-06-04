@@ -4,8 +4,6 @@ import os
 import numpy as np
 from operator import add
 from functools import reduce
-from ExoRIM.definitions import lossdir, image_dir
-from ExoRIM._train_master import TrainMaster
 from celluloid import Camera
 import warnings
 import matplotlib.cbook
@@ -13,7 +11,7 @@ warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
 plt.rcParams["figure.figsize"] = (10, 10)
 
 
-class TrainViz(TrainMaster):
+class TrainViz:
     """
     Tools to plot loss curve and movie of the reconstruction through the training of the model.
     """
@@ -151,3 +149,63 @@ class TrainViz(TrainMaster):
         # lc.set_linewidth(3)
         # line = axs.add_collection(lc)
         # fig.colorbar(line, ax=axs)
+
+
+  # def save_movies(self, title):
+  #       # Utilities to film output during training
+  #       run_dir = os.path.join(image_dir, f"{self.model_name}_{self.init_time}")
+  #       os.mkdir(run_dir) for image in range(self._image_saved):
+  #           labels = ["Train", "Test"]
+  #           colors = ['k', 'r']
+  #           handles = []
+  #           for c, l in zip(colors, labels):
+  #               handles.append(Line2D([0], [0], color=c, label=l))
+  #           plt.legend(handles=handles, loc='upper left')
+  #           for state in range(2):# test and train
+  #               movie_fig = plt.figure()
+  #               cam = Camera(movie_fig)
+  #               movie_fig.suptitle('This is a somewhat long figure title', fontsize=16)
+  #
+  #               widths = [10] * (len(self.step_trace) + 1) + [1]
+  #               gs = gridspec.GridSpec(2, len(self.step_trace) + 2,  width_ratios=widths)
+  #               loss_x_axis = list(range(1, self.epochs+1))
+  #
+  #               for epoch in range(self.epochs):
+  #                   movie_fig.suptitle(title, fontsize=16)
+  #                   loss_ax = movie_fig.add_subplot(gs[-1, :])
+  #                   cbar_ax = movie_fig.add_subplot(gs[:-1, -1])
+  #                   movie_fig.colorbar(
+  #                       plt.cm.ScalarMappable(norm=plt.Normalize(0, 1), cmap=plt.cm.get_cmap("gray")),
+  #                       cax=cbar_ax
+  #                   )
+  #                   loss_ax.set_xlabel("Epochs")
+  #                   loss_ax.set_ylabel("Average Loss")
+  #
+  #                   loss_ax.plot(loss_x_axis[:epoch + 1], self.losses[0, :epoch + 1], "k-", label="Training set")
+  #                   loss_ax.plot(loss_x_axis[:epoch + 1], self.losses[1, :epoch + 1], "r-", label="Test set")
+  #                   if epoch == 0:
+  #                       loss_ax.legend()
+  #
+  #
+  #                   # plot the ground truth to the right
+  #                   g_truth = movie_fig.add_subplot(gs[0, -2])
+  #                   g_truth.get_xaxis().set_visible(False)
+  #                   g_truth.get_yaxis().set_visible(False)
+  #                   g_truth.imshow(self.true_images[image, :, :], cmap="gray")
+  #                   g_truth.set_title("Ground Truth")
+  #                   # plot the images at different reconstruction stages according to step_traces
+  #                   for col, step in enumerate(self.step_trace):
+  #                       ax = movie_fig.add_subplot(gs[0, col])
+  #                       ax.get_xaxis().set_visible(False)
+  #                       ax.get_yaxis().set_visible(False)
+  #                       ax.imshow(self.images[epoch, image, col, state, :, :], cmap="gray")
+  #                       ax.set_title(f"Step {step+1}")
+  #                   # Smile!
+  #                   cam.snap()
+  #               if state == 0: _state = "train"
+  #               else: _state = "test"
+  #               cam.animate().save(os.path.join(run_dir, f"({image+1})_{title}_{_state}_{self.init_time}.mp4"), writer="ffmpeg")
+  #
+  #       with open(os.path.join(run_dir, f"{title}_{self.init_time}.pickle"), 'wb') as f:
+  #           data = {"images": self.images, "loss": self.losses, "g_truth": self.true_images}
+  #           pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)

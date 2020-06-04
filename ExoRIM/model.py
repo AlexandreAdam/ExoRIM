@@ -1,40 +1,38 @@
 import tensorflow as tf
 import numpy as np
-from .definitions import kernal_reg_amp, bias_reg_amp, kernel_size, dtype, initializer
+from .definitions import dtype, initializer, default_hyperparameters
 from .kpi import kpi
+import time
 
 
 class ConvGRU(tf.keras.Model):
-    def __init__(self, num_features, kernel_size=kernel_size):
+    def __init__(self, filters, kernel_size):
         super(ConvGRU, self).__init__()
-        num_filters = num_features
         self.update_gate = tf.keras.layers.Conv2D(
-            filters=num_filters,
+            filters=filters,
             kernel_size=[kernel_size, kernel_size],
-            strides=1,
+            strides=(1, 1),
             activation='sigmoid',
             padding='same'
         )
         self.reset_gate = tf.keras.layers.Conv2D(
-            filters=num_filters,
+            filters=filters,
             kernel_size=[kernel_size, kernel_size],
-            strides=1,
+            strides=(1, 1),
             activation='sigmoid',
             padding='same'
         )
         self.candidate_activation_gate = tf.keras.layers.Conv2D(
-            filters=num_filters,
+            filters=filters,
             kernel_size=[kernel_size, kernel_size],
-            strides=1,
+            strides=(1, 1),
             activation='tanh',
             padding='same'
         )
 
     def call(self, features, ht):
         """
-        Compute the new state tensor.
-        :param inputs: List = [features(xt), ht]
-        :return:
+        Compute the new state tensor h_{t+1}.
         """
         stacked_input = tf.concat([features, ht], axis=3)
         z = self.update_gate(stacked_input)  # Update gate vector
@@ -47,173 +45,177 @@ class ConvGRU(tf.keras.Model):
 
 
 class Model(tf.keras.Model):
-    def __init__(self, state_size, num_cell_features, dtype=dtype):
+    def __init__(self, hyperparameters=default_hyperparameters, dtype=dtype):
         super(Model, self).__init__(dtype=dtype)
-        self._state_size = state_size
-        self.num_gru_features = num_cell_features // 2  # This is because we split the state tensor in 2
-        num_filt_emb1_1 = self.num_gru_features
-        num_filt_emb1_2 = self.num_gru_features
-        num_filt_emb3_1 = self.num_gru_features
-        num_filt_emb3_2 = self.num_gru_features
-        strides_conv1 = 2 # Make this not as arbitrary, function of pixels
-        strides_conv2 = 2
-        strides_conv3 = 1
-
-        self.conv1_1 = tf.keras.layers.Conv2D(
-            filters=num_filt_emb1_1,
-            kernel_size=[kernel_size, kernel_size],
-            strides=strides_conv1,
+        self.downsampling_block = []
+        self.convolution_block = []
+        self.recurrent_block = []
+        self.upsampling_block = []
+        self.transposed_convolution_block = []
+        kernel_reg_amp = hyperparameters["Regularizer Amplitude"]["kernel"]
+        bias_reg_amp = hyperparameters["Regularizer Amplitude"]["bias"]
+        for layer in hyperparameters["Downsampling Block"]:
+            name = list(layer.keys())[0]
+            params = layer[name]
+            self.downsampling_block.append(tf.keras.layers.Conv2D(
+                # stride=(2, 2),  # (output side pixel)/4
+                **params,  # kernel size and filters
+                name=name,
+                activation=tf.keras.layers.LeakyReLU(),
+                padding="same",
+                kernel_regularizer=tf.keras.regularizers.l2(l2=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l2=bias_reg_amp),
+                data_format="channel_last"
+            ))
+        for layer in hyperparameters["Convolution Block"]:
+            name = list(layer.keys())[0]
+            params = layer[name]
+            self.convolution_block.append(tf.keras.layers.Conv2D(
+                # stride=(1, 1),
+                **params,
+                name=name,
+                activation=tf.keras.layers.LeakyReLU(),
+                padding="same",
+                kernel_regularizer=tf.keras.regularizers.l2(l2=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l2=bias_reg_amp),
+                data_format="channel_last"
+            ))
+        for layer in hyperparameters["Transposed Convolution Block"]:
+            name = list(layer.keys())[0]
+            params = layer[name]
+            self.transposed_convolution_block.append(tf.keras.layers.Conv2DTranspose(
+                # stride=(1, 1),
+                **params,
+                name=name,
+                activation=tf.keras.layers.LeakyReLU(),
+                padding="same",
+                kernel_regularizer=tf.keras.regularizers.l2(l2=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l2=bias_reg_amp),
+                data_format="channel_last"
+            ))
+        for layer in hyperparameters["Upsampling Block"]:
+            name = list(layer.keys())[0]
+            params = layer[name]
+            self.upsampling_block.append(tf.keras.layers.Conv2DTranspose(
+                # stride=(2, 2),  # stride of 1/4, pixel*4
+                **params,
+                name=name,
+                activation=tf.keras.layers.LeakyReLU(),
+                padding="same",
+                kernel_regularizer=tf.keras.regularizers.l2(l2=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l2=bias_reg_amp),
+                data_format="channel_last"
+            ))
+        self.gru1 = ConvGRU(**hyperparameters["Recurrent Block"]["GRU_1"])
+        self.gru2 = ConvGRU(**hyperparameters["Recurrent Block"]["GRU_2"])
+        self.hidden_conv = tf.keras.layers.Conv2DTranspose(
+            **hyperparameters["Recurrent Block"]["Hidden_Conv_1"],
+            name="Hidden_Conv_1",
             activation=tf.keras.layers.LeakyReLU(),
-            padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
-            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-            kernel_initializer=initializer,
-            data_format="channels_last"
+            padding="same",
+            kernel_regularizer=tf.keras.regularizers.l2(l2=kernel_reg_amp),
+            bias_regularizer=tf.keras.regularizers.l2(l2=bias_reg_amp),
+            data_format="channel_last"
         )
-        self.conv1_2 = tf.keras.layers.Conv2D(
-            filters=num_filt_emb1_2,
-            kernel_size=[kernel_size, kernel_size],
-            strides=strides_conv2,
-            activation=tf.keras.layers.LeakyReLU(),
-            padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
-            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-            kernel_initializer=initializer,
-            data_format="channels_last"
-        )
-        self.conv1_3 = tf.keras.layers.Conv2D(
-            filters=num_filt_emb1_2,
-            kernel_size=[kernel_size, kernel_size],
-            strides=strides_conv3,
-            activation=tf.keras.layers.LeakyReLU(),
-            padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
-            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-            kernel_initializer=initializer,
-            data_format="channels_last"
-        )
-        self.conv2 = tf.keras.layers.Conv2DTranspose(
-            filters=self.num_gru_features,
-            kernel_size=[kernel_size, kernel_size],
-            strides=1,
-            activation=tf.keras.layers.LeakyReLU(),
-            padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
-            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-            kernel_initializer=initializer
-        )
-        self.conv3_1 = tf.keras.layers.Conv2DTranspose(
-            filters=num_filt_emb3_1,
-            kernel_size=[kernel_size, kernel_size],
-            strides=strides_conv1,
-            activation=tf.keras.layers.LeakyReLU(),
-            padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
-            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-            kernel_initializer=initializer
-        )
-        self.conv3_2 = tf.keras.layers.Conv2DTranspose(
-            filters=num_filt_emb3_2,
-            kernel_size=[kernel_size, kernel_size],
-            strides=strides_conv2,
-            activation=tf.keras.layers.LeakyReLU(),
-            padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
-            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-            kernel_initializer=initializer
-        )
-        self.conv3_3 = tf.keras.layers.Conv2DTranspose(
-            filters=num_filt_emb3_2,
-            kernel_size=[kernel_size, kernel_size],
-            strides=strides_conv3,
-            activation=tf.keras.layers.LeakyReLU(),
-            padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
-            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-            kernel_initializer=initializer
-        )
-        self.conv4 = tf.keras.layers.Conv2D(
-            filters=1,
-            kernel_size=[kernel_size, kernel_size],
-            strides=1,
-            activation='linear',
-            padding='same',
-            kernel_regularizer=tf.keras.regularizers.l2(l=kernal_reg_amp),
-            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-            kernel_initializer=initializer
-        )
-        self.gru1 = ConvGRU(self.num_gru_features)
-        self.gru2 = ConvGRU(self.num_gru_features)
 
     def call(self, xt, ht, grad):
         """
         :param inputs: List = [xt, ht, grad]
-            xt: Image tensor of shape (batch size, num of pixel, num of pixel, filters=1)
+            xt: Image tensor of shape (batch size, num of pixel, num of pixel, channels)
             ht: Hidden state list: [h^0_t, h^1_t, ...]
-                    (batch size, downsampled image size, downsampled image size, state_size)
-                The downsampled image size is defined num_cell_features in RIM
+                    (batch size, downsampled image size, downsampled image size, state_size * num of ConvGRU cells)
             grad: Gradient of the log-likelihood function for y (data) given xt
         :return: x_{t+1}, h_{t+1}
         """
         stacked_input = tf.concat([xt, grad], axis=3)
-        features = self.conv1_1(stacked_input)
-        features = self.conv1_2(features)
-        features = self.conv1_3(features)  # shape needs to match ht_11 and ht_12, make sure strides add up
+        for layer in self.downsampling_block:
+            stacked_input = layer(stacked_input)
+        for layer in self.convolution_block:
+            stacked_input = layer(stacked_input)
+        # ===== Recurrent Block =====
         ht_1, ht_2 = tf.split(ht, 2, axis=3)
-        ht_1 = self.gru1(features, ht_1)  # to be recombined in new state
-        ht_1_features = self.conv2(ht_1)
+        ht_1 = self.gru1(stacked_input, ht_1)  # to be recombined in new state
+        ht_1_features = self.hidden_conv(ht_1)
         ht_2 = self.gru2(ht_1_features, ht_2)
-        delta_xt = self.conv3_1(ht_2)  # conv3 is transposed convolution, brings back the tensor to image shape
-        delta_xt = self.conv3_2(delta_xt)
-        delta_xt = self.conv3_3(delta_xt)
-        delta_xt = self.conv4(delta_xt)
+        # ===========================
+        delta_xt = self.upsampling_block[0](ht_2)
+        for layer in self.upsampling_block[1:]:
+            delta_xt = layer(delta_xt)
+        for layer in self.transposed_convolution_block:
+            delta_xt = layer(delta_xt)
         xt_1 = xt + delta_xt
         new_state = tf.concat([ht_1, ht_2], axis=3)
         return xt_1, new_state
 
 
 class RIM:
-    def __init__(self, steps, pixels, visibility_noise, cp_noise,  state_size,
-                 state_depth, num_cell_features, channels=1, dtype=dtype):
-        super(RIM, self).__init__(dtype=dtype)
-        assert state_size % 2 == 0, "State size has to be a multiple of 2"
+    def __init__(self, hyperparameters, dtype=dtype):
         self._dtype = dtype
-        self.channels = channels
-        self.pixels = pixels
-        self.steps = steps
-        self.state_size = state_size
-        self.state_depth = state_depth
-        self.model = Model(state_size=state_size, num_cell_features=num_cell_features, dtype=self._dtype)
-        self.gradient_instance_norm = tf.keras.layers.BatchNormalization(axis=1)  # channel must be last dimension of input for this layer
-        self.physical_model = PhysicalModel(pixels=pixels, visibility_noise=visibility_noise, cp_noise=cp_noise)
-        self.trainable = True
+        self.channels = hyperparameters["channels"]
+        self.pixels = hyperparameters["pixels"]
+        self.steps = hyperparameters["steps"]
+        self.state_size = hyperparameters["state_size"]
+        self.state_depth = hyperparameters["state_depth"]
+        self.model = Model(hyperparameters, dtype=self._dtype)
+        self.batch_norm = tf.keras.layers.BatchNormalization(axis=-1)  # Setting for channels last
+        self.physical_model = PhysicalModel(
+            pixels=self.pixels,
+            visibility_noise=hyperparameters["visibility_noise"],
+            cp_noise=hyperparameters["closure_phase_noise"]
+        )
 
-    def call(self, y):
+    def call(self, X):
         """
+        Method used in training to get model predictions.
 
-        :param y: Vector of complex visibilities amplitude and closure phases
+        :param X: Vector of complex visibilities amplitude and closure phases
         :return: 5D Tensor of shape (batch_size, [image_size, channels], steps)
         """
-        batch_size = y.shape[0]
+        batch_size = X.shape[0]
         x0 = self.initial_guess(batch_size)
         h0 = self.init_hidden_states(batch_size)
         # Compute the gradient through auto-diff since model is highly non-linear
         with tf.GradientTape() as g:
             g.watch(x0)
-            likelihood = self.log_likelihood(x0, y)
-        grad = self.gradient_instance_norm(g.gradient(likelihood, x0))
-        #grad = g.gradient(likelihood, x0)
+            likelihood = self.log_likelihood(x0, X)
+        grad = self.batch_norm(g.gradient(likelihood, x0), training=True)
         xt, ht = self.model(x0, h0, grad)
         outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
         for current_step in range(self.steps - 1):
             with tf.GradientTape() as g:
                 g.watch(xt)
-                likelihood = self.log_likelihood(xt, y)
-            grad = self.gradient_instance_norm(g.gradient(likelihood, xt))
-            #grad = g.gradient(likelihood, xt)
+                likelihood = self.log_likelihood(xt, X)
+            grad = self.batch_norm(g.gradient(likelihood, xt), training=True)
             xt, ht = self.model(xt, ht, grad)
             outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
         return outputs
+
+    def predict(self, X):
+
+        """
+        Returns a reconstructted image from interferometric data.
+
+        :param X: Vector of complex visibilities amplitude and closure phases
+        :return: 4D Tensor of shape (batch_size, [image_size, channels])
+        """
+        batch_size = X.shape[0]
+        x0 = self.initial_guess(batch_size)
+        h0 = self.init_hidden_states(batch_size)
+        # Compute the gradient through auto-diff since model is highly non-linear
+        with tf.GradientTape() as g:
+            g.watch(x0)
+            likelihood = self.log_likelihood(x0, X)
+        grad = self.batch_norm(g.gradient(likelihood, x0), training=False)  # freeze the learning of Batch Norm
+        xt, ht = self.model(x0, h0, grad)
+        outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
+        for current_step in range(self.steps - 1):
+            with tf.GradientTape() as g:
+                g.watch(xt)
+                likelihood = self.log_likelihood(xt, X)
+            grad = self.batch_norm(g.gradient(likelihood, xt), training=False)
+            xt, ht = self.model(xt, ht, grad)
+            outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
+        return outputs[:, :, :, :, -1]  # only returns the last step of the prediction
 
     def init_hidden_states(self, batch_size):
         return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype)
@@ -228,7 +230,6 @@ class RIM:
         Mean squared error of the reconstructed yhat vector and the true y vector, divided by the inverse of the
         covariance matrix (diagonal in our case).
 
-        #TODO We should think to add a small paramater epsilon to the division in case variance get too small
         :param y: True vector of complex visibility amplitudes and closure phases
         :param xt: Image reconstructed at step t of the reconstruction
         :return: Scalar L
@@ -236,10 +237,24 @@ class RIM:
         yhat = self.physical_model.physical_model(xt)
         return 0.5 * tf.math.reduce_sum(tf.square(y - yhat)) / self.physical_model.error_tensor**2
 
+    def fit(self, epochs, dataset, cost_function):
+        optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
+        start = time.time()
+        for epoch in range(epochs):
+            for X, Y in dataset:  # X and Y by ML convention
+                with tf.GradientTape() as tape:
+                    tape.watch(self.model.trainable_weights)
+                    output = self.call(X)
+                    cost_value = cost_function(output, Y)
+                    cost_value += tf.reduce_sum(self.model.losses)  # Add layer specific regularizer losses (L2 in definitions)
+                gradient = tape.gradient(cost_value, self.model.trainable_weights)
+                clipped_gradient, _ = tf.clip_by_norm(gradient, clip_norm=10, axes=[1])  # prevent exploding gradients
+                optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
 
-class MSE(tf.keras.losses.Loss):
+
+class CostFunction(tf.keras.losses.Loss):
     def __init__(self):
-        super(MSE, self).__init__()
+        super(CostFunction, self).__init__()
         # Possible framework for weights
         # if cost_weights is None:
         #     self.cost_weights = [1] * steps
@@ -254,14 +269,14 @@ class MSE(tf.keras.losses.Loss):
         0: batch_size
         1: x dimension of image
         2: y dimension of image
-        3: channels (=1 for gray image)
+        3: channels
         4: time steps of the RIM output
-        :param x_true:
-        :param x_preds:
+        :param x_true: 4D tensor to be compared with x_preds
+        :param x_preds: 5D tensor output of the call method
         :return:
         """
         x_true_ = tf.reshape(x_true, (x_true.shape + [1]))
-        cost = tf.reduce_sum(tf.square(x_true_ - x_preds), axis=[1, 2, 3])
+        cost = tf.reduce_sum(tf.square(x_true_ - x_preds), axis=[1, 2, 3])  # Sum over pixels
         cost = tf.reduce_sum(cost, axis=1)  # Sum over time steps (this one could be weighted)
         cost = tf.reduce_sum(cost, axis=0)  # Sum over the batch
         return cost
@@ -269,8 +284,9 @@ class MSE(tf.keras.losses.Loss):
 
 class PhysicalModel(object):
 
-    def __init__(self, pixels, visibility_noise, cp_noise):
+    def __init__(self, coord_file, pixels, visibility_noise, cp_noise):
         """
+        :param coord_file: Numpy array with coordinates of holes in non-redundant mask (in meters)
         :param pixels: Number of pixel on the side of a square camera
         :param visibility_noise: Standard deviation of the visibilty amplitude squared
         :param cp_noise: Standard deviation of the closure phases
@@ -279,16 +295,7 @@ class PhysicalModel(object):
         self.pixels = pixels
         self.visibility_noise = visibility_noise
         self.cp_noise = cp_noise
-        try:
-            bs = kpi(file='coords.txt', bsp_mat='sparse')
-            print('Loaded coords.txt')
-        except:
-            coords = np.random.randn(6, 2) # TODO
-            #plt.plot(coords[:, 0], coords[:, 1], '.')
-            np.savetxt('coords.txt', coords)
-            print('Generated random array and saved to coords.txt')
-            bs = kpi(file='coords.txt', bsp_mat='sparse')
-            print('Loaded coords.txt')
+        bs = kpi(file=coord_file, bsp_mat='sparse')
 
         ## create p2vm matrix
 
@@ -323,11 +330,7 @@ class PhysicalModel(object):
         self.error_tensor = tf.concat([self.vis2s_error, self.cp_error], axis=0)
 
     def physical_model(self, image):
-        if not tf.is_tensor(image):
-            tfim = tf.constant(image, dtype=dtype)
-        else:
-            tfim = image
-        flat = tf.keras.layers.Flatten(data_format="channels_last")(tfim) # To keep batch size as first dimension
+        flat = tf.keras.layers.Flatten(data_format="channels_last")(image)
         sin_model = tf.tensordot(flat, self.sin_projector, axes=1)
         cos_model = tf.tensordot(flat, self.cos_projector, axes=1)
         visibility_squared = tf.square(cos_model) + tf.square(sin_model)
@@ -340,6 +343,4 @@ class PhysicalModel(object):
         # apply noise to image before passing in physical model
         out = self.physical_model(image)
         out += self.error_tensor
-        out = (out - tf.math.reduce_min(out)) / (tf.math.reduce_max(out) - tf.math.reduce_min(out)) # normalize
         return out
-    

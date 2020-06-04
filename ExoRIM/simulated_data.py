@@ -1,41 +1,33 @@
 import numpy as np
-from ExoRIM.definitions import k_truncated_poisson, dtype
-import tensorflow as tf
+from ExoRIM.definitions import k_truncated_poisson
 
 
-class CenteredDataset:
+class CenteredImagesv1:
     def __init__(
             self,
-            physical_model,
             total_items=1000,
             seed=42,
-            split=0.8,
-            train_batch_size=1,
             channels=1,
             pixels=32,
             highest_contrast=0.95,
             max_point_sources=5
     ):
         """
+        This class defines the characteristics of a simulated dataset to train ExoRIM. It produces images with a
+        centered blob and few fainter point sources near the center of the image. Information like widths of the
+        point sources and contrasts are attached to the object for future analysis and reproducibility.
 
         :param total_items: Total number of item to generate for an epoch
-        :param train_batch_size: Number of images to create for a train batch
-        :param test_batch_size: Number of images to create for a test batch
         :param pixels: Number of pixels on a side of the square CCD camera
         :param channels: Color dimension
-        :param max_number_point_sources: Maximum number of point source in a single image
+        :param max_point_sources: Maximum number of point source in a single image
         :param highest_contrast: Determine the faintest object created in an image: is defined as the delta in
                 apparent magnitude
-        :param save_ratio: Number between 0 and 1, percentages of individual samples to be saved
         """
         assert channels == 1
         np.random.seed(seed)
-        self.train_batch_size = train_batch_size
-        self.split = split
-        self.train_batches_in_epoch = total_items * split // train_batch_size
         self.pixels = pixels
         self.total_items = total_items
-        split = int(self.train_batch_size * self.train_batches_in_epoch)
 
         self.highest_contrast = highest_contrast
         self.max_point_source = max_point_sources
@@ -44,16 +36,6 @@ class CenteredDataset:
         self.coordinates = self._coordinates()
         self.contrast = self._contrasts()
         self.widths = self._widths()
-
-        images = self.generate_epoch_images()
-
-        # divide the dataset into true/noisy and train/test sets
-        self.true_train_set = tf.data.Dataset.from_tensor_slices(images[0:split, :, :, :])
-        self.true_train_set = self.true_train_set.batch(train_batch_size)
-        self.noisy_train_set = tf.data.Dataset.from_tensor_slices(physical_model.simulate_noisy_image(images[0:split, :, :, :]))
-        self.noisy_train_set = self.noisy_train_set.batch(train_batch_size)
-        self.true_test_set = images[split:, :, :, :]
-        self.noisy_test_set = physical_model.simulate_noisy_image(images[split:, :, :, :])
 
     def gaussian_psf_convolution(self, sigma, intensity,  xp=0, yp=0):
         """
@@ -86,9 +68,13 @@ class CenteredDataset:
             # central object
             images[i, :, :, 0] += self.gaussian_psf_convolution(self.widths[i][0], 1)
             for j, _ in enumerate(range(1, self.nps[i]+1)):
-                images[i, :, :, 0] += self.gaussian_psf_convolution(self.widths[i][j], 1 - self.contrast[i][j], *self.coordinates[i][j])
+                images[i, :, :, 0] += self.gaussian_psf_convolution(
+                    self.widths[i][j],
+                    1 - self.contrast[i][j],
+                    *self.coordinates[i][j]
+                )
             images[i, :, :, 0] = self.normalize(images[i, :, :, 0])
-        return tf.convert_to_tensor(images, dtype=dtype)
+        return images
 
     def _nps(self, p="uniform", mu=2):
         """
@@ -141,3 +127,4 @@ class CenteredDataset:
         for i, nps in enumerate(self.nps):
             coords[i].extend(np.random.choice(pool, size=(nps, 2)).tolist())
         return coords
+

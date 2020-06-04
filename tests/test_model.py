@@ -26,7 +26,7 @@ def test_model_call_and_gradients():
     noise = 0.01
 
     # First test call execution
-    rim = RIM(steps=10, pixels=pixels, state_size=4, state_depth=2, noise_std=noise, num_cell_features=2)
+    rim = RIM(steps=10, pixels=pixels, state_size=4, state_depth=2, noise_std=noise, hidden_cell_features=2)
     phys = rim.physical_model
     image = tf.ones((1, pixels, pixels, 1))  # x
     noisy_image = phys.simulate_noisy_image(image)  # y
@@ -57,7 +57,7 @@ def test_model_learning_on_trivial_image():
     test_dir = os.path.join(image_dir, f"learning_test_{date_time}")
     os.mkdir(test_dir)
 
-    rim = RIM(steps=steps, pixels=pixels, state_size=4, state_depth=2, noise_std=noise, num_cell_features=2)
+    rim = RIM(steps=steps, pixels=pixels, state_size=4, state_depth=2, noise_std=noise, hidden_cell_features=2)
     image = tf.convert_to_tensor(simple_image().reshape((1, pixels, pixels, 1)), dtype=tf.float32) # x
     noisy_image = rim.physical_model.simulate_noisy_image(image)  # y
     fig = plt.figure()

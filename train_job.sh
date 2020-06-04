@@ -11,7 +11,7 @@ virtualenv $SLURM_TMPDIR/env
 source $SLURM_TMPDIR/env/bin/activate
 pip install --no-index --upgrade pip
 pip install --no-index -r cc_requirements.txt
-pip install /home/aadam/scratch/wheelhouse/celluloid-0.2.0-py3-none-any.whl
+#pip install /home/aadam/scratch/wheelhouse/celluloid-0.2.0-py3-none-any.whl
 pip install /home/aadam/scratch/ExoRIM/dist/ExoRim-0.1-py3-none-any.whl
 module load cuda cudnn 
 python -W ignore::DeprecationWarning
