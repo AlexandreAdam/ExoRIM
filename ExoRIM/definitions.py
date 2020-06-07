@@ -27,19 +27,19 @@ default_hyperparameters = {
         "Downsampling Block": [
             {"Conv_Downsample": {
                 "kernel_size": [3, 3],
-                "filters": 16,
+                "filters": 1,
                 "strides": [2, 2]
             }}
         ],
         "Convolution Block": [
             {"Conv_1": {
                 "kernel_size": [3, 3],
-                "filters": 16,
+                "filters": 8,
                 "strides": [1, 1]
             }},
             {"Conv_2": {
                 "kernel_size": [3, 3],
-                "filters": 16,
+                "filters": 8,
                 "strides": [1, 1]
             }}
         ],
@@ -67,12 +67,12 @@ default_hyperparameters = {
         "Transposed Convolution Block": [
             {"TConv_1": {
                 "kernel_size": [3, 3],
-                "filters": 16,
+                "filters": 8,
                 "strides": [1, 1]
             }},
             {"TConv_2": {
                 "kernel_size": [3, 3],
-                "filters": 16,
+                "filters": 1,
                 "strides": [1, 1]
             }}
         ]

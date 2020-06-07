@@ -8,7 +8,7 @@ def gridsearchV1(model_trained):
         pixels = 32  # Eventually think about more pixels and adjust code for it --> performance challenge
         channels = 1
         steps = choose([3, 6, 9, 12])
-        state_size = choose([2, 8])  # Results of pixels division by 4 and 4*4 (each downsampling layer divide by 4 the number of pixels)
+        state_size = choose([2, 8])
         reg_amplitude = choose([1e-3, 1e-2, 1e-1])
         noises = choose([1e-6, 1e-5, 1e-4, 1e-3, 1e-2])
         conv_block_layers = choose([1, 2, 3, 4])
@@ -24,7 +24,7 @@ def gridsearchV1(model_trained):
             1: choose([1, 4]),
             2: choose([4, 8]),
             3: choose([8, 16]),
-            4: choose([8, 16, 32])
+            4: state_depth//2  # must match hidden tensor dimensions
         }
         # last layer of tconv must have same dimension as the image
         tconv_block_filters = {

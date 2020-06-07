@@ -1,8 +1,10 @@
 import tensorflow as tf
 import numpy as np
-from .definitions import dtype, initializer, default_hyperparameters
-from .kpi import kpi
+from ExoRIM.definitions import dtype, default_hyperparameters
+from ExoRIM.kpi import kpi
+from ExoRIM.utilities import save_output
 import time
+import os
 
 
 class ConvGRU(tf.keras.Model):
@@ -10,21 +12,21 @@ class ConvGRU(tf.keras.Model):
         super(ConvGRU, self).__init__()
         self.update_gate = tf.keras.layers.Conv2D(
             filters=filters,
-            kernel_size=[kernel_size, kernel_size],
+            kernel_size=kernel_size,
             strides=(1, 1),
             activation='sigmoid',
             padding='same'
         )
         self.reset_gate = tf.keras.layers.Conv2D(
             filters=filters,
-            kernel_size=[kernel_size, kernel_size],
+            kernel_size=kernel_size,
             strides=(1, 1),
             activation='sigmoid',
             padding='same'
         )
         self.candidate_activation_gate = tf.keras.layers.Conv2D(
             filters=filters,
-            kernel_size=[kernel_size, kernel_size],
+            kernel_size=kernel_size,
             strides=(1, 1),
             activation='tanh',
             padding='same'
@@ -58,14 +60,14 @@ class Model(tf.keras.Model):
             name = list(layer.keys())[0]
             params = layer[name]
             self.downsampling_block.append(tf.keras.layers.Conv2D(
-                # stride=(2, 2),  # (output side pixel)/4
+                # stride=(2, 2),  # (output side pixel)/
                 **params,  # kernel size and filters
                 name=name,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
-                kernel_regularizer=tf.keras.regularizers.l2(l2=kernel_reg_amp),
-                bias_regularizer=tf.keras.regularizers.l2(l2=bias_reg_amp),
-                data_format="channel_last"
+                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+                data_format="channels_last"
             ))
         for layer in hyperparameters["Convolution Block"]:
             name = list(layer.keys())[0]
@@ -76,9 +78,9 @@ class Model(tf.keras.Model):
                 name=name,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
-                kernel_regularizer=tf.keras.regularizers.l2(l2=kernel_reg_amp),
-                bias_regularizer=tf.keras.regularizers.l2(l2=bias_reg_amp),
-                data_format="channel_last"
+                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+                data_format="channels_last"
             ))
         for layer in hyperparameters["Transposed Convolution Block"]:
             name = list(layer.keys())[0]
@@ -89,9 +91,9 @@ class Model(tf.keras.Model):
                 name=name,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
-                kernel_regularizer=tf.keras.regularizers.l2(l2=kernel_reg_amp),
-                bias_regularizer=tf.keras.regularizers.l2(l2=bias_reg_amp),
-                data_format="channel_last"
+                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+                data_format="channels_last"
             ))
         for layer in hyperparameters["Upsampling Block"]:
             name = list(layer.keys())[0]
@@ -102,9 +104,9 @@ class Model(tf.keras.Model):
                 name=name,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
-                kernel_regularizer=tf.keras.regularizers.l2(l2=kernel_reg_amp),
-                bias_regularizer=tf.keras.regularizers.l2(l2=bias_reg_amp),
-                data_format="channel_last"
+                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+                data_format="channels_last"
             ))
         self.gru1 = ConvGRU(**hyperparameters["Recurrent Block"]["GRU_1"])
         self.gru2 = ConvGRU(**hyperparameters["Recurrent Block"]["GRU_2"])
@@ -113,9 +115,9 @@ class Model(tf.keras.Model):
             name="Hidden_Conv_1",
             activation=tf.keras.layers.LeakyReLU(),
             padding="same",
-            kernel_regularizer=tf.keras.regularizers.l2(l2=kernel_reg_amp),
-            bias_regularizer=tf.keras.regularizers.l2(l2=bias_reg_amp),
-            data_format="channel_last"
+            kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+            data_format="channels_last"
         )
 
     def call(self, xt, ht, grad):
@@ -144,24 +146,29 @@ class Model(tf.keras.Model):
         for layer in self.transposed_convolution_block:
             delta_xt = layer(delta_xt)
         xt_1 = xt + delta_xt
+        # softmax or sigmoid
         new_state = tf.concat([ht_1, ht_2], axis=3)
         return xt_1, new_state
 
 
 class RIM:
-    def __init__(self, hyperparameters, dtype=dtype):
+    def __init__(self, mask_coordinates, hyperparameters, dtype=dtype, weight_file=None):
         self._dtype = dtype
+        self.hyperparameters = hyperparameters
         self.channels = hyperparameters["channels"]
         self.pixels = hyperparameters["pixels"]
         self.steps = hyperparameters["steps"]
         self.state_size = hyperparameters["state_size"]
         self.state_depth = hyperparameters["state_depth"]
         self.model = Model(hyperparameters, dtype=self._dtype)
+        if weight_file is not None:
+            self.model.load_weights(weight_file)
         self.batch_norm = tf.keras.layers.BatchNormalization(axis=-1)  # Setting for channels last
         self.physical_model = PhysicalModel(
+            mask_coordinates=mask_coordinates,
             pixels=self.pixels,
-            visibility_noise=hyperparameters["visibility_noise"],
-            cp_noise=hyperparameters["closure_phase_noise"]
+            visibility_noise=hyperparameters["Physical Model"]["Visibility Noise"],
+            cp_noise=hyperparameters["Physical Model"]["Closure Phase Noise"]
         )
 
     def call(self, X):
@@ -187,13 +194,14 @@ class RIM:
                 likelihood = self.log_likelihood(xt, X)
             grad = self.batch_norm(g.gradient(likelihood, xt), training=True)
             xt, ht = self.model(xt, ht, grad)
-            outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
+            outputs = tf.concat([outputs, tf.reshape(xt, xt   .shape + [1])], axis=4)
+        # sigmoid --> prevent negative pixels
         return outputs
 
     def predict(self, X):
 
         """
-        Returns a reconstructted image from interferometric data.
+        Returns the reconstructed images from interferometric data.
 
         :param X: Vector of complex visibilities amplitude and closure phases
         :return: 4D Tensor of shape (batch_size, [image_size, channels])
@@ -215,7 +223,7 @@ class RIM:
             grad = self.batch_norm(g.gradient(likelihood, xt), training=False)
             xt, ht = self.model(xt, ht, grad)
             outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
-        return outputs[:, :, :, :, -1]  # only returns the last step of the prediction
+        return outputs
 
     def init_hidden_states(self, batch_size):
         return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype)
@@ -237,19 +245,72 @@ class RIM:
         yhat = self.physical_model.physical_model(xt)
         return 0.5 * tf.math.reduce_sum(tf.square(y - yhat)) / self.physical_model.error_tensor**2
 
-    def fit(self, epochs, dataset, cost_function):
+    def fit(
+            self,
+            train_dataset,
+            cost_function,
+            max_time,
+            patience=10,
+            checkpoints=5,
+            min_delta=0,
+            max_epochs=1000,
+            test_dataset=None,
+            output_dir=None,
+            checkpoint_dir=None
+    ):
+        """
+
+        :param train_dataset:
+        :param cost_function:
+        :param max_time: Maximum time allowed for training in hours
+        :param patience:
+        :param min_delta:
+        :param max_epochs:
+        :param test_dataset:
+        :return: loss_history
+        """
         optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
         start = time.time()
-        for epoch in range(epochs):
-            for X, Y in dataset:  # X and Y by ML convention
+        epoch = 1
+        history = {"train_loss": [], "test_loss": []}
+        min_loss = np.inf
+        epoch_loss = tf.metrics.Mean()
+        _patience = patience
+        while _patience > 0 and epoch < max_epochs and (time.time() - start) < max_time*3600:
+            epoch_loss.reset_states()
+            for batch, (X, Y) in train_dataset:  # X and Y by ML convention, batch is an index
+                batch = batch.numpy()[0]
                 with tf.GradientTape() as tape:
                     tape.watch(self.model.trainable_weights)
                     output = self.call(X)
                     cost_value = cost_function(output, Y)
                     cost_value += tf.reduce_sum(self.model.losses)  # Add layer specific regularizer losses (L2 in definitions)
+                epoch_loss.update_state([cost_value])
                 gradient = tape.gradient(cost_value, self.model.trainable_weights)
-                clipped_gradient, _ = tf.clip_by_norm(gradient, clip_norm=10, axes=[1])  # prevent exploding gradients
+                clipped_gradient, _ = tf.clip_by_global_norm(gradient, clip_norm=10)  # prevent exploding gradients
                 optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
+            history["train_loss"].append(epoch_loss.result().numpy())
+            if test_dataset is not None:
+                test_output = self.predict(X)
+                test_cost = cost_function(test_output, Y)
+                test_cost += tf.reduce_sum(self.model.losses)
+                history["test_loss"].append([test_cost])
+            if output_dir is not None:
+                save_output(output, output_dir, epoch, batch)
+            if checkpoint_dir is not None:
+                if epoch % checkpoints == 0:
+                    self.model.save_weights(os.path.join(checkpoint_dir, f"rim_{epoch:03}_{cost_value:.5f}.h5"))
+            if cost_value < min_loss - min_delta:
+                _patience = patience
+                min_loss = cost_value
+            else:
+                _patience -= 1
+            epoch += 1
+        if "epoch" in self.hyperparameters.keys():
+            self.hyperparameters["epoch"] += epoch
+        else:
+            self.hyperparameters["epoch"] = epoch
+        return history
 
 
 class CostFunction(tf.keras.losses.Loss):
@@ -263,7 +324,7 @@ class CostFunction(tf.keras.losses.Loss):
         # elif len(cost_weights) != steps:
         #     raise IndexError("cost_weights must be a list of length steps ")
 
-    def call(self, x_true, x_preds):
+    def call(self, X, Y):
         """
         Dimensions are
         0: batch_size
@@ -274,17 +335,17 @@ class CostFunction(tf.keras.losses.Loss):
         :param x_true: 4D tensor to be compared with x_preds
         :param x_preds: 5D tensor output of the call method
         :return:
-        """
-        x_true_ = tf.reshape(x_true, (x_true.shape + [1]))
-        cost = tf.reduce_sum(tf.square(x_true_ - x_preds), axis=[1, 2, 3])  # Sum over pixels
+        """ # TODO MSE on log of pixels
+        Y_ = tf.reshape(Y, (Y.shape + [1]))
+        cost = tf.reduce_sum(tf.square(Y_ - X), axis=[1, 2, 3])  # Sum over pixels
         cost = tf.reduce_sum(cost, axis=1)  # Sum over time steps (this one could be weighted)
-        cost = tf.reduce_sum(cost, axis=0)  # Sum over the batch
+        cost = tf.reduce_sum(cost, axis=0)/cost.shape[0]  # Mean over the batch
         return cost
 
 
 class PhysicalModel(object):
 
-    def __init__(self, coord_file, pixels, visibility_noise, cp_noise):
+    def __init__(self, mask_coordinates, pixels, visibility_noise, cp_noise):
         """
         :param coord_file: Numpy array with coordinates of holes in non-redundant mask (in meters)
         :param pixels: Number of pixel on the side of a square camera
@@ -295,7 +356,7 @@ class PhysicalModel(object):
         self.pixels = pixels
         self.visibility_noise = visibility_noise
         self.cp_noise = cp_noise
-        bs = kpi(file=coord_file, bsp_mat='sparse')
+        bs = kpi(mask=mask_coordinates, bsp_mat='sparse')
 
         ## create p2vm matrix
 

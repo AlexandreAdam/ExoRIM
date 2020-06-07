@@ -40,23 +40,17 @@ class kpi(object):
     well as for other purposes, such as wavefront sensing.
     ----------------------------------------------------------------------- '''
 
-    name = "" # default array name. Should be descriptive of the array geometry
 
     # =========================================================================
     # =========================================================================
 
-    def __init__(self, file, bsp_mat='sparse', verbose=False, ns=3):
+    def __init__(self, mask, bsp_mat='sparse', verbose=False, ns=3):
         '''
         :param file: Coordinate of apertures .txt form
         :param bsp_mat: Bispectrum matrix format
         :param ns: Number of samples, set < 2 if undersampled data
-        '''
 
-        print('Creating from coordinate file')
-        self.from_coord_file(file, bsp_mat=bsp_mat, verbose=verbose, ns=ns)
-
-    def from_coord_file(self, file, array_name="", bsp_mat='sparse', verbose=False, ns=3):
-        ''' Creation of the KerPhase_Relation object from a pupil mask file:
+        Creation of the KerPhase_Relation object from a pupil mask file:
 
         ----------------------------------------------------------------
         This is the core function of this class, really...
@@ -66,9 +60,11 @@ class kpi(object):
         the intermediate products that lead to the kernel-phase matrix 
         KerPhi are calculated.
                                 
-      Set Ns < 2 for undersampled data [AL, 20.02.2014]
-        ---------------------------------------------------------------- '''
-        self.mask = 1.0 * np.loadtxt(file) # sub-Ap. coordinate files 
+        Set Ns < 2 for undersampled data [AL, 20.02.2014]
+        ----------------------------------------------------------------
+        '''
+        array_name = ""  # default array name. Should be descriptive of the array geometry
+        self.mask = mask
         self.nbh  = self.mask.shape[0]   # number of sub-Ap
 
         ndgt = 6 # number of digits of precision for rounding

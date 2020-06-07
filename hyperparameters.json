@@ -2,7 +2,7 @@
 		"steps": 12,
 		"pixels": 32,
 		"channels": 1,
-		"state_size": 8,
+		"state_size": 16,
 		"state_depth": 32,
 		"Regularizer Amplitude": {
 				"kernel": 0.01,
@@ -11,19 +11,19 @@
 		},
 		"Physical Model": {
 				"Visibility Noise": 1e-4,
-				"closure phase noise": 1e-5
+				"Closure Phase Noise": 1e-5
 		},
 		"Downsampling Block": [
 				{"Conv_Downsample": {
-						"kernel_size": [3, 3],
-						"filters": 16,
+						"kernel_size": [5, 5],
+						"filters": 1,
 						"strides": [2, 2]
 				}}
 		],
 		"Convolution Block": [
 				{"Conv_1": {
 						"kernel_size": [3, 3],
-						"filters": 16,
+						"filters": 8,
 						"strides": [1, 1]
 				}},
 				{"Conv_2": {
@@ -56,12 +56,12 @@
 		"Transposed Convolution Block": [
 				{"TConv_1": {
 						"kernel_size": [3, 3],
-						"filters": 16,
+						"filters": 8,
 						"strides": [1, 1] 
 				}},
 				{"TConv_2": {
 						"kernel_size": [3, 3],
-						"filters": 16,
+						"filters": 1,
 						"strides": [1, 1] 
 				}}
 		]
