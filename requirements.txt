@@ -9,3 +9,4 @@ tensorflow-gpu
 astropy
 #poppy==0.9.0
 matplotlib
+Pillow>=7.0.0
