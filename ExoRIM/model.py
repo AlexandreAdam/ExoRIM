@@ -256,6 +256,7 @@ class RIM:
             max_epochs=1000,
             test_dataset=None,
             output_dir=None,
+            output_save_mod=50,
             checkpoint_dir=None
     ):
         """
@@ -279,7 +280,7 @@ class RIM:
         while _patience > 0 and epoch < max_epochs and (time.time() - start) < max_time*3600:
             epoch_loss.reset_states()
             for batch, (X, Y) in train_dataset:  # X and Y by ML convention, batch is an index
-                batch = batch.numpy()[0]
+                batch = batch.numpy()
                 with tf.GradientTape() as tape:
                     tape.watch(self.model.trainable_weights)
                     output = self.call(X)
@@ -289,14 +290,16 @@ class RIM:
                 gradient = tape.gradient(cost_value, self.model.trainable_weights)
                 clipped_gradient, _ = tf.clip_by_global_norm(gradient, clip_norm=10)  # prevent exploding gradients
                 optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
+                if output_dir is not None:
+                    save_output(output, output_dir, epoch, batch, output_save_mod)
             history["train_loss"].append(epoch_loss.result().numpy())
             if test_dataset is not None:
-                test_output = self.predict(X)
-                test_cost = cost_function(test_output, Y)
-                test_cost += tf.reduce_sum(self.model.losses)
-                history["test_loss"].append([test_cost])
-            if output_dir is not None:
-                save_output(output, output_dir, epoch, batch)
+                for X, Y in test_dataset:
+                    test_output = self.predict(X)
+                    test_cost = cost_function(test_output, Y)
+                    test_cost += tf.reduce_sum(self.model.losses)
+                    history["test_loss"].append([test_cost])
+
             if checkpoint_dir is not None:
                 if epoch % checkpoints == 0:
                     self.model.save_weights(os.path.join(checkpoint_dir, f"rim_{epoch:03}_{cost_value:.5f}.h5"))
@@ -336,10 +339,13 @@ class CostFunction(tf.keras.losses.Loss):
         :param x_preds: 5D tensor output of the call method
         :return:
         """ # TODO MSE on log of pixels
+        batch_size = X.shape[0]
+        pixels = X.shape[1] * X.shape[2] * X.shape[3]
+        steps = X.shape[4]
         Y_ = tf.reshape(Y, (Y.shape + [1]))
-        cost = tf.reduce_sum(tf.square(Y_ - X), axis=[1, 2, 3])  # Sum over pixels
-        cost = tf.reduce_sum(cost, axis=1)  # Sum over time steps (this one could be weighted)
-        cost = tf.reduce_sum(cost, axis=0)/cost.shape[0]  # Mean over the batch
+        cost = tf.reduce_sum(tf.square(Y_ - X), axis=[1, 2, 3])/pixels  # Sum over pixels
+        cost = tf.reduce_sum(cost, axis=1)/steps  # Sum over time steps (this one could be weighted)
+        cost = tf.reduce_sum(cost, axis=0)/batch_size  # Mean over the batch
         return cost
 
 
