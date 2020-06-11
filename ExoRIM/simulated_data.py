@@ -128,3 +128,92 @@ class CenteredImagesv1:
             coords[i].extend(np.random.choice(pool, size=(nps, 2)).tolist())
         return coords
 
+
+class OffCenteredBinaries:
+    """
+    This class create the meta data for a dataset composed of randomly placed binary objects (gaussian blob).
+    """
+    def __init__(
+            self,
+            total_items=1000,
+            seed=42,
+            channels=1,
+            pixels=32,
+            highest_contrast=0.95,
+            max_width=5  # in pixels
+    ):
+        np.random.seed(seed)
+        self.total_items = total_items
+        self.pixels = pixels
+        self.highest_contrast = highest_contrast
+        self.max_width = max_width
+
+        self.coordinates = self._coordinates()
+        self.widths = self._widths()
+        self.intensities = self._intensities()
+
+    def gaussian_psf_convolution(self, sigma, intensity, xp=0, yp=0):
+        """
+        #TODO make the unit conversion between pixel, arcsec and meters in image plane explicit in this function
+        :param xp: x coordinates of the points sources in meter (should be list of numpy array)
+        :param yp: y coordinates of the points sources in meter ("")
+        :param intensities: intensity of the point source, should be in watt per meter squared
+        :param sigma: radius of the point source image
+        :return: Image plane field, normalized
+        """
+        image_coords = np.arange(self.pixels) - self.pixels / 2.
+        xx, yy = np.meshgrid(image_coords, image_coords)
+        image = np.zeros_like(xx)
+        rho_squared = (xx - xp) ** 2 + (yy - yp) ** 2
+        image += intensity / (sigma * np.sqrt(2. * np.pi)) * np.exp(-0.5 * (rho_squared / sigma ** 2))
+        image = self.normalize(image)
+        return image
+
+    def generate_epoch_images(self):
+        """
+
+        :return: image tensor of size (total_items, pixels, pixels)
+        """
+        images = np.zeros(shape=(self.total_items, self.pixels, self.pixels, 1))  # one channel
+        for i in range(self.total_items):
+            for j in range(2):
+                images[i, :, :, 0] += self.gaussian_psf_convolution(
+                    self.widths[i][j],
+                    self.intensities[i][j],
+                    *self.coordinates[i][j]
+                )
+            images[i, :, :, 0] = self.normalize(images[i, :, :, 0])
+        return images
+
+    @staticmethod
+    def normalize(image):
+        return (image - image.min()) / (image.max() - image.min())
+    
+    def _coordinates(self):
+        """
+        :return: list of coordinate arrays [[(xp0, yp0), (xp1, yp1)], ...]
+        """
+        coords = [[] for _ in range(self.total_items)]
+        max_pixel = self.pixels//2 - self.max_width - 3
+        # Leave a pad of 3 black pixels to remove information at the edge of the picture
+        pool = np.arange(-max_pixel, max_pixel)
+        for i in range(self.total_items):
+            coords[i].extend(np.random.choice(pool, size=(2, 2)).tolist())
+        return coords
+    
+    def _widths(self):
+        """
+        :return: list of widths arrays [[w0, w1], ...]
+        """
+        widths = [[] for _ in range(self.total_items)]
+        for i in range(self.total_items):
+            widths[i].append(np.random.uniform(1, self.max_width, size=2).tolist())
+        return widths
+
+    def _intensities(self):
+        """
+
+        :return: list of intensity of the center point [[1, 1 - contrast]]
+        """
+        contrast = np.random.random(size=self.total_items) * self.highest_contrast
+        return [[1, 1 - c] for c in contrast]

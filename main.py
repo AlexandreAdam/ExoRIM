@@ -1,14 +1,14 @@
 from ExoRIM.model import RIM, CostFunction
 from ExoRIM.simulated_data import CenteredImagesv1
-from preprocessing.simulate_data import create_and_save_data
+from .preprocessing.simulate_data import create_and_save_data
 from argparse import ArgumentParser
 from datetime import datetime
+from PIL import Image
 import tensorflow as tf
 import numpy as np
 import json
 import tarfile
 import os, glob
-
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
@@ -19,13 +19,13 @@ def create_datasets(meta_data, rim, dirname, batch_size=None):
     X = tf.data.Dataset.from_tensor_slices(k_images)  # split along batch dimension
     Y = tf.data.Dataset.from_tensor_slices(images)
     dataset = tf.data.Dataset.zip((X, Y))
-    if batch_size is not None:
+    if batch_size is not None: # for train set
         dataset = dataset.batch(batch_size, drop_remainder=True)
         dataset = dataset.enumerate(start=0)
         dataset = dataset.cache()  # accelerate the second and subsequent iterations over the dataset
         dataset = dataset.prefetch(AUTOTUNE)  # Batch is prefetched by CPU while training on the previous batch occurs
     else:
-        # batch together all examples
+        # batch together all examples, for test set
         dataset = dataset.batch(images.shape[0], drop_remainder=True)
         dataset = dataset.cache()
     return dataset
@@ -66,9 +66,11 @@ if __name__ == "__main__":
     os.mkdir(results_dir)
     models_dir = os.path.join(basedir, "models", date)
     os.mkdir(models_dir)
-    train_dir = os.path.join(basedir, "data", date+"_train")
+    data_dir = os.path.join(basedir, "data", date)
+    os.mkdir(data_dir)
+    train_dir = os.path.join(data_dir, "train")
     os.mkdir(train_dir)
-    test_dir = os.path.join(basedir, "data", date+"_test")
+    test_dir = os.path.join(data_dir, "test")
     os.mkdir(test_dir)
 
     train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch)
@@ -91,9 +93,12 @@ if __name__ == "__main__":
     np.savetxt(os.path.join(results_dir, "test_loss.txt"), history["test_loss"])
     with open(os.path.join(models_dir, "hyperparameters.json"), "w") as f:
         json.dump(rim.hyperparameters, f)
-    with tarfile.open(os.path.join(results_dir, "outputs.tar.gz"), "x:gz") as tar:
-        for file in glob.glob(os.path.join(results_dir, "*.png")):
+    with tarfile.open(os.path.join(data_dir, "data.tar.gz"), "x:gz") as tar:
+        for file in glob.glob(os.path.join(data_dir, "*")):
             tar.add(file)
-    with tarfile.open(os.path.join(models_dir, "checkpoints.tar.gz"), "x:gz") as tar:
-        for file in glob.glob(os.path.join(models_dir, "*.h5")):
+    with tarfile.open(os.path.join(results_dir, "results.tar.gz"), "x:gz") as tar:
+        for file in glob.glob(os.path.join(results_dir, "*")):
+            tar.add(file)
+    with tarfile.open(os.path.join(models_dir, "models.tar.gz"), "x:gz") as tar:
+        for file in glob.glob(os.path.join(models_dir, "*")):
             tar.add(file)

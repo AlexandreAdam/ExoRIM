@@ -14,9 +14,6 @@ def create_and_save_data(datadir, meta_data):
         im.save(os.path.join(datadir, f"image{i:03}.png"))
     with open(os.path.join(datadir, "meta_data.pickle"), "wb") as f:
         pickle.dump(meta_data, f)
-    with tarfile.open(os.path.join(datadir, "images.tar.gz"), "x:gz") as tar:
-        for file in glob.glob(os.path.join(datadir, "*.png")):
-            tar.add(file)
     return images
 
 
@@ -42,4 +39,7 @@ if __name__ == "__main__":
     if not os.path.isdir(datadir):
         os.mkdir(datadir)
     create_and_save_data(datadir, meta_data)
+    with tarfile.open(os.path.join(datadir, "images.tar.gz"), "x:gz") as tar:
+        for file in glob.glob(os.path.join(datadir, "*.png")):
+            tar.add(file)
 

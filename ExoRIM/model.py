@@ -146,6 +146,7 @@ class Model(tf.keras.Model):
         for layer in self.transposed_convolution_block:
             delta_xt = layer(delta_xt)
         xt_1 = xt + delta_xt
+        xt_1 = tf.sigmoid(xt_1)  # Link function to normalize output
         # softmax or sigmoid
         new_state = tf.concat([ht_1, ht_2], axis=3)
         return xt_1, new_state
