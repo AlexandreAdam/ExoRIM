@@ -1,9 +1,31 @@
 from numpy.random import choice as choose
+from sklearn.model_selection import LeaveOneOut
+from ExoRIM.definitions import dtype
 import numpy as np
+import tensorflow as tf
 
 
-def gridsearchV1(model_trained):
+def leave_one_out_splits(X, Y, n, batch_size):
+    """
+
+    :param X: numpy arrays of input data
+    :param Y: numpy array of ground truth for the input data
+    :param n: Number of splits
+    :return: a train_dataset and a test_dataset the way the RIM.fit method expect them
+    """
+    for train_index, test_index in LeaveOneOut().split(X, Y, n):
+        X_train, X_test = tf.data.dataset.from_tensor_slices(X[train_index, ...]), tf.data.Dataset.from_tensors(X[test_index, ...])
+        Y_train, Y_test = tf.data.dataset.from_tensor_slices(Y[train_index, ...]), tf.data.dataset.from_tensors(Y[test_index, ...])
+        train_dataset = tf.data.Dataset.zip((X_train, Y_train))
+        test_dataset = tf.data.Dataset.zip((X_test, Y_test)).cache().prefetch(tf.data.experimental.AUTOTUNE)
+        train_dataset = train_dataset.batch(batch_size, drop_remainder=True).enumerate(start=0).cache().prefetch(tf.data.experimental.AUTOTUNE)
+        yield train_dataset, test_dataset
+
+
+
+def hparams_for_gridsearchV1(model_trained):
     for i in range(model_trained):
+        holes = choose([10, 20, 30, 40, 50, 60])
         state_depth = choose([2, 4, 8, 16, 32, 64])
         pixels = 32  # Eventually think about more pixels and adjust code for it --> performance challenge
         channels = 1

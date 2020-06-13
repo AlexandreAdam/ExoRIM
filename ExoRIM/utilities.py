@@ -1,9 +1,18 @@
 import numpy as np
 import tensorflow as tf
 from PIL import Image
-import os, glob
-import tarfile
+import os
+import pickle
 
+
+def save_physical_model_projectors(filename, physical_model):
+    arrays = {
+        "cos_projector": physical_model.cos_projector,
+        "sin_projector": physical_model.sin_projector,
+        "bispectra_projector": physical_model.bispectra_projector
+    }
+    with open(filename, "wb") as f:
+        pickle.dump(arrays, f)
 
 
 def convert_to_8_bit(image):

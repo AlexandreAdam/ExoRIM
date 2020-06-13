@@ -344,7 +344,7 @@ class CostFunction(tf.keras.losses.Loss):
         pixels = X.shape[1] * X.shape[2] * X.shape[3]
         steps = X.shape[4]
         Y_ = tf.reshape(Y, (Y.shape + [1]))
-        cost = tf.reduce_sum(tf.square(Y_ - X), axis=[1, 2, 3])/pixels  # Sum over pixels
+        cost = tf.reduce_sum(tf.square(Y_ - X), axis=[1, 2, 3])
         cost = tf.reduce_sum(cost, axis=1)/steps  # Sum over time steps (this one could be weighted)
         cost = tf.reduce_sum(cost, axis=0)/batch_size  # Mean over the batch
         return cost
@@ -352,42 +352,48 @@ class CostFunction(tf.keras.losses.Loss):
 
 class PhysicalModel(object):
 
-    def __init__(self, mask_coordinates, pixels, visibility_noise, cp_noise):
+    def __init__(self, mask_coordinates, pixels, visibility_noise, cp_noise, arrays=None):
         """
-        :param coord_file: Numpy array with coordinates of holes in non-redundant mask (in meters)
+        :param mask_coordinates: Numpy array with coordinates of holes in non-redundant mask (in meters)
         :param pixels: Number of pixel on the side of a square camera
         :param visibility_noise: Standard deviation of the visibilty amplitude squared
         :param cp_noise: Standard deviation of the closure phases
+        :param arrays: initialize from saved tensor instead of computing kpi.
         """
         print('initializing Phys_Mod')
         self.pixels = pixels
         self.visibility_noise = visibility_noise
         self.cp_noise = cp_noise
-        bs = kpi(mask=mask_coordinates, bsp_mat='sparse')
+        if arrays is not None:
+            self.cos_projector = tf.constant(arrays["cos_projector"], dtype=dtype)
+            self.sin_projector = tf.constant(arrays["sin_projector"], dtype=dtype)
+            self.bispectra_projector = tf.constant(arrays["bispectra_projector"], dtype=dtype)
+        else:
+            bs = kpi(mask=mask_coordinates, bsp_mat='sparse')
 
-        ## create p2vm matrix
+            ## create p2vm matrix
 
-        x = np.arange(self.pixels)
-        xx, yy = np.meshgrid(x, x)
+            x = np.arange(self.pixels)
+            xx, yy = np.meshgrid(x, x)
 
-        p2vm_sin = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
+            p2vm_sin = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
 
-        #TODO change this for FFT, might be too slow
-        for j in range(bs.uv.shape[0]):
-            p2vm_sin[j, :] = np.ravel(np.sin(2*np.pi*(xx * bs.uv[j, 0] + yy * bs.uv[j, 1])))
+            #TODO change this for FFT, might be too slow
+            for j in range(bs.uv.shape[0]):
+                p2vm_sin[j, :] = np.ravel(np.sin(2*np.pi*(xx * bs.uv[j, 0] + yy * bs.uv[j, 1])))
 
-        p2vm_cos = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
+            p2vm_cos = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
 
-        for j in range(bs.uv.shape[0]):
-            p2vm_cos[j, :] = np.ravel(np.cos(2*np.pi*(xx * bs.uv[j, 0] + yy * bs.uv[j, 1])))
+            for j in range(bs.uv.shape[0]):
+                p2vm_cos[j, :] = np.ravel(np.cos(2*np.pi*(xx * bs.uv[j, 0] + yy * bs.uv[j, 1])))
 
-        # create tensor to hold cosine and sine projection operators
-        self.cos_projector = tf.constant(p2vm_cos.T, dtype=dtype)
-        self.sin_projector = tf.constant(p2vm_sin.T, dtype=dtype)
-        self.bispectra_projector = tf.constant(bs.uv_to_bsp.T, dtype=dtype)
+            # create tensor to hold cosine and sine projection operators
+            self.cos_projector = tf.constant(p2vm_cos.T, dtype=dtype)
+            self.sin_projector = tf.constant(p2vm_sin.T, dtype=dtype)
+            self.bispectra_projector = tf.constant(bs.uv_to_bsp.T, dtype=dtype)
 
-        vis2s = np.zeros(p2vm_cos.shape[0])
-        closure_phases = np.zeros(bs.uv_to_bsp.shape[0])
+        vis2s = np.zeros(self.cos_projector.shape[0])
+        closure_phases = np.zeros(self.bispectra_projector.shape[0])
         self.vis2s_tensor = tf.constant(vis2s, dtype=dtype)
         self.cp_tensor = tf.constant(closure_phases, dtype=dtype)
         self.data_tensor = tf.concat([self.vis2s_tensor, self.cp_tensor], 0)

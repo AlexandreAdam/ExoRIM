@@ -1,9 +1,9 @@
 from ExoRIM.model import RIM, CostFunction
 from ExoRIM.simulated_data import CenteredImagesv1
+from ExoRIM.utilities import save_physical_model_projectors
 from .preprocessing.simulate_data import create_and_save_data
 from argparse import ArgumentParser
 from datetime import datetime
-from PIL import Image
 import tensorflow as tf
 import numpy as np
 import json
@@ -91,6 +91,8 @@ if __name__ == "__main__":
     )
     np.savetxt(os.path.join(results_dir, "train_loss.txt"), history["train_loss"])
     np.savetxt(os.path.join(results_dir, "test_loss.txt"), history["test_loss"])
+    np.savetxt(os.path.join(data_dir, "mask_coordinates.txt"), mask_coordinates)
+    save_physical_model_projectors(os.path.join(models_dir, "physical_model_projectors.pickle"), rim.physical_model)
     with open(os.path.join(models_dir, "hyperparameters.json"), "w") as f:
         json.dump(rim.hyperparameters, f)
     with tarfile.open(os.path.join(data_dir, "data.tar.gz"), "x:gz") as tar:
