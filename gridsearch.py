@@ -45,6 +45,10 @@ if __name__ == "__main__":
         total_items=args.number_images,
         pixels=32
     )
+    # meta_data = OffCenteredBinaries(
+    #     total_items=args.number_images,
+    #     pixels=32
+    # )
 
     # metrics only support grey scale images
     metrics = {
@@ -65,12 +69,9 @@ if __name__ == "__main__":
                                                                               filter_size=11,
                                                                               power_factors=[0.2363, 0.1333])
     }
-    # meta_data = OffCenteredBinaries(
-    #     total_items=args.number_images,
-    #     pixels=32
-    # )
 
     Y = tf.convert_to_tensor(create_and_save_data(data_dir, meta_data), dtype=tf.float32)
+    cost_function = CostFunction()
 
     for hparams in hparams_for_gridsearchV1(args.model_trained):
         hparams_dir = os.path.join(results_dir, f"hparams_{hparams['grid_id']:03}")
@@ -88,7 +89,6 @@ if __name__ == "__main__":
         with open(os.path.join(models_dir, f"hyperparameters_{hparams['grid_id']:03}.json"), "w") as f:
             json.dump(hparams, f)
 
-        cost_function = CostFunction()
 
         # multiprocessing for this would be hard with a GPU since processes would hang up when calling GPU
         # Tensorflow, by default, allocate all the memory of the GPU for the task at hand.
@@ -99,6 +99,7 @@ if __name__ == "__main__":
             os.mkdir(fold_dir)
             # reset the model for each fold
             rim = RIM(mask_coordinates=mask_coordinates, hyperparameters=hparams, arrays=arrays)
+            start = time.time()
             history = rim.fit(
                 train_dataset=train_dataset,
                 test_dataset=test_dataset,
@@ -116,6 +117,9 @@ if __name__ == "__main__":
                 metrics=metrics,
                 name=f"rim_{hparams['grid_id']:03}_{fold:02}"
             )
+            end = time.time() - start
+            nb_epoch_trained = len(history["train_loss"])
+            print(f"Took {end*60:.2f} minutes to train a model for {nb_epoch_trained} epochs")
             for key, item in history.items():
                 np.savetxt(os.path.join(fold_dir, key + ".txt"), item)
             fold += 1
