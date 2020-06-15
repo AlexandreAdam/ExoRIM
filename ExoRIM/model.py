@@ -153,7 +153,7 @@ class Model(tf.keras.Model):
 
 
 class RIM:
-    def __init__(self, mask_coordinates, hyperparameters, dtype=dtype, weight_file=None):
+    def __init__(self, mask_coordinates, hyperparameters, dtype=dtype, weight_file=None, arrays=None):
         self._dtype = dtype
         self.hyperparameters = hyperparameters
         self.channels = hyperparameters["channels"]
@@ -169,10 +169,14 @@ class RIM:
             mask_coordinates=mask_coordinates,
             pixels=self.pixels,
             visibility_noise=hyperparameters["Physical Model"]["Visibility Noise"],
-            cp_noise=hyperparameters["Physical Model"]["Closure Phase Noise"]
+            cp_noise=hyperparameters["Physical Model"]["Closure Phase Noise"],
+            arrays=arrays
         )
 
-    def call(self, X):
+    def __call__(self, X, training=False): # used for prediction
+        return self.call(X, training)
+
+    def call(self, X, training=True): # used for training
         """
         Method used in training to get model predictions.
 
@@ -186,45 +190,18 @@ class RIM:
         with tf.GradientTape() as g:
             g.watch(x0)
             likelihood = self.log_likelihood(x0, X)
-        grad = self.batch_norm(g.gradient(likelihood, x0), training=True)
+        grad = self.batch_norm(g.gradient(likelihood, x0), training=training)
         xt, ht = self.model(x0, h0, grad)
         outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
         for current_step in range(self.steps - 1):
             with tf.GradientTape() as g:
                 g.watch(xt)
                 likelihood = self.log_likelihood(xt, X)
-            grad = self.batch_norm(g.gradient(likelihood, xt), training=True)
+            grad = self.batch_norm(g.gradient(likelihood, xt), training=training)
             xt, ht = self.model(xt, ht, grad)
             outputs = tf.concat([outputs, tf.reshape(xt, xt   .shape + [1])], axis=4)
-        # sigmoid --> prevent negative pixels
         return outputs
 
-    def predict(self, X):
-
-        """
-        Returns the reconstructed images from interferometric data.
-
-        :param X: Vector of complex visibilities amplitude and closure phases
-        :return: 4D Tensor of shape (batch_size, [image_size, channels])
-        """
-        batch_size = X.shape[0]
-        x0 = self.initial_guess(batch_size)
-        h0 = self.init_hidden_states(batch_size)
-        # Compute the gradient through auto-diff since model is highly non-linear
-        with tf.GradientTape() as g:
-            g.watch(x0)
-            likelihood = self.log_likelihood(x0, X)
-        grad = self.batch_norm(g.gradient(likelihood, x0), training=False)  # freeze the learning of Batch Norm
-        xt, ht = self.model(x0, h0, grad)
-        outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
-        for current_step in range(self.steps - 1):
-            with tf.GradientTape() as g:
-                g.watch(xt)
-                likelihood = self.log_likelihood(xt, X)
-            grad = self.batch_norm(g.gradient(likelihood, xt), training=False)
-            xt, ht = self.model(xt, ht, grad)
-            outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
-        return outputs
 
     def init_hidden_states(self, batch_size):
         return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype)
@@ -251,35 +228,65 @@ class RIM:
             train_dataset,
             cost_function,
             max_time,
+            metrics=None,
             patience=10,
             checkpoints=5,
             min_delta=0,
             max_epochs=1000,
             test_dataset=None,
             output_dir=None,
-            output_save_mod=50,
-            checkpoint_dir=None
+            output_save_mod=None,
+            checkpoint_dir=None,
+            name="rim"
     ):
         """
+        This function trains the weights of the model on the training dataset, which should be a
+        tensorflow Dataset class created from zipping X and Y tensors into one dataset. This dataset should have
+        been initialised with the enumerate method and batch method. For better performance, use chache and prefetch.
+        :param train_dataset: A tensorflow dataset created from zipping X and Y, initialised with batch and enumerate(start=0)
+        :param cost_function: target for the training
+        :param max_time: Time allowed for training in hours
+        :param metrics: A dictionary with metric functions as items that take (Y_pred, Y_true) as input
+        :param patience: An integer, the maximum number of epoch without improvement before terminating fit
+        :param checkpoints: An integer, correspond to the mod of the epoch at which point the weights are saved
+        :param min_delta: This compares loss between epochs; it judges if the loss has been improved if loss - previous_loss <min_delta
+        :param max_epochs: Maximum number of epochs allowed
+        :param test_dataset: A tensorflow dataset created from zipping X_test and Y_test. Should not be batched (or batch_size = num_samples)
+        :param output_dir: directory to store output of the model
+        :param output_save_mod: dictionary of the form
+            output_save_mod = {
+                "index_mod": 25,
+                "epoch_mod": 1,
+                "step_mod": 1
+            },
+            each entry correspond to a particula output to be saved. This examples saves the output at
+            each epoch and saves each steps, but ouly saves 1 image per 25 in the dataset. This particular
+            examples can produces an enourmous amount of pictures if the user is not careful.
 
-        :param train_dataset:
-        :param cost_function:
-        :param max_time: Maximum time allowed for training in hours
-        :param patience:
-        :param min_delta:
-        :param max_epochs:
-        :param test_dataset:
-        :return: loss_history
+        :param checkpoint_dir: Directory where to save the weights
+        :param name: Name of the model
+        :return: history, a dictionary with loss and metrics score at each epoch
         """
+        if metrics is None:
+            metrics = {}
+        if output_save_mod is None and output_dir is not None:
+            output_save_mod = {
+                "index_mod": 1,
+                "epoch_mod": 1,
+                "step_mod": 1
+            },
         optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
         start = time.time()
         epoch = 1
         history = {"train_loss": [], "test_loss": []}
+        history.update({key + "_train": [] for key in metrics.keys()})
+        history.update({key + "_test": [] for key in metrics.keys()})
         min_loss = np.inf
         epoch_loss = tf.metrics.Mean()
         _patience = patience
         while _patience > 0 and epoch < max_epochs and (time.time() - start) < max_time*3600:
             epoch_loss.reset_states()
+            metrics_train = {key: 0 for key in metrics.keys()}
             for batch, (X, Y) in train_dataset:  # X and Y by ML convention, batch is an index
                 batch = batch.numpy()
                 with tf.GradientTape() as tape:
@@ -292,28 +299,30 @@ class RIM:
                 clipped_gradient, _ = tf.clip_by_global_norm(gradient, clip_norm=10)  # prevent exploding gradients
                 optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
                 if output_dir is not None:
-                    save_output(output, output_dir, epoch, batch, output_save_mod)
+                    save_output(output, output_dir, epoch, batch, **output_save_mod)
+                for key, item in metrics_train.items():
+                    metrics_train[key] += tf.math.reduce_mean(metrics[key](output[..., -1], Y)).numpy()
+            for key, item in metrics_train.items():
+                history[key + "_train"].append(item/(batch + 1))
             history["train_loss"].append(epoch_loss.result().numpy())
             if test_dataset is not None:
-                for X, Y in test_dataset:
-                    test_output = self.predict(X)
+                for X, Y in test_dataset: # this dataset should not be batched, so this for loop has 1 iteration
+                    test_output = self.call(X, training=True)  # investigate why predict returns NaN scores and output
                     test_cost = cost_function(test_output, Y)
                     test_cost += tf.reduce_sum(self.model.losses)
-                    history["test_loss"].append([test_cost])
+                    history["test_loss"].append(test_cost.numpy())
+                    for key, item in metrics.items():
+                        history[key + "_test"].append(tf.math.reduce_mean(item(test_output[..., -1], Y)).numpy())
 
-            if checkpoint_dir is not None:
-                if epoch % checkpoints == 0:
-                    self.model.save_weights(os.path.join(checkpoint_dir, f"rim_{epoch:03}_{cost_value:.5f}.h5"))
             if cost_value < min_loss - min_delta:
                 _patience = patience
                 min_loss = cost_value
             else:
                 _patience -= 1
+            if checkpoint_dir is not None:
+                if epoch % checkpoints == 0 or _patience == 0 or epoch == max_epochs - 1:
+                    self.model.save_weights(os.path.join(checkpoint_dir, f"{name}_{epoch:03}_{cost_value:.5f}.h5"))
             epoch += 1
-        if "epoch" in self.hyperparameters.keys():
-            self.hyperparameters["epoch"] += epoch
-        else:
-            self.hyperparameters["epoch"] = epoch
         return history
 
 
@@ -360,7 +369,6 @@ class PhysicalModel(object):
         :param cp_noise: Standard deviation of the closure phases
         :param arrays: initialize from saved tensor instead of computing kpi.
         """
-        print('initializing Phys_Mod')
         self.pixels = pixels
         self.visibility_noise = visibility_noise
         self.cp_noise = cp_noise
@@ -369,6 +377,7 @@ class PhysicalModel(object):
             self.sin_projector = tf.constant(arrays["sin_projector"], dtype=dtype)
             self.bispectra_projector = tf.constant(arrays["bispectra_projector"], dtype=dtype)
         else:
+            print('initializing Phys_Mod')
             bs = kpi(mask=mask_coordinates, bsp_mat='sparse')
 
             ## create p2vm matrix
@@ -392,8 +401,8 @@ class PhysicalModel(object):
             self.sin_projector = tf.constant(p2vm_sin.T, dtype=dtype)
             self.bispectra_projector = tf.constant(bs.uv_to_bsp.T, dtype=dtype)
 
-        vis2s = np.zeros(self.cos_projector.shape[0])
-        closure_phases = np.zeros(self.bispectra_projector.shape[0])
+        vis2s = np.zeros(self.cos_projector.shape[1])
+        closure_phases = np.zeros(self.bispectra_projector.shape[1])
         self.vis2s_tensor = tf.constant(vis2s, dtype=dtype)
         self.cp_tensor = tf.constant(closure_phases, dtype=dtype)
         self.data_tensor = tf.concat([self.vis2s_tensor, self.cp_tensor], 0)
