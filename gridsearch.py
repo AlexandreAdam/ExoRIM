@@ -119,7 +119,7 @@ if __name__ == "__main__":
             )
             end = time.time() - start
             nb_epoch_trained = len(history["train_loss"])
-            print(f"Took {end*60:.2f} minutes to train a model for {nb_epoch_trained} epochs")
+            print(f"Took {end/60:.2f} minutes to train a model for {nb_epoch_trained} epochs")
             for key, item in history.items():
                 np.savetxt(os.path.join(fold_dir, key + ".txt"), item)
             fold += 1
