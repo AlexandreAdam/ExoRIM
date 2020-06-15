@@ -22,7 +22,8 @@ if __name__ == "__main__":
 
     x = np.arange(32)  # 32 pixels
     xx, yy = np.meshgrid(x, x)
-    holes_list = [3, 6, 10] if args.large is False else [20, 30, 40, 50, 60, 100]
+    # Give at least 8 hours for large with a single CPU
+    holes_list = [3, 6, 10] if args.large is False else [50, 60, 100] #[20, 30, 40, 50, 60, 100]
     for holes in holes_list:
         mask_coordinates = np.random.normal(size=(holes, 2))
         bs = kpi(mask=mask_coordinates)
