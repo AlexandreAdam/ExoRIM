@@ -103,6 +103,7 @@ if __name__ == "__main__":
             history = rim.fit(
                 train_dataset=train_dataset,
                 test_dataset=test_dataset,
+                optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
                 max_time=args.training_time,
                 cost_function=cost_function,
                 min_delta=args.min_delta,
@@ -113,7 +114,7 @@ if __name__ == "__main__":
                 max_epochs=args.max_epoch,
                 output_save_mod={"index_mod": args.index_save_mod,
                                  "epoch_mod": args.epoch_save_mod,
-                                 "step_mod": hparams["steps"]}, # save first and last step imagees
+                                 "step_mod": hparams["steps"]}, # save first and last step images
                 metrics=metrics,
                 name=f"rim_{hparams['grid_id']:03}_{fold:02}"
             )

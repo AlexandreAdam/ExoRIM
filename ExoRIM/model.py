@@ -163,6 +163,9 @@ class RIM:
         self.state_depth = hyperparameters["state_depth"]
         self.model = Model(hyperparameters, dtype=self._dtype)
         if weight_file is not None:
+            x = self.initial_guess(1)
+            h = self.init_hidden_states(1)
+            self.model.call(x, h, x)
             self.model.load_weights(weight_file)
         self.batch_norm = tf.keras.layers.BatchNormalization(axis=-1)  # Setting for channels last
         self.physical_model = PhysicalModel(
@@ -199,9 +202,8 @@ class RIM:
                 likelihood = self.log_likelihood(xt, X)
             grad = self.batch_norm(g.gradient(likelihood, xt), training=training)
             xt, ht = self.model(xt, ht, grad)
-            outputs = tf.concat([outputs, tf.reshape(xt, xt   .shape + [1])], axis=4)
+            outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
         return outputs
-
 
     def init_hidden_states(self, batch_size):
         return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype)
@@ -227,6 +229,7 @@ class RIM:
             self,
             train_dataset,
             cost_function,
+            optimizer,
             max_time,
             metrics=None,
             patience=10,
@@ -253,7 +256,7 @@ class RIM:
         :param max_epochs: Maximum number of epochs allowed
         :param test_dataset: A tensorflow dataset created from zipping X_test and Y_test. Should not be batched (or batch_size = num_samples)
         :param output_dir: directory to store output of the model
-        :param output_save_mod: dictionary of the form
+        :param output_save_mod: dictionary in the form
             output_save_mod = {
                 "index_mod": 25,
                 "epoch_mod": 1,
@@ -275,7 +278,6 @@ class RIM:
                 "epoch_mod": 1,
                 "step_mod": 1
             },
-        optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
         start = time.time()
         epoch = 1
         history = {"train_loss": [], "test_loss": []}
