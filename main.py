@@ -79,6 +79,7 @@ if __name__ == "__main__":
     history = rim.fit(
         train_dataset=train_dataset,
         test_dataset=test_dataset,
+        optimizer=tf.keras.optimizers.Adam(learning_raet=1e-4),
         max_time=args.training_time,
         cost_function=cost_function,
         min_delta=args.min_delta,

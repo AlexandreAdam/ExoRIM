@@ -1,9 +1,10 @@
 import numpy as np
 import tensorflow as tf
 from PIL import Image
-import os
+import os, glob
 import pickle
 
+AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 def save_physical_model_projectors(filename, physical_model):
     arrays = {
@@ -25,7 +26,7 @@ def convert_to_float(image):
 
 
 def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod):
-    if epoch % epoch_mod == 0:
+    if epoch % epoch_mod != 0:
         return
     out = output
     if tf.is_tensor(out):
@@ -36,7 +37,7 @@ def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod):
             if image_index % index_mod != 0:
                 continue
             for step in range(output.shape[-1]):
-                if step % step_mod == 0:
+                if step % step_mod != 0:
                     continue
                 image = convert_to_8_bit(out[instance, :, :, 0, step])
                 image = Image.fromarray(image, mode="L")
@@ -50,3 +51,43 @@ def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod):
             image.save(os.path.join(dirname, f"output_{epoch:03}_000_{step:02}.png"))
 
 
+# def create_datasets(meta_data, rim, dirname, batch_size=None):
+#     images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data), dtype=tf.float32)
+#     k_images = rim.physical_model.simulate_noisy_image(images)
+#     X = tf.data.Dataset.from_tensor_slices(k_images)  # split along batch dimension
+#     Y = tf.data.Dataset.from_tensor_slices(images)
+#     dataset = tf.data.Dataset.zip((X, Y))
+#     if batch_size is not None: # for train set
+#         dataset = dataset.batch(batch_size, drop_remainder=True)
+#         dataset = dataset.enumerate(start=0)
+#         dataset = dataset.cache()  # accelerate the second and subsequent iterations over the dataset
+#         dataset = dataset.prefetch(AUTOTUNE)  # Batch is prefetched by CPU while training on the previous batch occurs
+#     else:
+#         # batch together all examples, for test set
+#         dataset = dataset.batch(images.shape[0], drop_remainder=True)
+#         dataset = dataset.cache()
+#     return dataset
+
+
+def load_dataset(dirname, rim, batch_size=None):
+    images = []
+    for file in glob.glob(os.path.join(dirname, "*.png")):
+        with Image.open(file) as image:
+            im = np.array(image.getdata()).reshape([1, image.size[0], image.size[1], 1])
+            images.append(im)
+    images = tf.convert_to_tensor(np.concatenate(images, axis=0))
+    images = convert_to_float(images)
+    k_images = rim.physical_model.simulate_noisy_image(images)
+    X = tf.data.Dataset.from_tensor_slices(k_images)
+    Y = tf.data.Dataset.from_tensor_slices(images)
+    dataset = tf.data.Dataset.zip((X, Y))
+    if batch_size is not None: # for train set
+        dataset = dataset.batch(batch_size, drop_remainder=True)
+        dataset = dataset.enumerate(start=0)
+        dataset = dataset.cache()  # accelerate the second and subsequent iterations over the dataset
+        dataset = dataset.prefetch(AUTOTUNE)  # Batch is prefetched by CPU while training on the previous batch occurs
+    else:
+        # batch together all examples, for test set
+        dataset = dataset.batch(images.shape[0], drop_remainder=True)
+        dataset = dataset.cache()
+    return dataset
