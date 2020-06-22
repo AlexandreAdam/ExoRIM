@@ -279,6 +279,10 @@ class RIM:
                 "step_mod": 1
             },
         start = time.time()
+        if "epoch" in self.hyperparameters.keys():
+            _epoch_start = self.hyperparameters["epoch"]
+        else:
+            _epoch_start = 0
         epoch = 1
         history = {"train_loss": [], "test_loss": []}
         history.update({key + "_train": [] for key in metrics.keys()})
@@ -301,7 +305,7 @@ class RIM:
                 clipped_gradient, _ = tf.clip_by_global_norm(gradient, clip_norm=10)  # prevent exploding gradients
                 optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
                 if output_dir is not None:
-                    save_output(output, output_dir, epoch, batch, **output_save_mod)
+                    save_output(output, output_dir, epoch + _epoch_start, batch, **output_save_mod)
                 for key, item in metrics_train.items():
                     metrics_train[key] += tf.math.reduce_mean(metrics[key](output[..., -1], Y)).numpy()
             for key, item in metrics_train.items():
@@ -323,8 +327,9 @@ class RIM:
                 _patience -= 1
             if checkpoint_dir is not None:
                 if epoch % checkpoints == 0 or _patience == 0 or epoch == max_epochs - 1:
-                    self.model.save_weights(os.path.join(checkpoint_dir, f"{name}_{epoch:03}_{cost_value:.5f}.h5"))
+                    self.model.save_weights(os.path.join(checkpoint_dir, f"{name}_{epoch + _epoch_start:03}_{cost_value:.5f}.h5"))
             epoch += 1
+        self.hyperparameters["epoch"] = epoch + _epoch_start
         return history
 
 
