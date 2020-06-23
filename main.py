@@ -99,7 +99,7 @@ if __name__ == "__main__":
     test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod)
     cost_function = CostFunction()
     epochs_schedule = [50, 100, 200, 400]
-    for i, lr in enumerate([1e-3, 1e-4, 1e-5, 1e6]):
+    for i, lr in enumerate([1e-3, 1e-4, 1e-5, 1-e6]):
         history = rim.fit(
             train_dataset=train_dataset,
             test_dataset=test_dataset,
@@ -116,7 +116,7 @@ if __name__ == "__main__":
             output_save_mod={
                 "index_mod": args.index_save_mod,
                 "epoch_mod": args.epoch_save_mod,
-                "step_mod": hyperparameters["steps"]}, # save first and last step images
+                "step_mod": hyperparameters["steps"]},
         )
         for key, item in history.items():
             np.savetxt(os.path.join(results_dir, key + f"_{i}" + ".txt"), item)
