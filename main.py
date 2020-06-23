@@ -108,6 +108,7 @@ if __name__ == "__main__":
             cost_function=cost_function,
             min_delta=args.min_delta,
             patience=args.patience,
+            metrics=metrics,
             track="ssim_train",
             checkpoints=args.checkpoint,
             output_dir=results_dir,
