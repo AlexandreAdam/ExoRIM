@@ -1,6 +1,6 @@
 from ExoRIM.model import RIM, CostFunction
 from ExoRIM.simulated_data import CenteredImagesv1
-from .preprocessing.simulate_data import create_and_save_data
+from preprocessing.simulate_data import create_and_save_data
 from argparse import ArgumentParser
 from datetime import datetime
 import tensorflow as tf
