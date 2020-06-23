@@ -37,7 +37,7 @@ def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod):
             if image_index % index_mod != 0:
                 continue
             for step in range(output.shape[-1]):
-                if step % step_mod != 0:
+                if (step + 1) % step_mod != 0:
                     continue
                 image = convert_to_8_bit(out[instance, :, :, 0, step])
                 image = Image.fromarray(image, mode="L")

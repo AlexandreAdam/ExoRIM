@@ -1,20 +1,19 @@
 from ExoRIM.model import RIM, CostFunction
 from ExoRIM.simulated_data import CenteredImagesv1
-from ExoRIM.utilities import save_physical_model_projectors
 from .preprocessing.simulate_data import create_and_save_data
 from argparse import ArgumentParser
 from datetime import datetime
 import tensorflow as tf
 import numpy as np
 import json
-import tarfile
-import os, glob
+import pickle
+import os
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
-def create_datasets(meta_data, rim, dirname, batch_size=None):
-    images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data), dtype=tf.float32)
+def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1):
+    images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data, index_save_mod), dtype=tf.float32)
     k_images = rim.physical_model.simulate_noisy_image(images)
     X = tf.data.Dataset.from_tensor_slices(k_images)  # split along batch dimension
     Y = tf.data.Dataset.from_tensor_slices(images)
@@ -37,13 +36,13 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--split", type=float, default=0.8)
     parser.add_argument("-b", "--batch", type=int, default=16, help="Batch size")
     parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
-    parser.add_argument("--holes", type=int, default=6, help="Number of holes in the mask")
+    parser.add_argument("--holes", type=int, default=30, help="Number of holes in the mask")
     parser.add_argument("-m", "--min_delta", type=float, default=0, help="Tolerance for early stopping")
     parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping")
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
     parser.add_argument("-e", "--max_epoch", type=int, default=100, help="Maximum number of epoch")
-    parser.add_argument("--out_save_mod", type=int, default=25, help="Output index to save... The results directory "
-                                                                     "can grow fast if this number is small!")
+    parser.add_argument("--index_save_mod", type=int, default=25, help="Image index to be saved")
+    parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
     args = parser.parse_args()
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
     with open("hyperparameters.json", "r") as f:
@@ -58,10 +57,28 @@ if __name__ == "__main__":
     )
     hyperparameters["batch"] = args.batch
     hyperparameters["date"] = date
-    mask_coordinates = np.random.normal(size=(args.holes, 2))
-    rim = RIM(mask_coordinates=mask_coordinates, hyperparameters=hyperparameters)
+    # metrics only support grey scale images
+    metrics = {
+        "ssim": lambda Y_pred, Y_true: tf.image.ssim(Y_pred, Y_true, max_val=1.0),
+        # Bug is tf 2.0.0, make sure filter size is small enough such that H/2**4 and W/2**4 >= filter size
+        # alternatively (since H/2**4 is = 1 in our case), it is possible to lower the power factors such that
+        # H/(2**(len(power factor)-1)) > filter size
+        # Hence, using 3 power factors with filter size=2 works, and so does 2 power factors with filter_size <= 8
+        # paper power factors are [0.0448, 0.2856, 0.3001, 0.2363, 0.1333]
+        # After test, it seems filter_size=11 also works with 2 power factors and 32 pixel image
+        "ssim_multiscale_01": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
+                                                                              filter_size=11,
+                                                                              power_factors=[0.0448, 0.2856]),
+        "ssim_multiscale_23": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
+                                                                              filter_size=11,
+                                                                              power_factors=[0.3001, 0.2363]),
+        "ssim_multiscale_34": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
+                                                                              filter_size=11,
+                                                                              power_factors=[0.2363, 0.1333])
+    }
 
     basedir = os.getcwd()  # assumes script is run from base directory
+    projector_dir = os.path.join(basedir, "data", "projector_arrays")
     results_dir = os.path.join(basedir, "results", date)
     os.mkdir(results_dir)
     models_dir = os.path.join(basedir, "models", date)
@@ -73,35 +90,44 @@ if __name__ == "__main__":
     test_dir = os.path.join(data_dir, "test")
     os.mkdir(test_dir)
 
-    train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch)
-    test_dataset = create_datasets(test_meta, rim, dirname=test_dir)
+    mask_coordinates = np.loadtxt(os.path.join(projector_dir, f"mask_{args.holes}_holes.txt"))
+    with open(os.path.join(projector_dir, f"projectors_{args.holes}_holes.pickle"), "rb") as f:
+        arrays = pickle.load(f)
+
+    rim = RIM(mask_coordinates=mask_coordinates, hyperparameters=hyperparameters, arrays=arrays)
+    train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod)
+    test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod)
     cost_function = CostFunction()
-    history = rim.fit(
-        train_dataset=train_dataset,
-        test_dataset=test_dataset,
-        optimizer=tf.keras.optimizers.Adam(learning_raet=1e-4),
-        max_time=args.training_time,
-        cost_function=cost_function,
-        min_delta=args.min_delta,
-        patience=args.patience,
-        checkpoints=args.checkpoint,
-        output_dir=results_dir,
-        checkpoint_dir=models_dir,
-        max_epochs=args.max_epoch,
-        output_save_mod=args.out_save_mod
-    )
-    np.savetxt(os.path.join(results_dir, "train_loss.txt"), history["train_loss"])
-    np.savetxt(os.path.join(results_dir, "test_loss.txt"), history["test_loss"])
-    np.savetxt(os.path.join(data_dir, "mask_coordinates.txt"), mask_coordinates)
-    save_physical_model_projectors(os.path.join(models_dir, "physical_model_projectors.pickle"), rim.physical_model)
+    epochs_schedule = [50, 100, 200, 400]
+    for i, lr in enumerate([1e-3, 1e-4, 1e-5, 1e6]):
+        history = rim.fit(
+            train_dataset=train_dataset,
+            test_dataset=test_dataset,
+            optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
+            max_time=args.training_time,
+            cost_function=cost_function,
+            min_delta=args.min_delta,
+            patience=args.patience,
+            track="ssim_train",
+            checkpoints=args.checkpoint,
+            output_dir=results_dir,
+            checkpoint_dir=models_dir,
+            max_epochs=epochs_schedule[i],
+            output_save_mod={
+                "index_mod": args.index_save_mod,
+                "epoch_mod": args.epoch_save_mod,
+                "step_mod": hyperparameters["steps"]}, # save first and last step images
+        )
+        for key, item in history.items():
+            np.savetxt(os.path.join(results_dir, key + f"_{i}" + ".txt"), item)
     with open(os.path.join(models_dir, "hyperparameters.json"), "w") as f:
         json.dump(rim.hyperparameters, f)
-    with tarfile.open(os.path.join(data_dir, "data.tar.gz"), "x:gz") as tar:
-        for file in glob.glob(os.path.join(data_dir, "*")):
-            tar.add(file)
-    with tarfile.open(os.path.join(results_dir, "results.tar.gz"), "x:gz") as tar:
-        for file in glob.glob(os.path.join(results_dir, "*")):
-            tar.add(file)
-    with tarfile.open(os.path.join(models_dir, "models.tar.gz"), "x:gz") as tar:
-        for file in glob.glob(os.path.join(models_dir, "*")):
-            tar.add(file)
+    # with tarfile.open(os.path.join(data_dir, "data.tar.gz"), "x:gz") as tar:
+    #     for file in glob.glob(os.path.join(data_dir, "*")):
+    #         tar.add(file)
+    # with tarfile.open(os.path.join(results_dir, "results.tar.gz"), "x:gz") as tar:
+    #     for file in glob.glob(os.path.join(results_dir, "*")):
+    #         tar.add(file)
+    # with tarfile.open(os.path.join(models_dir, "models.tar.gz"), "x:gz") as tar:
+    #     for file in glob.glob(os.path.join(models_dir, "*")):
+    #         tar.add(file)

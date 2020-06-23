@@ -6,9 +6,11 @@ import pickle
 import glob, os
 
 
-def create_and_save_data(datadir, meta_data):
+def create_and_save_data(datadir, meta_data, index_save_mod):
     images = meta_data.generate_epoch_images()
     for i, image in enumerate(images):  # iterate over first dimension
+        if i % index_save_mod == 0:
+            continue
         image = convert_to_8_bit(image)
         im = Image.fromarray(image[:, :, 0], mode="L") # for grau images, channels = 1
         im.save(os.path.join(datadir, f"image{i:03}.png"))

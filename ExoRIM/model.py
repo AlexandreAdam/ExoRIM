@@ -233,6 +233,7 @@ class RIM:
             max_time,
             metrics=None,
             patience=10,
+            track="train_loss",
             checkpoints=5,
             min_delta=0,
             max_epochs=1000,
@@ -287,7 +288,7 @@ class RIM:
         history = {"train_loss": [], "test_loss": []}
         history.update({key + "_train": [] for key in metrics.keys()})
         history.update({key + "_test": [] for key in metrics.keys()})
-        min_loss = np.inf
+        min_score = np.inf
         epoch_loss = tf.metrics.Mean()
         _patience = patience
         while _patience > 0 and epoch < max_epochs and (time.time() - start) < max_time*3600:
@@ -320,9 +321,9 @@ class RIM:
                     for key, item in metrics.items():
                         history[key + "_test"].append(tf.math.reduce_mean(item(test_output[..., -1], Y)).numpy())
 
-            if cost_value < min_loss - min_delta:
+            if history[track][-1] < min_score - min_delta:
                 _patience = patience
-                min_loss = cost_value
+                min_score = history[track][-1]
             else:
                 _patience -= 1
             if checkpoint_dir is not None:
