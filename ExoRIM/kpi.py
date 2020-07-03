@@ -27,8 +27,9 @@ import matplotlib.pyplot as plt
 import pickle
 import sys
 import gzip
-import time 
+import time
 from scipy.sparse.linalg import svds
+
 
 
 class kpi(object):
@@ -276,7 +277,7 @@ class kpi(object):
 
 ###############################################################################
         
-    def generate_bispectrum_matrix2(self,n=5,n_guess_bsp=1e6,verbose=False,bsp_mat='sparse'):
+    def generate_bispectrum_matrix2(self, n=5, verbose=False,bsp_mat='sparse'):
         ''' Calculates the matrix to convert from uv phases to bispectra.
         This version iterates through the sampling points in a vectorized way.
         It saves all of the triangles, then removes the duplicates every 'n'
@@ -286,8 +287,7 @@ class kpi(object):
         to save millions of 'append' calls (which was the slowest part). It must
         be large enough to contain all of the bispectra, or you will get an error.
         '''
-        n_guess_bsp = int(n_guess_bsp)
-        nbsp=self.nbuv*(self.nbuv-1)*(self.nbuv-2) / 6
+        n_guess_bsp = self.nbh*(self.nbh-1)*(self.nbh-2) // 6 # int(n_guess_bsp)
         uv_to_bsp = np.zeros((n_guess_bsp,self.nbuv),dtype=np.long)
         bsp_u = np.zeros((n_guess_bsp,3)) # the u points of each bispectrum point
         bsp_v = np.zeros((n_guess_bsp,3)) # the v points of each bispectrum point
@@ -322,7 +322,8 @@ class kpi(object):
                 uv1 = self.uv[b1_ixs, :]
                 uv2 = self.uv[b2_ixs, :]
                 uv3 = self.uv[b3_ixs, :]
-                    
+
+                # This is not necessary?
                 # Are they already in the array? (any permutation of these baselines is the same)
                 # Convert to a single number to find out.
                 bl_ixs = np.array([b1_ixs, b2_ixs, b3_ixs])
@@ -335,6 +336,7 @@ class kpi(object):
                 # add to all the arrays
                 uv_to_bsp_line = np.zeros((n_ix3s, self.nbuv))
                 diag = np.arange(n_ix3s)
+                # Are we sure this respects the closure relation?
                 uv_to_bsp_line[diag, b1_ixs] += 1
                 uv_to_bsp_line[diag, b2_ixs] += 1
                 uv_to_bsp_line[diag, b3_ixs] += -1
@@ -406,7 +408,5 @@ class kpi(object):
         sys.stdout.flush()
 
 if __name__ == "__main__":
-    coords = np.random.randn(7, 2)
-    np.savetxt("coords.txt", coords)
-    bs = kpi(file='coords.txt', bsp_mat='sparse')
-    print('Loaded coords.txt')
+    coords = np.random.randn(21, 2)
+    bs = kpi(coords, bsp_mat='sparse')

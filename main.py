@@ -1,4 +1,4 @@
-from ExoRIM.model import RIM, CostFunction
+from ExoRIM.model import RIM, MSE
 from ExoRIM.simulated_data import CenteredImagesv1
 from preprocessing.simulate_data import create_and_save_data
 from argparse import ArgumentParser
@@ -90,14 +90,14 @@ if __name__ == "__main__":
     test_dir = os.path.join(data_dir, "test")
     os.mkdir(test_dir)
 
-    mask_coordinates = np.loadtxt(os.path.join(projector_dir, f"mask_{args.holes}_holes.txt"))
-    with open(os.path.join(projector_dir, f"projectors_{args.holes}_holes.pickle"), "rb") as f:
-        arrays = pickle.load(f)
+    # mask_coordinates = np.loadtxt(os.path.join(projector_dir, f"mask_{args.holes}_holes.txt"))
+    # with open(os.path.join(projector_dir, f"projectors_{args.holes}_holes.pickle"), "rb") as f:
+    #     arrays = pickle.load(f)
 
     rim = RIM(mask_coordinates=mask_coordinates, hyperparameters=hyperparameters, arrays=arrays)
     train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod)
     test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod)
-    cost_function = CostFunction()
+    cost_function = MSE()
     epochs_schedule = [50, 100, 200, 400]
     for i, lr in enumerate([1e-3, 1e-4, 1e-5, 1e-6]):
         history = rim.fit(

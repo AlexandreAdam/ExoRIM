@@ -153,7 +153,7 @@ class Model(tf.keras.Model):
 
 
 class RIM:
-    def __init__(self, mask_coordinates, hyperparameters, dtype=dtype, weight_file=None, arrays=None):
+    def __init__(self, log_lieklihood, hyperparameters, dtype=dtype, weight_file=None, arrays=None):
         self._dtype = dtype
         self.hyperparameters = hyperparameters
         self.channels = hyperparameters["channels"]
@@ -168,13 +168,7 @@ class RIM:
             self.model.call(x, h, x)
             self.model.load_weights(weight_file)
         self.batch_norm = tf.keras.layers.BatchNormalization(axis=-1)  # Setting for channels last
-        self.physical_model = PhysicalModel(
-            mask_coordinates=mask_coordinates,
-            pixels=self.pixels,
-            visibility_noise=hyperparameters["Physical Model"]["Visibility Noise"],
-            cp_noise=hyperparameters["Physical Model"]["Closure Phase Noise"],
-            arrays=arrays
-        )
+        self.log_likelihood = chi_squared
 
     def __call__(self, X, training=False): # used for prediction
         return self.call(X, training)
@@ -212,18 +206,6 @@ class RIM:
         # Initial guess cannot be zeros, it blows up the gradient of the log-likelihood
         x0 = tf.zeros(shape=(batch_size, self.pixels, self.pixels, self.channels), dtype=self._dtype) + 1e-4
         return x0
-
-    def log_likelihood(self, xt, y):
-        """
-        Mean squared error of the reconstructed yhat vector and the true y vector, divided by the inverse of the
-        covariance matrix (diagonal in our case).
-
-        :param y: True vector of complex visibility amplitudes and closure phases
-        :param xt: Image reconstructed at step t of the reconstruction
-        :return: Scalar L
-        """
-        yhat = self.physical_model.physical_model(xt)
-        return 0.5 * tf.math.reduce_sum(tf.square(y - yhat)) / self.physical_model.error_tensor**2
 
     def fit(
             self,
@@ -334,9 +316,9 @@ class RIM:
         return history
 
 
-class CostFunction(tf.keras.losses.Loss):
+class MSE(tf.keras.losses.Loss):
     def __init__(self):
-        super(CostFunction, self).__init__()
+        super(MSE, self).__init__()
         # Possible framework for weights
         # if cost_weights is None:
         #     self.cost_weights = [1] * steps
@@ -345,7 +327,7 @@ class CostFunction(tf.keras.losses.Loss):
         # elif len(cost_weights) != steps:
         #     raise IndexError("cost_weights must be a list of length steps ")
 
-    def call(self, X, Y):
+    def call(self, Y_pred, Y_true):
         """
         Dimensions are
         0: batch_size
@@ -353,18 +335,52 @@ class CostFunction(tf.keras.losses.Loss):
         2: y dimension of image
         3: channels
         4: time steps of the RIM output
-        :param x_true: 4D tensor to be compared with x_preds
-        :param x_preds: 5D tensor output of the call method
-        :return:
-        """ # TODO MSE on log of pixels
-        batch_size = X.shape[0]
-        pixels = X.shape[1] * X.shape[2] * X.shape[3]
-        steps = X.shape[4]
-        Y_ = tf.reshape(Y, (Y.shape + [1]))
-        cost = tf.reduce_sum(tf.square(Y_ - X), axis=[1, 2, 3])
-        cost = tf.reduce_sum(cost, axis=1)/steps  # Sum over time steps (this one could be weighted)
-        cost = tf.reduce_sum(cost, axis=0)/batch_size  # Mean over the batch
+        :param Y_true: 4D tensor to be compared with Y_preds
+        :param Y_preds: 5D tensor output of the call method
+        :return: Score
+        """
+        Y_ = tf.reshape(Y_true, (Y_true.shape + [1]))
+        cost = tf.reduce_mean(tf.square(Y_ - Y_pred), axis=[1, 2, 3])
+        cost = tf.reduce_mean(cost, axis=1)
+        cost = tf.reduce_mean(cost, axis=0)
         return cost
+
+
+class SSIM_loss(tf.keras.losses.Loss):
+    # Adapted from keras-contrib team
+    """Difference of Structural Similarity (DSSIM loss function).
+    Clipped between 0 and 0.5
+    Note : You should add a regularization term like a l2 loss in addition to this one.
+    Note : In theano, the `kernel_size` must be a factor of the output size. So 3 could
+           not be the `kernel_size` for an output of 32.
+    # Arguments
+        k1: Parameter of the SSIM (default 0.01)
+        k2: Parameter of the SSIM (default 0.03)
+        kernel_size: Size of the sliding window (default 3)
+        max_value: Max value of the output (default 1.0)
+    """
+
+    def __init__(self, k1=0.01, k2=0.03, kernel_size=3, max_value=1.0):
+        super(SSIM_loss, self).__init__()
+        self.__name__ = 'DSSIMObjective'
+        self.kernel_size = kernel_size
+        self.k1 = k1
+        self.k2 = k2
+        self.max_value = max_value
+
+    def call(self, y_pred, y_true):
+        shape = list(tf.shape(y_pred))
+        steps = shape[-1]
+        batch_size = shape[0]
+        score = np.zeros(batch_size)
+        for s in range(steps):
+            score += 1.0 - tf.image.ssim(y_pred[..., s], y_true,
+                                         max_val=self.max_value,
+                                         filter_size=self.kernel_size,
+                                         k1=self.k1,
+                                         k2=self.k2).numpy()
+        score /= steps
+        return score.mean()
 
 
 class PhysicalModel(object):
@@ -395,7 +411,6 @@ class PhysicalModel(object):
 
             p2vm_sin = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
 
-            #TODO change this for FFT, might be too slow
             for j in range(bs.uv.shape[0]):
                 p2vm_sin[j, :] = np.ravel(np.sin(2*np.pi*(xx * bs.uv[j, 0] + yy * bs.uv[j, 1])))
 
@@ -435,3 +450,61 @@ class PhysicalModel(object):
         out = self.physical_model(image)
         out += self.error_tensor
         return out
+
+
+class PhysicalModelv2:
+    """
+    Physical model based one sided Fourier Transform and closure phase operator computed from kpi.BLM (xara)
+    Example of use:
+        kpi = xara.kpi.KPI(mask_coordinates) # (x, y) in meters
+        cpo = ExoRIM.closure_phases.closure_phase_operator(kpi)
+        dftm = ExoRIM.definitions.one_sided_DFTM(kpi.UVC, wavelength, pixels, plate_scale, inv=False, dprec=True):
+        phys = PhysicalModelv2(pixels, cpo, dftm)
+    """
+    def __init__(self, pixels, flux, bispectrum_projector, one_sided_DFTM):
+        """
+
+        :param pixels: Number of pixels on the side of the reconstructed image
+        :param bispectrum_projector: Projection operator applied on the visibility to get bispectrum
+        :param one_sided_DFTM: Fourier transform operator to get visibility in terms of unique baselines
+        """
+        self.pixels = pixels
+        self.BP = tf.constant(bispectrum_projector, dtype=dtype)
+        self.DFTM = tf.constant(one_sided_DFTM, dtype=tf.complex128)
+        self.p = one_sided_DFTM.shape[0]  # number of visibility samples
+        self.q = bispectrum_projector.shape[1]  # number of independant closure phases
+
+    def forward(self, image, flux):
+        """
+
+        :param image: Tensor of shape (Batch size, pixel, pixel, channels) where channels = 1 for now
+        :param flux: Flux vector of size (Batch size): used to normalize complex visibilities
+        :return: A concatenation of complex visibilities and bispectra (dtype: tfcomplex128)
+        """
+        visibilities = self.fourier_transform(image)
+        bispectrum = tf.tensordot(self.BP, visibilities, axes=1) # math.angles returns type float
+        y = tf.concat([visibilities, bispectrum], axis=1)  # p + q length vectors
+        return y
+
+    def fourier_transform(self, image):
+        im = tf.cast.dtypes(image, tf.complex128)
+        flat = tf.keras.layers.Flatten(data_format="channel_last")(im)
+        return tf.tensordot(self.DFTM, flat, axes=1)
+
+
+class NoiseModel:
+    """
+
+    """
+    def __init__(self):
+        """"""
+        pass
+
+
+class LogLikelihood:
+    """
+
+    """
+    def __init__(self, chi_squared, regulariser):
+        """"""
+        pass
