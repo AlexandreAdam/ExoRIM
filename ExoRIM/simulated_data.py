@@ -54,9 +54,18 @@ class CenteredImagesv1:
         image = self.normalize(image)
         return image
 
+    def circular_psf(self, sigma, intensity, xp, yp):
+        image_coords = np.arange(self.pixels) - self.pixels / 2.
+        xx, yy = np.meshgrid(image_coords, image_coords)
+        image = np.zeros_like(xx)
+        rho = np.sqrt((xx - xp) ** 2 + (yy - yp) ** 2)
+        image += intensity * (rho < sigma)
+        image = self.normalize(image)
+        return image
+
     @staticmethod
     def normalize(vector):
-        return (vector - vector.min()) / (vector.max() - vector.min())
+        return (vector - vector.min() + 1e-5) / (vector.max() - vector.min() + 1e-5)
 
     def generate_epoch_images(self):
         """
@@ -64,6 +73,7 @@ class CenteredImagesv1:
         :return: image tensor of size (total_items, pixels, pixels)
         """
         images = np.zeros(shape=(self.total_items, self.pixels, self.pixels, 1))  # one channel
+        images += 1e-5 * np.random.random(size=images.shape) + 1e-4  # background
         for i in range(self.total_items):
             # central object
             images[i, :, :, 0] += self.gaussian_psf_convolution(self.widths[i][0], 1)
@@ -123,7 +133,7 @@ class CenteredImagesv1:
         """
         coords = [[(0, 0)] for _ in range(self.total_items)] # initialize with central object
         # coordinate in central square (5 pixels from the edge) to avoid objects at the edge.
-        pool = np.arange(-self.pixels // 2 + 5, self.pixels // 2 - 5)
+        pool = np.arange(-self.pixels // 2 + 6, self.pixels // 2 - 6)
         for i, nps in enumerate(self.nps):
             coords[i].extend(np.random.choice(pool, size=(nps, 2)).tolist())
         return coords
@@ -140,16 +150,16 @@ class OffCenteredBinaries:
             channels=1,
             pixels=32,
             highest_contrast=0.95,
-            max_width=5  # in pixels
+            max_distance=8  # in pixels
     ):
         np.random.seed(seed)
         self.total_items = total_items
         self.pixels = pixels
         self.highest_contrast = highest_contrast
-        self.max_width = max_width
+        self.max_distance = max_distance
 
-        self.coordinates = self._coordinates()
-        self.widths = self._widths()
+        self.distance = self._distance()
+        self.angle = self._angle()
         self.intensities = self._intensities()
 
     def gaussian_psf_convolution(self, sigma, intensity, xp=0, yp=0):
@@ -175,40 +185,26 @@ class OffCenteredBinaries:
         :return: image tensor of size (total_items, pixels, pixels)
         """
         images = np.zeros(shape=(self.total_items, self.pixels, self.pixels, 1))  # one channel
+        images += 1e-4 * np.random.random(size=images.shape) + 1e-5 # background
         for i in range(self.total_items):
             for j in range(2):
-                images[i, :, :, 0] += self.gaussian_psf_convolution(
-                    self.widths[i][j],
-                    self.intensities[i][j],
-                    *self.coordinates[i][j]
-                )
-            images[i, :, :, 0] = self.normalize(images[i, :, :, 0])
+                sign = 1 if j == 0 else -1
+                x = int(np.ceil(sign * self.distance[i]/2 * np.cos(self.angle[i]))) + self.pixels//2
+                y = int(np.ceil(sign * self.distance[i]/2 * np.sin(self.angle[i]))) + self.pixels//2
+                images[i, x, y, 0] += self.intensities[i][j]
         return images
 
     @staticmethod
     def normalize(image):
         return (image - image.min()) / (image.max() - image.min())
-    
-    def _coordinates(self):
-        """
-        :return: list of coordinate arrays [[(xp0, yp0), (xp1, yp1)], ...]
-        """
-        coords = [[] for _ in range(self.total_items)]
-        max_pixel = self.pixels//2 - self.max_width - 3
-        # Leave a pad of 3 black pixels to remove information at the edge of the picture
-        pool = np.arange(-max_pixel, max_pixel)
-        for i in range(self.total_items):
-            coords[i].extend(np.random.choice(pool, size=(2, 2)).tolist())
-        return coords
-    
-    def _widths(self):
-        """
-        :return: list of widths arrays [[w0, w1], ...]
-        """
-        widths = [[] for _ in range(self.total_items)]
-        for i in range(self.total_items):
-            widths[i].append(np.random.uniform(1, self.max_width, size=2).tolist())
-        return widths
+
+    def _angle(self):
+        pool = np.linspace(-np.pi, np.pi, 1000)
+        return np.random.choice(pool, size=self.total_items)
+
+    def _distance(self):
+        pool = np.arange(2, self.max_distance)
+        return np.random.choice(pool, size=self.total_items)
 
     def _intensities(self):
         """

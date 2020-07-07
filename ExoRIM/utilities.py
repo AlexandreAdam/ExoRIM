@@ -4,6 +4,7 @@ from PIL import Image
 import os, glob
 import pickle
 
+
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 def save_physical_model_projectors(filename, physical_model):
@@ -17,7 +18,7 @@ def save_physical_model_projectors(filename, physical_model):
 
 
 def convert_to_8_bit(image):
-    return (255.0 / image.max() * (image - image.min())).astype(np.uint8)
+    return (255.0 * image).astype(np.uint8) # since image is passed through a sigmoid, min and max and force to be 0 and 1
 
 
 def convert_to_float(image):
@@ -25,7 +26,7 @@ def convert_to_float(image):
     return tf.cast(image, tf.float32)/255.
 
 
-def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod):
+def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod, format="png"):
     if epoch % epoch_mod != 0:
         return
     out = output
@@ -39,9 +40,12 @@ def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod):
             for step in range(output.shape[-1]):
                 if (step + 1) % step_mod != 0:
                     continue
-                image = convert_to_8_bit(out[instance, :, :, 0, step])
-                image = Image.fromarray(image, mode="L")
-                image.save(os.path.join(dirname, f"output_{epoch:03}_{image_index:04}_{step:02}.png"))
+                if format == "png":
+                    image = convert_to_8_bit(out[instance, :, :, 0, step])
+                    image = Image.fromarray(image, mode="L")
+                    image.save(os.path.join(dirname, f"output_{epoch:03}_{image_index:04}_{step:02}.png"))
+                elif format == "txt":
+                    np.savetxt(os.path.join(dirname, f"output_{epoch:03}_{image_index:04}_{step:02}.txt"), out[instance, :, :, 0, step])
     elif len(out.shape) == 4:
         for step in range(out.shape[-1]):
             if step % step_mod == 0:

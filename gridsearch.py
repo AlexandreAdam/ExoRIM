@@ -1,5 +1,5 @@
 from ExoRIM.gridsearch import hparams_for_gridsearchV1, kfold_splits
-from ExoRIM.model import RIM, CostFunction
+from ExoRIM.model import RIM, MSE
 from ExoRIM.simulated_data import CenteredImagesv1, OffCenteredBinaries
 from preprocessing.simulate_data import create_and_save_data
 from argparse import ArgumentParser

@@ -1,6 +1,8 @@
-from ExoRIM.model import RIM, MSE
-from ExoRIM.simulated_data import CenteredImagesv1
+from ExoRIM.model import RIM, MSE, PhysicalModelv2, PhysicalModel
+from ExoRIM.bispectrum import Baselines, phase_closure_operator
+from ExoRIM.simulated_data import CenteredImagesv1, OffCenteredBinaries
 from preprocessing.simulate_data import create_and_save_data
+from ExoRIM.definitions import one_sided_DFTM, mas2rad
 from argparse import ArgumentParser
 from datetime import datetime
 import tensorflow as tf
@@ -12,10 +14,10 @@ import os
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
-def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1):
-    images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data, index_save_mod), dtype=tf.float32)
-    k_images = rim.physical_model.simulate_noisy_image(images)
-    X = tf.data.Dataset.from_tensor_slices(k_images)  # split along batch dimension
+def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, format="png"):
+    images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data, index_save_mod, format), dtype=tf.float32)
+    noisy_data = rim.physical_model.simulate_noisy_data(images)
+    X = tf.data.Dataset.from_tensor_slices(noisy_data)  # split along batch dimension
     Y = tf.data.Dataset.from_tensor_slices(images)
     dataset = tf.data.Dataset.zip((X, Y))
     if batch_size is not None: # for train set
@@ -33,16 +35,22 @@ def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("-n", "--number_images", type=int, default=100)
+    parser.add_argument("-w", "--wavelength", type=float, default=1e-6)
+    parser.add_argument("--SNR", type=float, default=100, help="Signal to noise ratio")
+    parser.add_argument("--plate_scale", type=float, default=1, help="plate scale in mas/pixel, that is 206265/(1000 * f[mm] * pixel_density[pixel/mm])")
     parser.add_argument("-s", "--split", type=float, default=0.8)
-    parser.add_argument("-b", "--batch", type=int, default=16, help="Batch size")
+    parser.add_argument("-b", "--batch", type=int, default=32, help="Batch size")
     parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
-    parser.add_argument("--holes", type=int, default=30, help="Number of holes in the mask")
+    parser.add_argument("--holes", type=int, default=21, help="Number of holes in the mask")
+    parser.add_argument("--longest_baseline", type=float, default=10., help="Longest baseline (meters) in the mask, up to noise added")
+    parser.add_argument("--mask_variance", type=float, default=1., help="Variance of the noise added to rho coordinate of aperture (in meter)")
     parser.add_argument("-m", "--min_delta", type=float, default=0, help="Tolerance for early stopping")
     parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping")
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
     parser.add_argument("-e", "--max_epoch", type=int, default=100, help="Maximum number of epoch")
     parser.add_argument("--index_save_mod", type=int, default=25, help="Image index to be saved")
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
+    parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
     args = parser.parse_args()
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
     with open("hyperparameters.json", "r") as f:
@@ -94,12 +102,23 @@ if __name__ == "__main__":
     # with open(os.path.join(projector_dir, f"projectors_{args.holes}_holes.pickle"), "rb") as f:
     #     arrays = pickle.load(f)
 
-    rim = RIM(mask_coordinates=mask_coordinates, hyperparameters=hyperparameters, arrays=arrays)
+    circle_mask = np.zeros((args.holes, 2))
+    for i in range(args.holes):
+        circle_mask[i, 0] = (args.longest_baseline + np.random.normal(0, args.mask_variance)) * np.cos(2 * np.pi * i / args.holes)
+        circle_mask[i, 1] = (args.longest_baseline + np.random.normal(0, args.mask_variance)) * np.sin(2 * np.pi * i / args.holes)
+    baselines = Baselines(mask_coordinates=circle_mask)
+    cpo = phase_closure_operator(baselines)
+    dftm = one_sided_DFTM(baselines.UVC, args.wavelength, hyperparameters["pixels"], args.plate_scale)
+    dftm_i = one_sided_DFTM(baselines.UVC, args.wavelength, hyperparameters["pixels"], args.plate_scale, inv=True)
+    m2pix = mas2rad(args.plate_scale) * hyperparameters["pixels"] / args.wavelength
+    # phys = PhysicalModel(circle_mask, hyperparameters["pixels"], visibility_noise=1e-3, cp_noise=1e-5, m2pix=m2pix)
+    phys = PhysicalModelv2(hyperparameters["pixels"], cpo, dftm, dftm_i, args.SNR)
+    rim = RIM(physical_model=phys, hyperparameters=hyperparameters)
     train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod)
     test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod)
     cost_function = MSE()
-    epochs_schedule = [50, 100, 200, 400]
-    for i, lr in enumerate([1e-3, 1e-4, 1e-5, 1e-6]):
+    epochs_schedule = [20, 20, 30, 40]
+    for i, lr in enumerate([1e-4, 1e-3, 1e-4, 1e-5]):
         history = rim.fit(
             train_dataset=train_dataset,
             test_dataset=test_dataset,
@@ -109,7 +128,7 @@ if __name__ == "__main__":
             min_delta=args.min_delta,
             patience=args.patience,
             metrics=metrics,
-            track="ssim_train",
+            track="train_loss",
             checkpoints=args.checkpoint,
             output_dir=results_dir,
             checkpoint_dir=models_dir,

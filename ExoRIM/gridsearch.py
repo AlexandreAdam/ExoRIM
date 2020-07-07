@@ -1,6 +1,5 @@
 from numpy.random import choice as choose
 from sklearn.model_selection import KFold
-from ExoRIM.definitions import dtype
 import numpy as np
 import tensorflow as tf
 

@@ -1,10 +1,6 @@
-from tensorflow.python.keras.layers.merge import concatenate
-from astropy.cosmology import Planck15 as cosmo
 from scipy.special import factorial
 import tensorflow as tf
-import ExoRIM.kpi as kpi
 import numpy as np
-import os
 
 tf.keras.backend.set_floatx('float32')
 dtype = tf.float32  # faster, otherise tf.float64
@@ -95,15 +91,19 @@ def m_softplus(x):
 def xsquared(x):
     return (x/4)**2
 
+
 def lrelu4p(x, alpha=0.04):
     return tf.maximum(x, tf.multiply(x, alpha))
+
 
 def poisson(k, mu):
     return np.exp(-mu) * mu**k / factorial(k)
 
+
 def k_truncated_poisson(k, mu):
     probabilities = poisson(k, mu)
     return probabilities / probabilities.sum()
+
 
 def mas2rad(x):
     ''' Convenient little function to convert milliarcsec to radians '''
@@ -187,12 +187,14 @@ def cast_to_complex_flatten(image):
     im = tf.keras.layers.Flatten(data_format="channel_last")(im)
     return im
 
+
 def chisq_vis(image, A, vis, sigma):
     """Visibility chi-squared"""
     im = cast_to_complex_flatten(image)
     samples = tf.tensordot(A, im, axes=1)
     chisq = tf.reduce_mean(tf.math.abs((samples-vis)/sigma)**2)
     return chisq
+
 
 def chisqgrad_vis(image, A, vis, sigma):
     """The gradient of the visibility chi-squared"""
@@ -220,7 +222,7 @@ def chisqgrad_amp(image, A, amp, sigma):
     amp_samples  = tf.math.abs(V_samples)
     product = ((amp - amp_samples) * amp_samples) / (sigma**2) / V_samples
     adjoint = tf.transpose(tf.math.conj(A))
-    out = np.reduce_mean(-2.0 * tf.math.real(tf.tensordot(adjoint, product, axes=1)))
+    out = tf.reduce_mean(-2.0 * tf.math.real(tf.tensordot(adjoint, product, axes=1)))
     return out
 
 
@@ -265,9 +267,6 @@ REGULARIZERS = ['gs', 'tv', 'tv2', 'l1w', 'lA', 'patch', 'simple', 'compact', 'c
 
 def chisq_cphase(imvec, Amatrices, clphase, sigma):
     """Closure Phases (normalized) chi-squared"""
-    clphase = clphase * ehc.DEGREE
-    sigma = sigma * ehc.DEGREE
-
     i1 = np.dot(Amatrices[0], imvec)
     i2 = np.dot(Amatrices[1], imvec)
     i3 = np.dot(Amatrices[2], imvec)

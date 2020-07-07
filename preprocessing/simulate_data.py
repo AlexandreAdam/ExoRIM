@@ -4,16 +4,20 @@ from ExoRIM.utilities import convert_to_8_bit
 import tarfile
 import pickle
 import glob, os
+import numpy as np
 
 
-def create_and_save_data(datadir, meta_data, index_save_mod):
+def create_and_save_data(datadir, meta_data, index_save_mod, format="png"):
     images = meta_data.generate_epoch_images()
     for i, image in enumerate(images):  # iterate over first dimension
-        if i % index_save_mod == 0:
+        if i % index_save_mod != 0:
             continue
-        image = convert_to_8_bit(image)
-        im = Image.fromarray(image[:, :, 0], mode="L") # for grau images, channels = 1
-        im.save(os.path.join(datadir, f"image{i:03}.png"))
+        if format == "png":
+            image = convert_to_8_bit(image) # data compression that looses background pixel information
+            im = Image.fromarray(image[:, :, 0], mode="L") # for grau images, channels = 1
+            im.save(os.path.join(datadir, f"image{i:03}.png"))
+        elif format == "txt":
+            np.savetxt(os.path.join(dirname, f"image{i:03}.txt"))
     with open(os.path.join(datadir, "meta_data.pickle"), "wb") as f:
         pickle.dump(meta_data, f)
     return images

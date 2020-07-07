@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from ExoRIM.definitions import dtype, default_hyperparameters
+from ExoRIM.definitions import dtype, default_hyperparameters, chisqgrad_amp, chisqgrad_cphase
 from ExoRIM.kpi import kpi
 from ExoRIM.utilities import save_output
 import time
@@ -146,14 +146,14 @@ class Model(tf.keras.Model):
         for layer in self.transposed_convolution_block:
             delta_xt = layer(delta_xt)
         xt_1 = xt + delta_xt
-        xt_1 = tf.sigmoid(xt_1)  # Link function to normalize output
+        #xt_1 = tf.keras.activations.relu(xt_1) # Link function to normalize output
         # softmax or sigmoid
         new_state = tf.concat([ht_1, ht_2], axis=3)
         return xt_1, new_state
 
 
 class RIM:
-    def __init__(self, log_lieklihood, hyperparameters, dtype=dtype, weight_file=None, arrays=None):
+    def __init__(self, physical_model, hyperparameters, dtype=dtype, weight_file=None, arrays=None):
         self._dtype = dtype
         self.hyperparameters = hyperparameters
         self.channels = hyperparameters["channels"]
@@ -168,7 +168,7 @@ class RIM:
             self.model.call(x, h, x)
             self.model.load_weights(weight_file)
         self.batch_norm = tf.keras.layers.BatchNormalization(axis=-1)  # Setting for channels last
-        self.log_likelihood = chi_squared
+        self.physical_model = physical_model
 
     def __call__(self, X, training=False): # used for prediction
         return self.call(X, training)
@@ -181,30 +181,34 @@ class RIM:
         :return: 5D Tensor of shape (batch_size, [image_size, channels], steps)
         """
         batch_size = X.shape[0]
-        x0 = self.initial_guess(batch_size)
+        x0 = self.initial_guess(X)
         h0 = self.init_hidden_states(batch_size)
         # Compute the gradient through auto-diff since model is highly non-linear
         with tf.GradientTape() as g:
             g.watch(x0)
-            likelihood = self.log_likelihood(x0, X)
+            likelihood = self.physical_model.log_likelihood(x0, X)
         grad = self.batch_norm(g.gradient(likelihood, x0), training=training)
         xt, ht = self.model(x0, h0, grad)
         outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
         for current_step in range(self.steps - 1):
             with tf.GradientTape() as g:
                 g.watch(xt)
-                likelihood = self.log_likelihood(xt, X)
+                likelihood = self.physical_model.log_likelihood(xt, X)
             grad = self.batch_norm(g.gradient(likelihood, xt), training=training)
             xt, ht = self.model(xt, ht, grad)
             outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
         return outputs
 
     def init_hidden_states(self, batch_size):
-        return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype)
+        return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype) + 1e-4
 
-    def initial_guess(self, batch_size):
+    def initial_guess(self, X):
         # Initial guess cannot be zeros, it blows up the gradient of the log-likelihood
-        x0 = tf.zeros(shape=(batch_size, self.pixels, self.pixels, self.channels), dtype=self._dtype) + 1e-4
+        x0 = self.physical_model.inverse_fourier_transform(X)
+        # x is normalized by flux (that is sum over all pixels), therefore logit is safe to apply
+        flux = tf.reduce_sum(x0, axis=[1, 2], keepdims=True)
+        x0 = x0/flux
+        x0 = tf.math.log(x0 / (1. - x0))
         return x0
 
     def fit(
@@ -288,9 +292,10 @@ class RIM:
                 clipped_gradient, _ = tf.clip_by_global_norm(gradient, clip_norm=10)  # prevent exploding gradients
                 optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
                 if output_dir is not None:
-                    save_output(output, output_dir, epoch + _epoch_start, batch, **output_save_mod)
+                    # apply sigmoid to revert to intensity space in order to save image
+                    save_output(tf.math.sigmoid(output), output_dir, epoch + _epoch_start, batch, **output_save_mod, format="txt")
                 for key, item in metrics_train.items():
-                    metrics_train[key] += tf.math.reduce_mean(metrics[key](output[..., -1], Y)).numpy()
+                    metrics_train[key] += tf.math.reduce_mean(metrics[key](tf.math.sigmoid(output[..., -1]), Y)).numpy()
             for key, item in metrics_train.items():
                 history[key + "_train"].append(item/(batch + 1))
             history["train_loss"].append(epoch_loss.result().numpy())
@@ -301,8 +306,9 @@ class RIM:
                     test_cost += tf.reduce_sum(self.model.losses)
                     history["test_loss"].append(test_cost.numpy())
                     for key, item in metrics.items():
-                        history[key + "_test"].append(tf.math.reduce_mean(item(test_output[..., -1], Y)).numpy())
-
+                        history[key + "_test"].append(tf.math.reduce_mean(item(tf.math.sigmoid(test_output[..., -1]), Y)).numpy())
+            print(f"{epoch}: train_loss={history['train_loss'][-1]:.3f} | val_loss={history['test_loss'][-1]:.3f} | "
+                  f"ssim_train={history['ssim_train'][-1]:.3f} | ssim_test={history['ssim_test'][-1]:.3f}")
             if history[track][-1] < min_score - min_delta:
                 _patience = patience
                 min_score = history[track][-1]
@@ -335,57 +341,24 @@ class MSE(tf.keras.losses.Loss):
         2: y dimension of image
         3: channels
         4: time steps of the RIM output
-        :param Y_true: 4D tensor to be compared with Y_preds
+        :param Y_true: 4D tensor to be compared with Y_preds: Has to be normalize by flux!!
         :param Y_preds: 5D tensor output of the call method
         :return: Score
         """
         Y_ = tf.reshape(Y_true, (Y_true.shape + [1]))
-        cost = tf.reduce_mean(tf.square(Y_ - Y_pred), axis=[1, 2, 3])
+        # TODO make this explicit in main, not here
+        flux = tf.reduce_sum(Y_, axis=[1, 2], keepdims=True)
+        Y_ = Y_ / flux
+        # prediction is in logit space
+        Y_ = tf.math.log(Y_ / (1. - Y_))
+        cost = tf.reduce_mean(tf.square(Y_pred - Y_), axis=[1, 2, 3])
         cost = tf.reduce_mean(cost, axis=1)
         cost = tf.reduce_mean(cost, axis=0)
         return cost
 
 
-class SSIM_loss(tf.keras.losses.Loss):
-    # Adapted from keras-contrib team
-    """Difference of Structural Similarity (DSSIM loss function).
-    Clipped between 0 and 0.5
-    Note : You should add a regularization term like a l2 loss in addition to this one.
-    Note : In theano, the `kernel_size` must be a factor of the output size. So 3 could
-           not be the `kernel_size` for an output of 32.
-    # Arguments
-        k1: Parameter of the SSIM (default 0.01)
-        k2: Parameter of the SSIM (default 0.03)
-        kernel_size: Size of the sliding window (default 3)
-        max_value: Max value of the output (default 1.0)
-    """
-
-    def __init__(self, k1=0.01, k2=0.03, kernel_size=3, max_value=1.0):
-        super(SSIM_loss, self).__init__()
-        self.__name__ = 'DSSIMObjective'
-        self.kernel_size = kernel_size
-        self.k1 = k1
-        self.k2 = k2
-        self.max_value = max_value
-
-    def call(self, y_pred, y_true):
-        shape = list(tf.shape(y_pred))
-        steps = shape[-1]
-        batch_size = shape[0]
-        score = np.zeros(batch_size)
-        for s in range(steps):
-            score += 1.0 - tf.image.ssim(y_pred[..., s], y_true,
-                                         max_val=self.max_value,
-                                         filter_size=self.kernel_size,
-                                         k1=self.k1,
-                                         k2=self.k2).numpy()
-        score /= steps
-        return score.mean()
-
-
 class PhysicalModel(object):
-
-    def __init__(self, mask_coordinates, pixels, visibility_noise, cp_noise, arrays=None):
+    def __init__(self, mask_coordinates, pixels, visibility_noise, cp_noise, m2pix, arrays=None):
         """
         :param mask_coordinates: Numpy array with coordinates of holes in non-redundant mask (in meters)
         :param pixels: Number of pixel on the side of a square camera
@@ -408,16 +381,17 @@ class PhysicalModel(object):
 
             x = np.arange(self.pixels)
             xx, yy = np.meshgrid(x, x)
+            uv = bs.uv * m2pix
 
             p2vm_sin = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
 
             for j in range(bs.uv.shape[0]):
-                p2vm_sin[j, :] = np.ravel(np.sin(2*np.pi*(xx * bs.uv[j, 0] + yy * bs.uv[j, 1])))
+                p2vm_sin[j, :] = np.ravel(np.sin(2*np.pi*(xx * uv[j, 0] + yy * uv[j, 1])))
 
             p2vm_cos = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
 
             for j in range(bs.uv.shape[0]):
-                p2vm_cos[j, :] = np.ravel(np.cos(2*np.pi*(xx * bs.uv[j, 0] + yy * bs.uv[j, 1])))
+                p2vm_cos[j, :] = np.ravel(np.cos(2*np.pi*(xx * uv[j, 0] + yy * uv[j, 1])))
 
             # create tensor to hold cosine and sine projection operators
             self.cos_projector = tf.constant(p2vm_cos.T, dtype=dtype)
@@ -435,7 +409,7 @@ class PhysicalModel(object):
         self.cp_error = tf.constant(np.ones_like(closure_phases) * self.cp_noise, dtype=dtype)
         self.error_tensor = tf.concat([self.vis2s_error, self.cp_error], axis=0)
 
-    def physical_model(self, image):
+    def forward(self, image):
         flat = tf.keras.layers.Flatten(data_format="channels_last")(image)
         sin_model = tf.tensordot(flat, self.sin_projector, axes=1)
         cos_model = tf.tensordot(flat, self.cos_projector, axes=1)
@@ -445,53 +419,102 @@ class PhysicalModel(object):
         y = tf.concat([visibility_squared, closure_phase], axis=1)
         return y
 
-    def simulate_noisy_image(self, image):
+    def simulate_noisy_data(self, image):
         # apply noise to image before passing in physical model
-        out = self.physical_model(image)
+        out = self.forward(image)
         out += self.error_tensor
         return out
+
+    def log_likelihood(self, Y_pred, X):
+        X_pred = self.forward(Y_pred)
+        return 0.5 * tf.reduce_mean(tf.square(X_pred - X)/self.error_tensor**2, axis=1)
 
 
 class PhysicalModelv2:
     """
     Physical model based one sided Fourier Transform and closure phase operator computed from kpi.BLM (xara)
     Example of use:
-        kpi = xara.kpi.KPI(mask_coordinates) # (x, y) in meters
-        cpo = ExoRIM.closure_phases.closure_phase_operator(kpi)
+        kpi = ExoRIM.Baseline(mask_coordinates) # (x, y) in meters
+        cpo = ExoRIM.closure_phase_operator(kpi)
         dftm = ExoRIM.definitions.one_sided_DFTM(kpi.UVC, wavelength, pixels, plate_scale, inv=False, dprec=True):
         phys = PhysicalModelv2(pixels, cpo, dftm)
     """
-    def __init__(self, pixels, flux, bispectrum_projector, one_sided_DFTM):
+    def __init__(self, pixels, phase_closure_operator, one_sided_DFTM, dftm_i, SNR):
         """
 
         :param pixels: Number of pixels on the side of the reconstructed image
         :param bispectrum_projector: Projection operator applied on the visibility to get bispectrum
         :param one_sided_DFTM: Fourier transform operator to get visibility in terms of unique baselines
+        :param SNR: Signal to noise ratio for a measurement
         """
         self.pixels = pixels
-        self.BP = tf.constant(bispectrum_projector, dtype=dtype)
+        self.CPO = tf.constant(phase_closure_operator, dtype=dtype)
         self.DFTM = tf.constant(one_sided_DFTM, dtype=tf.complex128)
+        self.DFTM_i = tf.constant(dftm_i, dtype=tf.complex128)
         self.p = one_sided_DFTM.shape[0]  # number of visibility samples
-        self.q = bispectrum_projector.shape[1]  # number of independant closure phases
+        self.q = phase_closure_operator.shape[0]  # number of independant closure phases
+        self.SNR = SNR
 
-    def forward(self, image, flux):
+    def forward(self, image, flux=None):
         """
 
         :param image: Tensor of shape (Batch size, pixel, pixel, channels) where channels = 1 for now
-        :param flux: Flux vector of size (Batch size): used to normalize complex visibilities
-        :return: A concatenation of complex visibilities and bispectra (dtype: tfcomplex128)
+        :param flux: Flux vector of size (Batch size)
+        :return: A concatenation of complex visibilities and bispectra (dtype: tf.complex128)
         """
-        visibilities = self.fourier_transform(image)
-        bispectrum = tf.tensordot(self.BP, visibilities, axes=1) # math.angles returns type float
-        y = tf.concat([visibilities, bispectrum], axis=1)  # p + q length vectors
+        # if flux is None:
+        #     flux = tf.reduce_sum(tf.keras.layers.Flatten(data_format="channels_last")(image), axis=1, keepdims=True)
+        visibilities = self.fourier_transform(image) #/tf.cast(flux, tf.complex128)
+        amplitudes = tf.cast(tf.math.abs(visibilities), dtype)
+        closure_phases = tf.einsum("...ij,...j->...i", self.CPO, tf.cast(tf.math.angle(visibilities), dtype))
+        y = tf.concat([amplitudes, closure_phases], axis=1)  # p + q length vectors of type float
         return y
 
     def fourier_transform(self, image):
-        im = tf.cast.dtypes(image, tf.complex128)
-        flat = tf.keras.layers.Flatten(data_format="channel_last")(im)
-        return tf.tensordot(self.DFTM, flat, axes=1)
+        im = tf.cast(image, tf.complex128)
+        flat = tf.keras.layers.Flatten(data_format="channels_last")(im)
+        return tf.einsum("...ij, ...j->...i", self.DFTM, flat)  # tensordot broadcasted on batch_size
+
+    def inverse_fourier_transform(self, X):
+        amp = tf.cast(X[..., :self.p], tf.complex128)
+        flat = tf.einsum("...ij, ...j->...i", self.DFTM_i, amp)
+        flat = tf.square(tf.math.abs(flat))  # intensity is square of amplitude
+        flat = tf.cast(flat, dtype)
+        return tf.reshape(flat, [-1, self.pixels, self.pixels, 1])
+
+    def log_likelihood(self, Y_pred, X, alpha_amp=1., alpha_cp=1.):
+        """
+        :param Y_pred: reconstructed image
+        :param X: interferometric data from measurements
+        """
+        sigma_amp, sigma_cp = self.get_std(X)
+        X_pred = self.forward(Y_pred)
+        chi2_amp = tf.reduce_mean(((X_pred[..., :self.p] - X[..., :self.p])/(sigma_amp + 1e-6))**2, axis=1)
+        chi2_cp = 2 * tf.reduce_mean(((1 - tf.math.cos(X_pred[..., self.p:] - X[..., self.p:]))/(sigma_cp + 1e-6))**2, axis=1)
+        return alpha_amp * chi2_cp + alpha_cp * chi2_amp
+
+    def get_std(self, X):
+        sigma_amp = X[..., :self.p] / self.SNR  # note that SNR should be large (say >~ 10 for gaussian approximation to hold)
+        cp_baselines = tf.where(self.CPO != 0)
+        V1 = tf.gather(X[..., :self.p], cp_baselines[0::3][:, 1], axis=1) # tf where return pairs of indices that match condition
+        V2 = tf.gather(X[..., :self.p], cp_baselines[1::3][:, 1], axis=1) # this slicing uses the fact that there are always
+        V3 = tf.gather(X[..., :self.p], cp_baselines[2::3][:, 1], axis=1) # 3 non zero entry in CPO per row (do not work with kpi.uv_to_bsp matrix)
+        sigma_cp = tf.math.sqrt((V1/self.SNR)**2 + (V2/self.SNR)**2 + (V3/self.SNR)**2)
+        return sigma_amp, sigma_cp
+
+    def simulate_noisy_data(self, images, flux=None):
+        batch = images.shape[0]
+        # if flux is None:
+        #     flux = tf.reduce_sum(tf.keras.layers.Flatten(data_format="channels_last")(images), axis=1, keepdims=True)
+        X = self.forward(images, flux)
+        sigma_amp, sigma_cp = self.get_std(X)
+        amp_noise = tf.random.normal(shape=[batch, self.p], stddev=sigma_amp, dtype=dtype)
+        cp_noise = tf.random.normal(shape=[batch, self.q], stddev=sigma_cp, dtype=dtype)
+        noise = tf.concat([amp_noise, cp_noise], axis=1)
+        return X + noise
 
 
+# TODO decide if it is reasonable to implement this way in the future: might be more flexible to experiment
 class NoiseModel:
     """
 
@@ -505,6 +528,9 @@ class LogLikelihood:
     """
 
     """
-    def __init__(self, chi_squared, regulariser):
-        """"""
+
+    def __init__(self, chi_squared, regulariser, noises):
+        """
+
+        """
         pass
