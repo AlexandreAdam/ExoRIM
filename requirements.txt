@@ -1,8 +1,9 @@
 numpy
 scipy
 #tensorflow-addons~=0.7
+#tensorflow-gpu
 tensorflow-cpu
 astropy
-Pillow>=7.0.0
-scikit-learn==0.23.0
+Pillow
+scikit-learn
 matplotlib

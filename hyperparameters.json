@@ -5,13 +5,13 @@
 		"state_size": 16,
 		"state_depth": 32,
 		"Regularizer Amplitude": {
-				"kernel": 0.01,
-				"bias": 0.01
+				"kernel": 0,
+				"bias": 0
 
 		},
 		"Physical Model": {
 				"Visibility Noise": 1e-4,
-				"Closure Phase Noise": 1e-5
+				"Closure Phase Noise": 1e-7
 		},
 		"Downsampling Block": [
 				{"Conv_Downsample": {

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --cpus-per-task=1		# maximum cpu per task is 3.5 per gpus
-#SBATCH --mem=32000M			# memory per node
+#SBATCH --mem=3G	# 32G for larg job (40 holes and under)	# memory per node
 #SBATCH --time=0-00:30			# time (DD-HH:MM)
 #SBATCH --account=def-lplevass
 #SBATCH --job-name=Mask_for_gridsearch
