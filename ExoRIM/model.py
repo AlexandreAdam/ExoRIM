@@ -313,8 +313,7 @@ class RIM:
                     for key, item in metrics.items():
                         history[key + "_test"].append(tf.math.reduce_mean(item(test_output[..., -1], Y)).numpy())
                         # history[key + "_test"].append(tf.math.reduce_mean(item(tf.math.sigmoid(test_output[..., -1]), Y)).numpy())
-            print(f"{epoch}: train_loss={history['train_loss'][-1]:.3f} | val_loss={history['test_loss'][-1]:.3f} | "
-                  f"ssim_train={history['ssim_train'][-1]:.3f} | ssim_test={history['ssim_test'][-1]:.3f}")
+            print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e} | val_loss={history['test_loss'][-1]:.2e}")
             if history[track][-1] < min_score - min_delta:
                 _patience = patience
                 min_score = history[track][-1]

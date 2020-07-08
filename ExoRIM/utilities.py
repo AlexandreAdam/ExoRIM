@@ -33,20 +33,23 @@ def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod, f
     if tf.is_tensor(out):
         out = output.numpy()
     if len(out.shape) == 5:
-        for instance in range(out.shape[0]):  # over batch size
-            image_index = batch*out.shape[0] + instance
-            if image_index % index_mod != 0:
-                continue
-            for step in range(output.shape[-1]):
-                if (step + 1) % step_mod != 0:
-                    continue
+        # parallelize search for the image
+        image_index = np.arange(out.shape[0]) + batch * out.shape[0]
+        image_index = image_index[image_index % index_mod == 0]
+        step = np.arange(out.shape[-1])
+        step = step[step % step_mod == 0]
+        step = np.tile(step, reps=[image_index.size, 1])  # fancy broadcasting of the indices
+        image_index = np.tile(image_index, reps=[step.shape[1], 1])
+        for i, I in enumerate(out[image_index.T, ..., step]): # note that array is reshaped to [batch, steps, pix, pix, channel]
+            for j, image in enumerate(I[..., 0]):
                 if format == "png":
-                    image = convert_to_8_bit(out[instance, :, :, 0, step])
+                    image = convert_to_8_bit(image)
                     image = Image.fromarray(image, mode="L")
-                    image.save(os.path.join(dirname, f"output_{epoch:03}_{image_index:04}_{step:02}.png"))
+                    image.save(os.path.join(dirname, f"output_{epoch:04}_{image_index[i, j]:04}_{step[i, j]:02}.png"))
                 elif format == "txt":
-                    np.savetxt(os.path.join(dirname, f"output_{epoch:03}_{image_index:04}_{step:02}.txt"), out[instance, :, :, 0, step])
+                    np.savetxt(os.path.join(dirname, f"output_{epoch:04}_{image_index[i, j]:04}_{step[i, j]:02}.txt"), image)
     elif len(out.shape) == 4:
+        # TODO parallelize this one
         for step in range(out.shape[-1]):
             if step % step_mod == 0:
                 continue

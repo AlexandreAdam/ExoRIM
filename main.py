@@ -118,7 +118,7 @@ if __name__ == "__main__":
     test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod, format=args.format)
     cost_function = MSE()
     epochs_schedule = [20, 20, 30, 40]
-    for i, lr in enumerate([1e-2, 1e-3, 1e-4, 1e-5]):
+    for i, lr in enumerate([1e-4, 1e-4, 1e-4, 1e-5]):
         history = rim.fit(
             train_dataset=train_dataset,
             test_dataset=test_dataset,
