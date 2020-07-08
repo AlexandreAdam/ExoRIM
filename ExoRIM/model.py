@@ -187,6 +187,7 @@ class RIM:
         with tf.GradientTape() as g:
             g.watch(x0)
             likelihood = self.physical_model.log_likelihood(x0, X)
+            # likelihood = self.physical_model.log_likelihood(tf.math.sigmoid(x0), X)
         grad = self.batch_norm(g.gradient(likelihood, x0), training=training)
         xt, ht = self.model(x0, h0, grad)
         outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
@@ -194,6 +195,7 @@ class RIM:
             with tf.GradientTape() as g:
                 g.watch(xt)
                 likelihood = self.physical_model.log_likelihood(xt, X)
+                # likelihood = self.physical_model.log_likelihood(tf.math.sigmoid(xt), X)
             grad = self.batch_norm(g.gradient(likelihood, xt), training=training)
             xt, ht = self.model(xt, ht, grad)
             outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
@@ -208,7 +210,7 @@ class RIM:
         # x is normalized by flux (that is sum over all pixels), therefore logit is safe to apply
         flux = tf.reduce_sum(x0, axis=[1, 2], keepdims=True)
         x0 = x0/flux
-        x0 = tf.math.log(x0 / (1. - x0))
+        # x0 = tf.math.log(x0 / (1. - x0))
         return x0
 
     def fit(
@@ -289,13 +291,16 @@ class RIM:
                     cost_value += tf.reduce_sum(self.model.losses)  # Add layer specific regularizer losses (L2 in definitions)
                 epoch_loss.update_state([cost_value])
                 gradient = tape.gradient(cost_value, self.model.trainable_weights)
-                clipped_gradient, _ = tf.clip_by_global_norm(gradient, clip_norm=10)  # prevent exploding gradients
+                clipped_gradient = gradient
+                #clipped_gradient = tf.clip_by_value(gradient, clip_value_min=-10., clip_value_max=10.)  # prevent exploding gradients
                 optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
                 if output_dir is not None:
+                    save_output(output, output_dir, epoch + _epoch_start, batch, **output_save_mod, format="txt")
                     # apply sigmoid to revert to intensity space in order to save image
-                    save_output(tf.math.sigmoid(output), output_dir, epoch + _epoch_start, batch, **output_save_mod, format="txt")
+                    # save_output(tf.math.sigmoid(output), output_dir, epoch + _epoch_start, batch, **output_save_mod, format="txt")
                 for key, item in metrics_train.items():
-                    metrics_train[key] += tf.math.reduce_mean(metrics[key](tf.math.sigmoid(output[..., -1]), Y)).numpy()
+                    metrics_train[key] += tf.math.reduce_mean(metrics[key](output[..., -1], Y)).numpy()
+                    # metrics_train[key] += tf.math.reduce_mean(metrics[key](tf.math.sigmoid(output[..., -1]), Y)).numpy()
             for key, item in metrics_train.items():
                 history[key + "_train"].append(item/(batch + 1))
             history["train_loss"].append(epoch_loss.result().numpy())
@@ -306,7 +311,8 @@ class RIM:
                     test_cost += tf.reduce_sum(self.model.losses)
                     history["test_loss"].append(test_cost.numpy())
                     for key, item in metrics.items():
-                        history[key + "_test"].append(tf.math.reduce_mean(item(tf.math.sigmoid(test_output[..., -1]), Y)).numpy())
+                        history[key + "_test"].append(tf.math.reduce_mean(item(test_output[..., -1], Y)).numpy())
+                        # history[key + "_test"].append(tf.math.reduce_mean(item(tf.math.sigmoid(test_output[..., -1]), Y)).numpy())
             print(f"{epoch}: train_loss={history['train_loss'][-1]:.3f} | val_loss={history['test_loss'][-1]:.3f} | "
                   f"ssim_train={history['ssim_train'][-1]:.3f} | ssim_test={history['ssim_test'][-1]:.3f}")
             if history[track][-1] < min_score - min_delta:
@@ -346,14 +352,8 @@ class MSE(tf.keras.losses.Loss):
         :return: Score
         """
         Y_ = tf.reshape(Y_true, (Y_true.shape + [1]))
-        # TODO make this explicit in main, not here
-        flux = tf.reduce_sum(Y_, axis=[1, 2], keepdims=True)
-        Y_ = Y_ / flux
-        # prediction is in logit space
-        Y_ = tf.math.log(Y_ / (1. - Y_))
-        cost = tf.reduce_mean(tf.square(Y_pred - Y_), axis=[1, 2, 3])
-        cost = tf.reduce_mean(cost, axis=1)
-        cost = tf.reduce_mean(cost, axis=0)
+        # Y_ = tf.math.log(Y_ / (1. - Y_))
+        cost = tf.reduce_mean(tf.square(Y_pred - Y_))
         return cost
 
 
@@ -496,16 +496,14 @@ class PhysicalModelv2:
     def get_std(self, X):
         sigma_amp = X[..., :self.p] / self.SNR  # note that SNR should be large (say >~ 10 for gaussian approximation to hold)
         cp_baselines = tf.where(self.CPO != 0)
-        V1 = tf.gather(X[..., :self.p], cp_baselines[0::3][:, 1], axis=1) # tf where return pairs of indices that match condition
-        V2 = tf.gather(X[..., :self.p], cp_baselines[1::3][:, 1], axis=1) # this slicing uses the fact that there are always
-        V3 = tf.gather(X[..., :self.p], cp_baselines[2::3][:, 1], axis=1) # 3 non zero entry in CPO per row (do not work with kpi.uv_to_bsp matrix)
+        V1 = tf.gather(X[..., :self.p], cp_baselines[0::3][:, 1], axis=1)  # tf where return pairs of indices that match condition
+        V2 = tf.gather(X[..., :self.p], cp_baselines[1::3][:, 1], axis=1)  # this slicing uses the fact that there are always
+        V3 = tf.gather(X[..., :self.p], cp_baselines[2::3][:, 1], axis=1)  # 3 non zero entry in CPO per row (do not work with kpi.uv_to_bsp matrix)
         sigma_cp = tf.math.sqrt((V1/self.SNR)**2 + (V2/self.SNR)**2 + (V3/self.SNR)**2)
         return sigma_amp, sigma_cp
 
     def simulate_noisy_data(self, images, flux=None):
         batch = images.shape[0]
-        # if flux is None:
-        #     flux = tf.reduce_sum(tf.keras.layers.Flatten(data_format="channels_last")(images), axis=1, keepdims=True)
         X = self.forward(images, flux)
         sigma_amp, sigma_cp = self.get_std(X)
         amp_noise = tf.random.normal(shape=[batch, self.p], stddev=sigma_amp, dtype=dtype)

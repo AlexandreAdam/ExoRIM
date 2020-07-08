@@ -37,13 +37,13 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--number_images", type=int, default=100)
     parser.add_argument("-w", "--wavelength", type=float, default=1e-6)
     parser.add_argument("--SNR", type=float, default=100, help="Signal to noise ratio")
-    parser.add_argument("--plate_scale", type=float, default=1, help="plate scale in mas/pixel, that is 206265/(1000 * f[mm] * pixel_density[pixel/mm])")
+    parser.add_argument("--plate_scale", type=float, default=0.1, help="plate scale in mas/pixel, that is 206265/(1000 * f[mm] * pixel_density[pixel/mm])")
     parser.add_argument("-s", "--split", type=float, default=0.8)
     parser.add_argument("-b", "--batch", type=int, default=32, help="Batch size")
     parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
     parser.add_argument("--holes", type=int, default=21, help="Number of holes in the mask")
-    parser.add_argument("--longest_baseline", type=float, default=10., help="Longest baseline (meters) in the mask, up to noise added")
-    parser.add_argument("--mask_variance", type=float, default=1., help="Variance of the noise added to rho coordinate of aperture (in meter)")
+    parser.add_argument("--longest_baseline", type=float, default=100., help="Longest baseline (meters) in the mask, up to noise added")
+    parser.add_argument("--mask_variance", type=float, default=10., help="Variance of the noise added to rho coordinate of aperture (in meter)")
     parser.add_argument("-m", "--min_delta", type=float, default=0, help="Tolerance for early stopping")
     parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping")
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
@@ -53,7 +53,7 @@ if __name__ == "__main__":
     parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
     args = parser.parse_args()
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
-    with open("hyperparameters.json", "r") as f:
+    with open("hyperparameters_small.json", "r") as f:
         hyperparameters = json.load(f)
     train_meta = CenteredImagesv1(
         total_items=args.number_images,
@@ -114,11 +114,11 @@ if __name__ == "__main__":
     # phys = PhysicalModel(circle_mask, hyperparameters["pixels"], visibility_noise=1e-3, cp_noise=1e-5, m2pix=m2pix)
     phys = PhysicalModelv2(hyperparameters["pixels"], cpo, dftm, dftm_i, args.SNR)
     rim = RIM(physical_model=phys, hyperparameters=hyperparameters)
-    train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod)
-    test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod)
+    train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format=args.format)
+    test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod, format=args.format)
     cost_function = MSE()
     epochs_schedule = [20, 20, 30, 40]
-    for i, lr in enumerate([1e-4, 1e-3, 1e-4, 1e-5]):
+    for i, lr in enumerate([1e-2, 1e-3, 1e-4, 1e-5]):
         history = rim.fit(
             train_dataset=train_dataset,
             test_dataset=test_dataset,
@@ -136,7 +136,7 @@ if __name__ == "__main__":
             output_save_mod={
                 "index_mod": args.index_save_mod,
                 "epoch_mod": args.epoch_save_mod,
-                "step_mod": hyperparameters["steps"]},
+                "step_mod": 1},
         )
         for key, item in history.items():
             np.savetxt(os.path.join(results_dir, key + f"_{i}" + ".txt"), item)

@@ -51,7 +51,6 @@ class CenteredImagesv1:
         image = np.zeros_like(xx)
         rho_squared = (xx - xp) ** 2 + (yy - yp) ** 2
         image += intensity / (sigma * np.sqrt(2. * np.pi)) * np.exp(-0.5 * (rho_squared / sigma ** 2))
-        image = self.normalize(image)
         return image
 
     def circular_psf(self, sigma, intensity, xp, yp):
@@ -60,12 +59,8 @@ class CenteredImagesv1:
         image = np.zeros_like(xx)
         rho = np.sqrt((xx - xp) ** 2 + (yy - yp) ** 2)
         image += intensity * (rho < sigma)
-        image = self.normalize(image)
         return image
 
-    @staticmethod
-    def normalize(vector):
-        return (vector - vector.min() + 1e-5) / (vector.max() - vector.min() + 1e-5)
 
     def generate_epoch_images(self):
         """
@@ -83,7 +78,8 @@ class CenteredImagesv1:
                     1 - self.contrast[i][j],
                     *self.coordinates[i][j]
                 )
-            images[i, :, :, 0] = self.normalize(images[i, :, :, 0])
+        # normalize by flux
+        images = images / np.reshape(np.sum(images, axis=(1, 2, 3)), [images.shape[0], 1, 1, 1])
         return images
 
     def _nps(self, p="uniform", mu=2):

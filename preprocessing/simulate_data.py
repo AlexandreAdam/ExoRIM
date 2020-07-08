@@ -17,7 +17,7 @@ def create_and_save_data(datadir, meta_data, index_save_mod, format="png"):
             im = Image.fromarray(image[:, :, 0], mode="L") # for grau images, channels = 1
             im.save(os.path.join(datadir, f"image{i:03}.png"))
         elif format == "txt":
-            np.savetxt(os.path.join(dirname, f"image{i:03}.txt"))
+            np.savetxt(os.path.join(datadir, f"image{i:03}.txt"), image[..., 0])
     with open(os.path.join(datadir, "meta_data.pickle"), "wb") as f:
         pickle.dump(meta_data, f)
     return images
