@@ -37,7 +37,7 @@ def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod, f
         image_index = np.arange(out.shape[0])
         image_index = image_index[(image_index + batch * out.shape[0]) % index_mod == 0]
         step = np.arange(out.shape[-1])
-        step = step[step % step_mod == 0]
+        step = step[(step + 1) % step_mod == 0]
         step = np.tile(step, reps=[image_index.size, 1])  # fancy broadcasting of the indices
         image_index = np.tile(image_index, reps=[step.shape[1], 1])
         for i, I in enumerate(out[image_index.T, ..., step]): # note that array is reshaped to [batch, steps, pix, pix, channel]
