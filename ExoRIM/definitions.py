@@ -2,8 +2,8 @@ from scipy.special import factorial
 import tensorflow as tf
 import numpy as np
 
-tf.keras.backend.set_floatx('float32')
-dtype = tf.float32  # faster, otherise tf.float64
+tf.keras.backend.set_floatx('float64')
+dtype = tf.float64  # faster, otherise tf.float64
 initializer = tf.initializers.GlorotNormal()  # random_normal_initializer(stddev=0.06)
 
 default_hyperparameters = {
@@ -184,81 +184,86 @@ def one_sided_DFTM(uv, wavelength, pixels, plate_scale , inv=False, dprec=True):
 
 def cast_to_complex_flatten(image):
     im = tf.dtypes.cast(image, tf.complex128)
-    im = tf.keras.layers.Flatten(data_format="channel_last")(im)
+    im = tf.keras.layers.Flatten(data_format="channels_last")(im)
     return im
 
 
 def chisq_vis(image, A, vis, sigma):
     """Visibility chi-squared"""
+    sig = tf.cast(sigma, tf.complex128)
     im = cast_to_complex_flatten(image)
-    samples = tf.tensordot(A, im, axes=1)
-    chisq = tf.reduce_mean(tf.math.abs((samples-vis)/sigma)**2)
+    samples = tf.einsum("ij, ...j -> ...i", A, im)
+    chisq = 0.5 * tf.reduce_mean(tf.math.abs((samples-vis)/sig)**2)
     return chisq
 
 
-def chisqgrad_vis(image, A, vis, sigma):
+def chisqgrad_vis(image, A, vis, sigma, pix):
     """The gradient of the visibility chi-squared"""
-    im = tf.dtypes.cast(image, tf.complex128)
-    im = tf.keras.layers.Flatten(data_format="channel_last")(im)
-    samples = tf.tensordot(A, im, axes=1)
-    wdiff = (vis - samples)/(sigma**2)
+    sig = tf.cast(sigma, tf.complex128)
+    im = cast_to_complex_flatten(image)
+    samples = tf.einsum("ij, ...j -> ...i", A, im)
+    wdiff = (vis - samples)/(sig**2)
     adjoint = tf.transpose(tf.math.conj(A))
-    out = -tf.math.real(tf.tensordot(adjoint, wdiff, axes=1))
+    out = -tf.math.real(tf.einsum("ij, ...j -> ...i", adjoint, wdiff))
+    out = tf.reshape(out, [-1, pix, pix, 1])
     return out
 
 
 def chisq_amp(image, A, amp, sigma):
     """Visibility Amplitudes (normalized) chi-squared"""
-    im = tf.dtypes.cast(image, tf.complex128)
-    amp_samples = tf.math.abs(tf.tensordot(A, im, axes=1))
-    return tf.math.reduce_mean(tf.math.abs((amp - amp_samples)/sigma)**2)
+    sig = tf.cast(sigma, tf.complex128)
+    im = cast_to_complex_flatten(image)
+    amp_samples = tf.math.abs(tf.einsum("ij, ...j -> ...i", A, im))
+    return tf.math.reduce_mean(tf.math.abs((amp - amp_samples)/sig)**2)
 
 
-def chisqgrad_amp(image, A, amp, sigma):
+def chisqgrad_amp(image, A, amp, sigma, pix):
     """The gradient of the amplitude chi-squared"""
-
-    im = tf.dtypes.cast(image, tf.complex128)
-    V_samples = tf.tensordot(A, im, axes=1)
-    amp_samples  = tf.math.abs(V_samples)
-    product = ((amp - amp_samples) * amp_samples) / (sigma**2) / V_samples
+    sig = tf.cast(sigma, tf.complex128)
+    im = cast_to_complex_flatten(image)
+    V_samples = tf.einsum("ij, ...j -> ...i", A, im)
+    amp_samples = tf.math.abs(V_samples)
+    product = ((amp - amp_samples) * amp_samples) / (sig**2) / V_samples
     adjoint = tf.transpose(tf.math.conj(A))
-    out = tf.reduce_mean(-2.0 * tf.math.real(tf.tensordot(adjoint, product, axes=1)))
+    out = -2.0 * tf.math.real(tf.einsum("ij, ...j -> ...i", adjoint, product))
+    out = tf.reshape(out, shape=[-1, pix, pix, 1])
     return out
 
 
-def chisq_bs(image, A, B, bis, sigma):
+def chisq_bs(image, A1, A2, A3, B, sigma):
     """
 
     :param image: Image tensor
-    :param A: A matrix to project from image space to fourier space (one sided fourier transform)
+    :param Amatrices:
     :param B: Bispectrum projection matrix to project from complex visibilities to bispectrum ()
     :param bis:
     :param sigma:
     :return:
     """
-    bisamples = (np.dot(Amatrices[0], imvec) *
-                 np.dot(Amatrices[1], imvec) *
-                 np.dot(Amatrices[2], imvec))
-    chisq = np.sum(np.abs(((bis - bisamples)/sigma))**2)/(2.*len(bis))
+    sig = tf.cast(sigma, tf.complex128)
+    im = cast_to_complex_flatten(image)
+    V1 = tf.einsum("ij, ...j -> ...i", A1, im)
+    V2 = tf.einsum("ij, ...j -> ...i", A2, im)
+    V3 = tf.einsum("ij, ...j -> ...i", A3, im)
+    B_sample = V1 * V2 * V3
+    chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(B - B_sample)/sig))
     return chisq
 
 
-def chisqgrad_bs(imvec, Amatrices, bis, sigma):
+def chisqgrad_bs(image, A1, A2, A3, B, sigma, pix):
     """The gradient of the bispectrum chi-squared"""
-
-    bisamples = (np.dot(Amatrices[0], imvec) *
-                 np.dot(Amatrices[1], imvec) *
-                 np.dot(Amatrices[2], imvec))
-
-    wdiff = ((bis - bisamples).conj())/(sigma**2)
-    pt1 = wdiff * np.dot(Amatrices[1], imvec) * np.dot(Amatrices[2], imvec)
-    pt2 = wdiff * np.dot(Amatrices[0], imvec) * np.dot(Amatrices[2], imvec)
-    pt3 = wdiff * np.dot(Amatrices[0], imvec) * np.dot(Amatrices[1], imvec)
-    out = (np.dot(pt1, Amatrices[0]) +
-           np.dot(pt2, Amatrices[1]) +
-           np.dot(pt3, Amatrices[2]))
-
-    out = -np.real(out) / len(bis)
+    sig = tf.cast(sigma, tf.complex128)
+    im = cast_to_complex_flatten(image)
+    einsum = "ij, ...j -> ...i"
+    t_einsum = "ji, ...j -> ...i"
+    V1 = tf.einsum(einsum, A1, im)
+    V2 = tf.einsum(einsum, A2, im)
+    V3 = tf.einsum(einsum, A3, im)
+    B_samples = V1 * V2 * V3
+    wdiff = tf.math.conj(B - B_samples)/sig**2
+    out = tf.einsum(t_einsum, A1, wdiff * V2 * V3) + tf.einsum(t_einsum, A2, wdiff * V1 * V3) + tf.einsum(t_einsum, A3, wdiff * V1 * V2)
+    out = -tf.math.real(out)
+    out = tf.reshape(out, shape=[-1, pix, pix, 1])
     return out
 
 DATATERMS = ['vis', 'amp', 'bs', 'cphase', 'cphase_diag',

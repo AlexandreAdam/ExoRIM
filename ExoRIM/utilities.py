@@ -35,7 +35,8 @@ def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod, f
     if len(out.shape) == 5:
         # parallelize search for the image
         image_index = np.arange(out.shape[0])
-        image_index = image_index[(image_index + batch * out.shape[0]) % index_mod == 0]
+        true_image_index = image_index + batch * out.shape[0]
+        image_index = image_index[(true_image_index) % index_mod == 0]
         step = np.arange(out.shape[-1])
         step = step[(step + 1) % step_mod == 0]
         step = np.tile(step, reps=[image_index.size, 1])  # fancy broadcasting of the indices
@@ -45,9 +46,9 @@ def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod, f
                 if format == "png":
                     image = convert_to_8_bit(image)
                     image = Image.fromarray(image, mode="L")
-                    image.save(os.path.join(dirname, f"output_{epoch:04}_{image_index[j, i]:04}_{step[i, j]:02}.png"))
+                    image.save(os.path.join(dirname, f"output_{epoch:04}_{true_image_index[i]:04}_{step[i, j]:02}.png"))
                 elif format == "txt":
-                    np.savetxt(os.path.join(dirname, f"output_{epoch:04}_{image_index[j, i]:04}_{step[i, j]:02}.txt"), image)
+                    np.savetxt(os.path.join(dirname, f"output_{epoch:04}_{true_image_index[i]:04}_{step[i, j]:02}.txt"), image)
     elif len(out.shape) == 4:
         # TODO parallelize this one
         for step in range(out.shape[-1]):

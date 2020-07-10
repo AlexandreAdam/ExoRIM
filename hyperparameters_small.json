@@ -5,8 +5,8 @@
 		"state_size": 16,
 		"state_depth": 32,
 		"Regularizer Amplitude": {
-				"kernel": 0.00,
-				"bias": 0.00
+				"kernel": 0.001,
+				"bias": 0.001
 
 		},
 		"Physical Model": {
@@ -29,10 +29,6 @@
 		],
 		"Recurrent Block": {
 				"GRU_1": {
-						"kernel_size": [3, 3],
-						"filters": 16
-				},
-				"Hidden_Conv_1": {
 						"kernel_size": [3, 3],
 						"filters": 16
 				},
