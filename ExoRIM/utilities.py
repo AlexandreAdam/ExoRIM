@@ -3,6 +3,7 @@ import tensorflow as tf
 from PIL import Image
 import os, glob
 import pickle
+import collections
 
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
@@ -57,6 +58,52 @@ def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod, f
             image = convert_to_8_bit(out[:, :, 0, step])
             image = Image.fromarray(image, mode="L")
             image.save(os.path.join(dirname, f"output_{epoch:03}_000_{step:02}.png"))
+
+
+def update(d, u):
+    for k, v in u.items():
+        if isinstance(v, collections.abc.Mapping):
+            d[k] = update(d.get(k, {}), v)
+        else:
+            d[k] = v
+    return d
+
+
+def save_gradient_and_weights(grad, trainable_weight, dirname, epoch, batch):
+    file = os.path.join(dirname, "grad_and_weights.pickle")
+    if os.path.exists(file):
+        with open(file, "rb") as f:
+            d = pickle.load(f)
+    else:
+        d = {}
+    for i, _ in enumerate(grad):
+        layer = trainable_weight[i].name
+        update(d, {layer : {epoch : {batch : {
+            "grad_mean": grad[i].numpy().mean(),
+            "grad_var" : grad[i].numpy().std(),
+            "weight_mean": trainable_weight[i].numpy().mean(),
+            "weight_var": trainable_weight[i].numpy().std(),
+            "weight_max": trainable_weight[i].numpy().max(),
+            "weight_min": trainable_weight[i].numpy().min()
+        }}}})
+    with open(file, "wb") as f:
+        pickle.dump(d, f)
+
+
+def save_loglikelihood_grad(grad, dirname, epoch, batch, index_mod, epoch_mod, step_mod):
+    if epoch % epoch_mod != 0:
+        return
+    out = grad.numpy()
+    image_index = np.arange(out.shape[0])
+    true_image_index = image_index + batch * out.shape[0]
+    image_index = image_index[(true_image_index) % index_mod == 0]
+    step = np.arange(out.shape[-1])
+    step = step[(step + 1) % step_mod == 0]
+    step = np.tile(step, reps=[image_index.size, 1])
+    image_index = np.tile(image_index, reps=[step.shape[1], 1])
+    for i, G in enumerate(out[image_index.T, ..., step]):
+        for j, g in enumerate(G):
+            np.savetxt(os.path.join(dirname, f"grad_{epoch:04}_{true_image_index[i]:04}_{step[i, j]:02}.txt"), g)
 
 
 # def create_datasets(meta_data, rim, dirname, batch_size=None):

@@ -1,14 +1,13 @@
-from ExoRIM.model import RIM, MSE, MAE, PhysicalModelv2, PhysicalModel
-from ExoRIM.bispectrum import Baselines, phase_closure_operator
-from ExoRIM.simulated_data import CenteredImagesv1, OffCenteredBinaries
+from ExoRIM.model import RIM, MSE, PhysicalModelv2
+from ExoRIM.operators import Baselines, phase_closure_operator, NDFTM
+from ExoRIM.simulated_data import CenteredImagesv1, OffCenteredBinaries, CenteredCircle
 from preprocessing.simulate_data import create_and_save_data
-from ExoRIM.definitions import one_sided_DFTM, mas2rad, dtype
+from ExoRIM.definitions import mas2rad, dtype
 from argparse import ArgumentParser
 from datetime import datetime
 import tensorflow as tf
 import numpy as np
 import json
-import pickle
 import os
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
@@ -35,15 +34,16 @@ def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("-n", "--number_images", type=int, default=100)
-    parser.add_argument("-w", "--wavelength", type=float, default=1e-6)
-    parser.add_argument("--SNR", type=float, default=10000, help="Signal to noise ratio")
-    parser.add_argument("--plate_scale", type=float, default=1, help="plate scale in mas/pixel, that is 206265/(1000 * f[mm] * pixel_density[pixel/mm])")
+    parser.add_argument("-w", "--wavelength", type=float, default=0.5e-6)
+    parser.add_argument("--SNR", type=float, default=1000, help="Signal to noise ratio")
+    # note that default param resolution is 5.24 mas
+    parser.add_argument("--plate_scale", type=float, default=3.2, help="plate scale in mas/pixel, that is 206265/(1000 * f[mm] * pixel_density[pixel/mm])")
     parser.add_argument("-s", "--split", type=float, default=0.8)
     parser.add_argument("-b", "--batch", type=int, default=10, help="Batch size")
     parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
     parser.add_argument("--holes", type=int, default=21, help="Number of holes in the mask")
-    parser.add_argument("--longest_baseline", type=float, default=100., help="Longest baseline (meters) in the mask, up to noise added")
-    parser.add_argument("--mask_variance", type=float, default=10., help="Variance of the noise added to rho coordinate of aperture (in meter)")
+    parser.add_argument("--longest_baseline", type=float, default=6., help="Longest baseline (meters) in the mask, up to noise added")
+    parser.add_argument("--mask_variance", type=float, default=1., help="Variance of the noise added to rho coordinate of aperture (in meter)")
     parser.add_argument("-m", "--min_delta", type=float, default=0, help="Tolerance for early stopping")
     parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping")
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
@@ -108,8 +108,8 @@ if __name__ == "__main__":
         circle_mask[i, 1] = (args.longest_baseline + np.random.normal(0, args.mask_variance)) * np.sin(2 * np.pi * i / args.holes)
     baselines = Baselines(mask_coordinates=circle_mask)
     cpo = phase_closure_operator(baselines)
-    dftm = one_sided_DFTM(baselines.UVC, args.wavelength, hyperparameters["pixels"], args.plate_scale)
-    dftm_i = one_sided_DFTM(baselines.UVC, args.wavelength, hyperparameters["pixels"], args.plate_scale, inv=True)
+    dftm = NDFTM(baselines.UVC, args.wavelength, hyperparameters["pixels"], args.plate_scale)
+    dftm_i = NDFTM(baselines.UVC, args.wavelength, hyperparameters["pixels"], args.plate_scale, inv=True)
     m2pix = mas2rad(args.plate_scale) * hyperparameters["pixels"] / args.wavelength
     # phys = PhysicalModel(circle_mask, hyperparameters["pixels"], visibility_noise=1e-3, cp_noise=1e-5, m2pix=m2pix)
     phys = PhysicalModelv2(hyperparameters["pixels"], cpo, dftm, dftm_i, args.SNR)
@@ -118,27 +118,27 @@ if __name__ == "__main__":
     test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod, format=args.format)
     cost_function = MSE()
     epochs_schedule = [50, 100, 200]
-    for i, lr in enumerate([1e-4, 1e-4, 1e-4]):
-        history = rim.fit(
-            train_dataset=train_dataset,
-            test_dataset=test_dataset,
-            optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
-            max_time=args.training_time,
-            cost_function=cost_function,
-            min_delta=args.min_delta,
-            patience=args.patience,
-            metrics=metrics,
-            track="train_loss",
-            checkpoints=args.checkpoint,
-            output_dir=results_dir,
-            checkpoint_dir=models_dir,
-            max_epochs=epochs_schedule[i],
-            output_save_mod={
-                "index_mod": args.index_save_mod,
-                "epoch_mod": args.epoch_save_mod,
-                "step_mod": 1},
-        )
-        for key, item in history.items():
-            np.savetxt(os.path.join(results_dir, key + f"_{i}" + ".txt"), item)
+    # for i, lr in enumerate([1e-4, 1e-4, 1e-4]):
+    history = rim.fit(
+        train_dataset=train_dataset,
+        test_dataset=test_dataset,
+        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+        max_time=args.training_time,
+        cost_function=cost_function,
+        min_delta=args.min_delta,
+        patience=args.patience,
+        metrics=metrics,
+        track="train_loss",
+        checkpoints=args.checkpoint,
+        output_dir=results_dir,
+        checkpoint_dir=models_dir,
+        max_epochs=args.max_epoch,
+        output_save_mod={
+            "index_mod": args.index_save_mod,
+            "epoch_mod": args.epoch_save_mod,
+            "step_mod": 1}#hyperparameters["steps"]},
+    )
+    for key, item in history.items():
+        np.savetxt(os.path.join(results_dir, key + ".txt"), item)
     with open(os.path.join(models_dir, "hyperparameters.json"), "w") as f:
         json.dump(rim.hyperparameters, f)

@@ -1,8 +1,9 @@
 import tensorflow as tf
 import numpy as np
-from ExoRIM.definitions import dtype, default_hyperparameters, chisq_bs, chisq_vis, chisqgrad_vis, chisqgrad_bs
+from ExoRIM.definitions import dtype, default_hyperparameters, mycomplex, chisqgrad_vis, chisqgrad_bs, chisqgrad_cphase, \
+    chisqgrad_amp, initializer, softmax_min_max_scaler
 from ExoRIM.kpi import kpi
-from ExoRIM.utilities import save_output
+from ExoRIM.utilities import save_output, save_gradient_and_weights, save_loglikelihood_grad
 import time
 import os
 
@@ -15,21 +16,24 @@ class ConvGRU(tf.keras.Model):
             kernel_size=kernel_size,
             strides=(1, 1),
             activation='sigmoid',
-            padding='same'
+            padding='same',
+            kernel_initializer=initializer
         )
         self.reset_gate = tf.keras.layers.Conv2D(
             filters=filters,
             kernel_size=kernel_size,
             strides=(1, 1),
             activation='sigmoid',
-            padding='same'
+            padding='same',
+            kernel_initializer=initializer
         )
         self.candidate_activation_gate = tf.keras.layers.Conv2D(
             filters=filters,
             kernel_size=kernel_size,
             strides=(1, 1),
             activation='tanh',
-            padding='same'
+            padding='same',
+            kernel_initializer=initializer
         )
 
     def call(self, features, ht):
@@ -67,7 +71,8 @@ class Model(tf.keras.Model):
                 padding="same",
                 kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
                 bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-                data_format="channels_last"
+                data_format="channels_last",
+                kernel_initializer=initializer
             ))
         for layer in hyperparameters["Convolution Block"]:
             name = list(layer.keys())[0]
@@ -80,7 +85,8 @@ class Model(tf.keras.Model):
                 padding="same",
                 kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
                 bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-                data_format="channels_last"
+                data_format="channels_last",
+                kernel_initializer=initializer
             ))
         for layer in hyperparameters["Transposed Convolution Block"]:
             name = list(layer.keys())[0]
@@ -93,7 +99,8 @@ class Model(tf.keras.Model):
                 padding="same",
                 kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
                 bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-                data_format="channels_last"
+                data_format="channels_last",
+                kernel_initializer=initializer
             ))
         for layer in hyperparameters["Upsampling Block"]:
             name = list(layer.keys())[0]
@@ -106,8 +113,12 @@ class Model(tf.keras.Model):
                 padding="same",
                 kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
                 bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-                data_format="channels_last"
+                data_format="channels_last",
+                kernel_initializer=initializer
             ))
+        if hyperparameters["Upsampling Block"] == []:
+            name = "Identity"
+            self.upsampling_block.append(tf.identity)
         self.gru1 = ConvGRU(**hyperparameters["Recurrent Block"]["GRU_1"])
         self.gru2 = ConvGRU(**hyperparameters["Recurrent Block"]["GRU_2"])
         if "Hidden_Conv_1" in hyperparameters["Recurrent Block"].keys():
@@ -118,12 +129,13 @@ class Model(tf.keras.Model):
                 padding="same",
                 kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
                 bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-                data_format="channels_last"
+                data_format="channels_last",
+                kernel_initializer=initializer
             )
         else:
             self.hidden_conv = None
 
-    def call(self, xt, ht, grad):
+    def call(self, xt, ht):
         """
         :param inputs: List = [xt, ht, grad]
             xt: Image tensor of shape (batch size, num of pixel, num of pixel, channels)
@@ -132,14 +144,14 @@ class Model(tf.keras.Model):
             grad: Gradient of the log-likelihood function for y (data) given xt
         :return: x_{t+1}, h_{t+1}
         """
-        stacked_input = tf.concat([xt, grad], axis=3)
+        input = xt
         for layer in self.downsampling_block:
-            stacked_input = layer(stacked_input)
+            input = layer(input)
         for layer in self.convolution_block:
-            stacked_input = layer(stacked_input)
+            input = layer(input)
         # ===== Recurrent Block =====
         ht_1, ht_2 = tf.split(ht, 2, axis=3)
-        ht_1 = self.gru1(stacked_input, ht_1)  # to be recombined in new state
+        ht_1 = self.gru1(input, ht_1)  # to be recombined in new state
         if self.hidden_conv is not None:
             ht_1_features = self.hidden_conv(ht_1)
         else:
@@ -151,15 +163,12 @@ class Model(tf.keras.Model):
             delta_xt = layer(delta_xt)
         for layer in self.transposed_convolution_block:
             delta_xt = layer(delta_xt)
-        xt_1 = xt + delta_xt
-        #xt_1 = tf.keras.activations.relu(xt_1) # Link function to normalize output
-        # softmax or sigmoid
         new_state = tf.concat([ht_1, ht_2], axis=3)
-        return xt_1, new_state
+        return delta_xt, new_state
 
 
 class RIM:
-    def __init__(self, physical_model, hyperparameters, dtype=dtype, weight_file=None, arrays=None):
+    def __init__(self, physical_model, hyperparameters, dtype=dtype, weight_file=None):
         self._dtype = dtype
         self.hyperparameters = hyperparameters
         self.channels = hyperparameters["channels"]
@@ -173,7 +182,6 @@ class RIM:
             h = self.init_hidden_states(1)
             self.model.call(x, h, x)
             self.model.load_weights(weight_file)
-        self.batch_norm = tf.keras.layers.BatchNormalization(axis=-1)  # Setting for channels last
         self.physical_model = physical_model
 
     def __call__(self, X, training=False): # used for prediction
@@ -186,49 +194,43 @@ class RIM:
         :param X: Vector of complex visibilities amplitude and closure phases
         :return: 5D Tensor of shape (batch_size, [image_size, channels], steps)
         """
-        # batch_size = X.shape[0]
-        # x0 = self.initial_guess(X)
-        # h0 = self.init_hidden_states(batch_size)
-        # # Compute the gradient through auto-diff since model is highly non-linear
-        # with tf.GradientTape() as g:
-        #     g.watch(x0)
-        #     likelihood = self.physical_model.log_likelihood(x0, X)
-        #     # likelihood = self.physical_model.log_likelihood(tf.math.sigmoid(x0), X)
-        # grad = self.batch_norm(g.gradient(likelihood, x0), training=training)
-        # xt, ht = self.model(x0, h0, grad)
-        # outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
-        # for current_step in range(self.steps - 1):
-        #     with tf.GradientTape() as g:
-        #         g.watch(xt)
-        #         likelihood = self.physical_model.log_likelihood(xt, X)
-        #         # likelihood = self.physical_model.log_likelihood(tf.math.sigmoid(xt), X)
-        #     grad = self.batch_norm(g.gradient(likelihood, xt), training=training)
-        #     xt, ht = self.model(xt, ht, grad)
-        #     outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
         batch_size = X.shape[0]
-        x0 = self.initial_guess(X)
+        y0 = self.initial_guess(X)
         h0 = self.init_hidden_states(batch_size)
-        grad = self.physical_model.grad_log_likelihood(x0, X)
-        xt, ht = self.model(x0, h0, grad)
-        outputs = tf.reshape(xt, xt.shape + [1])  # Plus one dimension for step stack
+        grad = self.physical_model.grad_log_likelihood_v2(y0, X)
+        # scale in range [-1, 1] to accelerate learning
+        eta_0 = softmax_min_max_scaler(y0, minimum=-1., maximum=1.)
+        # Scale gradient to the same dynamical range as y
+        grad = softmax_min_max_scaler(grad, minimum=-1., maximum=1.)
+        stacked_input = tf.concat([eta_0, grad], axis=3)
+        # compute gradient update
+        gt, ht = self.model(stacked_input, h0)
+        # update image
+        eta_t = eta_0 + gt
+        # apply inverse link function to go back to image space
+        yt = softmax_min_max_scaler(eta_t, minimum=0, maximum=1.)
+        # save output and log likelihood gradient (latter for analysis)
+        outputs = tf.reshape(yt, yt.shape + [1])  # Plus one dimension for step stack
+        grads = grad
         for current_step in range(self.steps - 1):
-            grad = self.physical_model.grad_log_likelihood(xt, X)
-            xt, ht = self.model(xt, ht, grad)
-            outputs = tf.concat([outputs, tf.reshape(xt, xt.shape + [1])], axis=4)
-        return outputs
+            grad = self.physical_model.grad_log_likelihood_v2(yt, X)
+            grad = softmax_min_max_scaler(grad, minimum=-1., maximum=1.)
+            stacked_input = tf.concat([eta_t, grad], axis=3)
+            gt, ht = self.model(stacked_input, ht)
+            eta_t = eta_t + gt
+            yt = softmax_min_max_scaler(eta_t, minimum=0, maximum=1.)
+            outputs = tf.concat([outputs, tf.reshape(yt, yt.shape + [1])], axis=4)
+            grads = tf.concat([grads, grad], axis=3)
+        return outputs, grads
 
     def init_hidden_states(self, batch_size):
-        return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype) + 1e-4
+        return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype)
 
     def initial_guess(self, X):
-        # Initial guess cannot be zeros, it blows up the gradient of the log-likelihood
-        x0 = self.physical_model.inverse_fourier_transform(X)
-        # # x is normalized by flux (that is sum over all pixels), therefore logit is safe to apply
-        flux = tf.reduce_sum(x0, axis=[1, 2], keepdims=True)
-        x0 = 10 * x0/flux
-        # # x0 = tf.math.log(x0 / (1. - x0))
-        # x0 = tf.ones(shape=[X.shape[0], self.pixels, self.pixels, 1]) * 10
-        return x0
+        y0 = self.physical_model.inverse_fourier_transform(X)
+        y0 = softmax_min_max_scaler(y0, minimum=0, maximum=1.)
+        # y0 = tf.ones(shape=[X.shape[0], self.pixels, self.pixels, 1]) / 100
+        return y0
 
     def fit(
             self,
@@ -303,33 +305,30 @@ class RIM:
                 batch = batch.numpy()
                 with tf.GradientTape() as tape:
                     tape.watch(self.model.trainable_weights)
-                    output = self.call(X)
+                    output, grads = self.call(X)
                     cost_value = cost_function(output, Y)
                     cost_value += tf.reduce_sum(self.model.losses)  # Add layer specific regularizer losses (L2 in definitions)
                 epoch_loss.update_state([cost_value])
                 gradient = tape.gradient(cost_value, self.model.trainable_weights)
                 clipped_gradient = gradient
-                #clipped_gradient = tf.clip_by_value(gradient, clip_value_min=-10., clip_value_max=10.)  # prevent exploding gradients
                 optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
                 if output_dir is not None:
                     save_output(output, output_dir, epoch + _epoch_start, batch, **output_save_mod, format="txt")
-                    # apply sigmoid to revert to intensity space in order to save image
-                    # save_output(tf.math.sigmoid(output), output_dir, epoch + _epoch_start, batch, **output_save_mod, format="txt")
+                    save_gradient_and_weights(gradient, self.model.trainable_weights, output_dir, epoch + _epoch_start, batch)
+                    save_loglikelihood_grad(grads, output_dir, epoch + _epoch_start, batch, **output_save_mod)
                 for key, item in metrics_train.items():
                     metrics_train[key] += tf.math.reduce_mean(metrics[key](output[..., -1], Y)).numpy()
-                    # metrics_train[key] += tf.math.reduce_mean(metrics[key](tf.math.sigmoid(output[..., -1]), Y)).numpy()
             for key, item in metrics_train.items():
                 history[key + "_train"].append(item/(batch + 1))
             history["train_loss"].append(epoch_loss.result().numpy())
             if test_dataset is not None:
                 for X, Y in test_dataset: # this dataset should not be batched, so this for loop has 1 iteration
-                    test_output = self.call(X, training=True)  # investigate why predict returns NaN scores and output
+                    test_output, _ = self.call(X, training=True)  # investigate why predict returns NaN scores and output
                     test_cost = cost_function(test_output, Y)
                     test_cost += tf.reduce_sum(self.model.losses)
                     history["test_loss"].append(test_cost.numpy())
                     for key, item in metrics.items():
                         history[key + "_test"].append(tf.math.reduce_mean(item(test_output[..., -1], Y)).numpy())
-                        # history[key + "_test"].append(tf.math.reduce_mean(item(tf.math.sigmoid(test_output[..., -1]), Y)).numpy())
             print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e} | val_loss={history['test_loss'][-1]:.2e}")
             if history[track][-1] < min_score - min_delta:
                 _patience = patience
@@ -360,95 +359,6 @@ class MSE(tf.keras.losses.Loss):
         return cost
 
 
-class MAE(tf.keras.losses.Loss):
-    def __init__(self):
-        super(MAE, self).__init__()
-
-    def call(self, Y_pred, Y_true):
-        """
-        :param Y_true: 4D tensor to be compared with Y_preds: Has to be normalize by flux!!
-        :param Y_preds: 5D tensor output of the call method
-        :return: Score
-        """
-        Y_ = tf.reshape(Y_true, (Y_true.shape + [1]))
-        # Y_ = tf.math.log(Y_ / (1. - Y_))
-        cost = tf.reduce_mean(tf.abs(Y_pred - Y_))
-        return cost
-
-
-class PhysicalModel(object):
-    def __init__(self, mask_coordinates, pixels, visibility_noise, cp_noise, m2pix, arrays=None):
-        """
-        :param mask_coordinates: Numpy array with coordinates of holes in non-redundant mask (in meters)
-        :param pixels: Number of pixel on the side of a square camera
-        :param visibility_noise: Standard deviation of the visibilty amplitude squared
-        :param cp_noise: Standard deviation of the closure phases
-        :param arrays: initialize from saved tensor instead of computing kpi.
-        """
-        self.pixels = pixels
-        self.visibility_noise = visibility_noise
-        self.cp_noise = cp_noise
-        if arrays is not None:
-            self.cos_projector = tf.constant(arrays["cos_projector"], dtype=dtype)
-            self.sin_projector = tf.constant(arrays["sin_projector"], dtype=dtype)
-            self.bispectra_projector = tf.constant(arrays["bispectra_projector"], dtype=dtype)
-        else:
-            print('initializing Phys_Mod')
-            bs = kpi(mask=mask_coordinates, bsp_mat='sparse')
-
-            ## create p2vm matrix
-
-            x = np.arange(self.pixels)
-            xx, yy = np.meshgrid(x, x)
-            uv = bs.uv * m2pix
-
-            p2vm_sin = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
-
-            for j in range(bs.uv.shape[0]):
-                p2vm_sin[j, :] = np.ravel(np.sin(2*np.pi*(xx * uv[j, 0] + yy * uv[j, 1])))
-
-            p2vm_cos = np.zeros((bs.uv.shape[0], xx.ravel().shape[0]))
-
-            for j in range(bs.uv.shape[0]):
-                p2vm_cos[j, :] = np.ravel(np.cos(2*np.pi*(xx * uv[j, 0] + yy * uv[j, 1])))
-
-            # create tensor to hold cosine and sine projection operators
-            self.cos_projector = tf.constant(p2vm_cos.T, dtype=dtype)
-            self.sin_projector = tf.constant(p2vm_sin.T, dtype=dtype)
-            self.bispectra_projector = tf.constant(bs.uv_to_bsp.T, dtype=dtype)
-
-        vis2s = np.zeros(self.cos_projector.shape[1])
-        closure_phases = np.zeros(self.bispectra_projector.shape[1])
-        self.vis2s_tensor = tf.constant(vis2s, dtype=dtype)
-        self.cp_tensor = tf.constant(closure_phases, dtype=dtype)
-        self.data_tensor = tf.concat([self.vis2s_tensor, self.cp_tensor], 0)
-
-        # create tensor to hold your uncertainties
-        self.vis2s_error = tf.constant(np.ones_like(vis2s) * self.visibility_noise, dtype=dtype)
-        self.cp_error = tf.constant(np.ones_like(closure_phases) * self.cp_noise, dtype=dtype)
-        self.error_tensor = tf.concat([self.vis2s_error, self.cp_error], axis=0)
-
-    def forward(self, image):
-        flat = tf.keras.layers.Flatten(data_format="channels_last")(image)
-        sin_model = tf.tensordot(flat, self.sin_projector, axes=1)
-        cos_model = tf.tensordot(flat, self.cos_projector, axes=1)
-        visibility_squared = tf.square(cos_model) + tf.square(sin_model)
-        phases = tf.math.angle(tf.complex(cos_model, sin_model))
-        closure_phase = tf.tensordot(phases, self.bispectra_projector, axes=1)
-        y = tf.concat([visibility_squared, closure_phase], axis=1)
-        return y
-
-    def simulate_noisy_data(self, image):
-        # apply noise to image before passing in physical model
-        out = self.forward(image)
-        out += self.error_tensor
-        return out
-
-    def log_likelihood(self, Y_pred, X):
-        X_pred = self.forward(Y_pred)
-        return 0.5 * tf.reduce_mean(tf.square(X_pred - X)/self.error_tensor**2, axis=1)
-
-
 class PhysicalModelv2:
     """
     Physical model based one sided Fourier Transform and closure phase operator computed from kpi.BLM (xara)
@@ -468,26 +378,25 @@ class PhysicalModelv2:
         """
         self.pixels = pixels
         self.CPO = tf.constant(phase_closure_operator, dtype=dtype)
-        self.A = tf.constant(one_sided_DFTM, dtype=tf.complex128)
-        self.A_inverse = tf.constant(dftm_i, dtype=tf.complex128)
+        self.A = tf.constant(one_sided_DFTM, dtype=mycomplex)
+        self.A_inverse = tf.constant(dftm_i, dtype=mycomplex)
         self.p = one_sided_DFTM.shape[0]  # number of visibility samples
-        self.q = phase_closure_operator.shape[0]  # number of independant closure phases
+        self.q = phase_closure_operator.shape[0]  # number of independent closure phases
         self.SNR = SNR
         # create matrices that project visibilities to bispectra (V1 = V_{ij}, V_2 = V_{jk} and V_3 = V_{ki})
         bisp_i = np.where(phase_closure_operator != 0)
         V1_i = (bisp_i[0][0::3], bisp_i[1][0::3])
         V2_i = (bisp_i[0][1::3], bisp_i[1][1::3])
         V3_i = (bisp_i[0][2::3], bisp_i[1][2::3])
-        size = V1_i[0].size
-        self.V1_projector = np.zeros(shape=(self.q, self.p), dtype=complex)
-        self.V1_projector[V1_i] += 1 + 1j * phase_closure_operator[V1_i]
-        self.V1_projector = tf.constant(self.V1_projector, dtype=tf.complex128)
-        self.V2_projector = np.zeros(shape=(self.q, self.p), dtype=complex)
-        self.V2_projector[V2_i] += 1 + 1j * phase_closure_operator[V2_i]
-        self.V2_projector = tf.constant(self.V2_projector, dtype=tf.complex128)
-        self.V3_projector = np.zeros(shape=(self.q, self.p), dtype=complex)
-        self.V3_projector[V3_i] += 1 + 1j * phase_closure_operator[V2_i]
-        self.V3_projector = tf.constant(self.V3_projector, dtype=tf.complex128)
+        self.V1_projector = np.zeros(shape=(self.q, self.p))
+        self.V1_projector[V1_i] += 1.0
+        self.V1_projector = tf.constant(self.V1_projector, dtype=mycomplex)
+        self.V2_projector = np.zeros(shape=(self.q, self.p))
+        self.V2_projector[V2_i] += 1.0
+        self.V2_projector = tf.constant(self.V2_projector, dtype=mycomplex)
+        self.V3_projector = np.zeros(shape=(self.q, self.p))
+        self.V3_projector[V3_i] += 1.0
+        self.V3_projector = tf.constant(self.V3_projector, dtype=mycomplex)
         self.A1 = tf.tensordot(self.V1_projector, self.A, axes=1)
         self.A2 = tf.tensordot(self.V2_projector, self.A, axes=1)
         self.A3 = tf.tensordot(self.V3_projector, self.A, axes=1)
@@ -505,46 +414,56 @@ class PhysicalModelv2:
         return y
 
     def fourier_transform(self, image):
-        im = tf.cast(image, tf.complex128)
+        im = tf.cast(image, mycomplex)
         flat = tf.keras.layers.Flatten(data_format="channels_last")(im)
         return tf.einsum("...ij, ...j->...i", self.A, flat)  # tensordot broadcasted on batch_size
 
     def inverse_fourier_transform(self, X):
-        amp = tf.cast(X[..., :self.p], tf.complex128)
+        amp = tf.cast(X[..., :self.p], mycomplex)
         flat = tf.einsum("...ij, ...j->...i", self.A_inverse, amp)
         flat = tf.square(tf.math.abs(flat))  # intensity is square of amplitude
         flat = tf.cast(flat, dtype)
         return tf.reshape(flat, [-1, self.pixels, self.pixels, 1])
 
-    def bispectrum(self, X):
-        V1 = tf.einsum("...ij, ...j -> ...i", self.V1_projector, X)
-        V2 = tf.einsum("...ij, ...j -> ...i", self.V2_projector, X)
-        V3 = tf.einsum("...ij, ...j -> ...i", self.V3_projector, X)
-        return V1 * V2 * V3
+    def bispectrum(self, V):
+        V1 = tf.einsum("ij, ...j -> ...i", self.V1_projector, V)
+        V2 = tf.einsum("ij, ...j -> ...i", self.V2_projector, V)
+        V3 = tf.einsum("ij, ...j -> ...i", self.V3_projector, V)
+        return V1 * tf.math.conj(V2) * V3  # hack that works with baseline class! Be careful using other methods
 
-    def log_likelihood(self, Y_pred, X, alpha_amp=1., alpha_cp=1.):
+    def log_likelihood_v1(self, Y_pred, X):
         """
         :param Y_pred: reconstructed image
         :param X: interferometric data from measurements
         """
-        sigma_amp, sigma_cp = self.get_std(X)
+        sigma_amp = tf.math.abs(X[..., :self.p]) / self.SNR
+        sigma_cp = tf.cast(tf.math.sqrt(3 / self.SNR ** 2), dtype)
         X_pred = self.forward(Y_pred)
         chi2_amp = tf.reduce_mean(tf.square(tf.math.abs(X_pred[..., :self.p] - X[..., :self.p])/(sigma_amp + 1e-6)), axis=1)
-        chi2_cp = 2 * tf.reduce_mean(tf.square((1 - tf.math.cos(X_pred[..., self.p:] - X[..., self.p:]))/(sigma_cp + 1e-6)), axis=1)
-        return alpha_amp * chi2_cp + alpha_cp * chi2_amp
+        cp_pred = tf.math.angle(X_pred[..., self.p:])
+        cp_true = tf.math.angle(X[..., self.p:])
+        chi2_cp = tf.reduce_mean(tf.square((cp_pred - cp_true)/(sigma_cp + 1e-6)), axis=1)
+        return chi2_amp + chi2_cp
 
-    def grad_log_likelihood(self, Y_pred, X, alpha_vis=1., alpha_bis=1.):
+    def grad_log_likelihood_v2(self, Y_pred, X, alpha_amp=None, alpha_vis=1., alpha_bis=None, alpha_cp=None):
         """
         :param Y_pred: reconstructed image
         :param X: interferometric data from measurements (complex vector from forward method)
         """
-        sigma_amp = tf.math.abs(X[..., :self.p]) / self.SNR  # note that SNR should be large (say >~ 10 for gaussian approximation to hold)
-        V1 = tf.einsum("ij, ...j -> ...i", self.V1_projector, X[..., :self.p])
-        V2 = tf.einsum("ij, ...j -> ...i", self.V2_projector, X[..., :self.p])
-        V3 = tf.einsum("ij, ...j -> ...i", self.V3_projector, X[..., :self.p])
-        sigma_cp = tf.math.sqrt((tf.math.abs(V1) / self.SNR) ** 2 + (tf.math.abs(V2) / self.SNR) ** 2 + (tf.math.abs(V3) / self.SNR) ** 2)
+        sigma_amp, sigma_bis, sigma_cp = self.get_std(X)
+        # grad = alpha_amp * chisqgrad_amp(Y_pred, self.A, tf.math.abs(X[..., :self.p]), sigma_amp, self.pixels)
         grad = alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], sigma_amp, self.pixels)
-        grad = grad + alpha_bis * chisqgrad_bs(Y_pred, self.A1, self.A2, self.A3, X[..., self.p:], sigma_cp, self.pixels)
+        if alpha_bis is not None:
+            grad = grad + alpha_bis * chisqgrad_bs(Y_pred, self.A1, self.A2, self.A3, X[..., self.p:], sigma_bis, self.pixels)
+        if alpha_cp is not None:
+            grad = grad + alpha_cp * chisqgrad_cphase(Y_pred, self.A1, self.A2, self.A3, tf.math.angle(X[..., self.p:]), sigma_cp, self.pixels)
+        return grad
+
+    def grad_log_likelihood_v1(self, Y_pred, X):
+        with tf.GradientTape() as tape:
+            tape.watch(Y_pred)
+            likelihood = self.log_likelihood_v1(Y_pred, X)
+        grad = tape.gradient(likelihood, Y_pred)
         return grad
 
     def get_std(self, X):
@@ -552,15 +471,15 @@ class PhysicalModelv2:
         V1 = tf.einsum("ij, ...j -> ...i", self.V1_projector, X[..., :self.p])
         V2 = tf.einsum("ij, ...j -> ...i", self.V2_projector, X[..., :self.p])
         V3 = tf.einsum("ij, ...j -> ...i", self.V3_projector, X[..., :self.p])
-        B_amp = tf.cast(tf.math.abs(V1 * V2 * V3), dtype)
-        error_term = tf.cast(tf.math.sqrt(3 /(self.SNR)**2), dtype)
-        sigma_bis = B_amp * error_term
-        return sigma_vis, sigma_bis
+        B_amp = tf.cast(tf.math.abs(V1 * tf.math.conj(V2) * V3), dtype)  # same hack from bispectrum
+        sigma_cp = tf.cast(tf.math.sqrt(3 / self.SNR**2), dtype)
+        sigma_bis = B_amp * sigma_cp
+        return sigma_vis, sigma_bis, sigma_cp
 
     def simulate_noisy_data(self, images):
         batch = images.shape[0]
         X = self.forward(images)
-        sigma_vis, sigma_bis = self.get_std(X)
+        sigma_vis, sigma_bis, _ = self.get_std(X)
         # noise is picked from a complex normal distribution
         vis_noise_real = tf.random.normal(shape=[batch, self.p], stddev=sigma_vis / 2, dtype=dtype)
         vis_noise_imag = tf.random.normal(shape=[batch, self.p], stddev=sigma_vis / 2, dtype=dtype)
@@ -570,6 +489,7 @@ class PhysicalModelv2:
         bis_noise = tf.complex(bis_noise_real, bis_noise_imag)
         noise = tf.concat([vis_noise, bis_noise], axis=1)
         return X + noise
+
 
 
 # TODO decide if it is reasonable to implement this way in the future: might be more flexible to experiment

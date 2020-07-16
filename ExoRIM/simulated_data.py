@@ -2,6 +2,8 @@ import numpy as np
 from ExoRIM.definitions import k_truncated_poisson
 import xara
 
+# Image intensity must be in range [0, 1]
+
 
 class CenteredImagesv1:
     def __init__(
@@ -36,7 +38,6 @@ class CenteredImagesv1:
         self.widths = self._widths()
         self.coordinates = self._coordinates()
         self.contrast = self._contrasts()
-        self.widths = self._widths()
 
     def gaussian_psf_convolution(self, sigma, intensity,  xp=0, yp=0):
         """
@@ -68,7 +69,7 @@ class CenteredImagesv1:
         :return: image tensor of size (total_items, pixels, pixels)
         """
         images = np.zeros(shape=(self.total_items, self.pixels, self.pixels, 1))  # one channel
-        images += 1e-5 * np.random.random(size=images.shape) + 1e-4  # background
+        # images += 1e-5 * np.random.random(size=images.shape) + 1e-4  # background
         for i in range(self.total_items):
             for j, _ in enumerate(range(self.nps[i])):
                 images[i, :, :, 0] += self.gaussian_psf_convolution(
@@ -89,7 +90,7 @@ class CenteredImagesv1:
             cutdx = -abs(dx) if dx != 0 else None
             im = im[abs(dy):cutdy, abs(dx):cutdx]
             images[j, ..., 0] = im
-        return 10 * images # make sure intensity values are in an acceptable range for signal to propagate in network
+        return images
 
     def _nps(self, p="uniform", mu=2):
         """
@@ -152,7 +153,7 @@ class OffCenteredBinaries:
             seed=42,
             channels=1,
             pixels=32,
-            highest_contrast=0.95,
+            highest_contrast=0.3,
             max_distance=8  # in pixels
     ):
         np.random.seed(seed)
@@ -216,3 +217,48 @@ class OffCenteredBinaries:
         """
         contrast = np.random.random(size=self.total_items) * self.highest_contrast
         return [[1, 1 - c] for c in contrast]
+
+
+class CenteredCircle:
+    def __init__(
+            self,
+            total_items=1000,
+            seed=42,
+            channels=1,
+            pixels=32,
+    ):
+        """
+        This class defines the characteristics of a simulated dataset to train ExoRIM. It produces images with a
+        centered blob and few fainter point sources near the center of the image. Information like widths of the
+        point sources and contrasts are attached to the object for future analysis and reproducibility.
+
+        :param total_items: Total number of item to generate for an epoch
+        :param pixels: Number of pixels on a side of the square CCD camera
+        :param channels: Color dimension
+        :param max_point_sources: Maximum number of point source in a single image
+        :param highest_contrast: Determine the faintest object created in an image: is defined as the delta in
+                apparent magnitude
+        """
+        assert channels == 1
+        np.random.seed(seed)
+        self.pixels = pixels
+        self.total_items = total_items
+        self.widths = self._widths()
+
+    def generate_epoch_images(self):
+        """
+
+        :return: image tensor of size (total_items, pixels, pixels)
+        """
+        image_coords = np.arange(self.pixels) - self.pixels / 2.
+        xx, yy = np.meshgrid(image_coords, image_coords)
+        rho = np.sqrt(xx ** 2 + yy ** 2)
+        images = np.zeros(shape=(self.total_items, self.pixels, self.pixels, 1))  # one channel
+        for i in range(self.total_items):
+            images[i, :, :, 0] += rho < self.widths[i]
+        # normalize by flux
+        images = images #/ np.reshape(np.sum(images, axis=(1, 2, 3)), [images.shape[0], 1, 1, 1])
+        return images
+
+    def _widths(self):
+        return np.random.uniform(0, 12, size=self.total_items)
