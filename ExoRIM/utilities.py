@@ -114,7 +114,8 @@ def create_dataset_from_generator(
         dirname=None,
         batch_size=50,
         highest_contrast=0.5,
-        max_point_source=10
+        max_point_source=10,
+        fixed=False
 ):
     from ExoRIM.simulated_data import CenteredImagesGenerator
     from ExoRIM.definitions import dtype, mycomplex
@@ -125,7 +126,8 @@ def create_dataset_from_generator(
         pixels=pixels,
         highest_contrast=highest_contrast,
         max_point_sources=max_point_source,
-        save=dirname
+        save=dirname,
+        fixed=fixed
     )
     shapes = (tf.TensorShape([None]), tf.TensorShape([pixels, pixels, 1]))
     dataset = tf.data.Dataset.from_generator(gen.generator, output_types=(mycomplex, dtype), output_shapes=shapes)

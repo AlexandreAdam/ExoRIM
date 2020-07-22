@@ -280,7 +280,8 @@ class CenteredImagesGenerator:
             pixels=32,
             highest_contrast=0.5,
             max_point_sources=10,
-            save=None  # should the data directory path already created!
+            save=None,  # should the data directory path already created!
+            fixed=False
     ):
         self.physical_model = physical_model
         self.total_items_per_epoch = total_items_per_epoch
@@ -290,9 +291,13 @@ class CenteredImagesGenerator:
         self.max_point_sources = max_point_sources
         self.epoch = -1  # internal variable to reseed the random generator
         self.save = save
+        self.fixed = fixed  # this parameter allows us to keep the same dataset each epoch (for analysis mainly)
+        if self.fixed:
+            self.epoch = 42  # because we can
 
     def generator(self):
-        self.epoch += 1
+        if not self.fixed:
+            self.epoch += 1
         meta_data = CenteredImagesv1(
             total_items=self.total_items_per_epoch,
             seed=self.epoch,
@@ -302,8 +307,9 @@ class CenteredImagesGenerator:
             max_point_sources=self.max_point_sources
         )
         if self.save is not None:
-            with open(os.path.join(self.save, f"meta_data_{self.epoch}.pickle"), "wb") as f:
-                pickle.dump(meta_data, f)
+            if not self.fixed or self.epoch < 1:
+                with open(os.path.join(self.save, f"meta_data_{self.epoch}.pickle"), "wb") as f:
+                    pickle.dump(meta_data, f)
         Y = meta_data.generate_epoch_images()
         X = self.physical_model.simulate_noisy_data(Y)
         for i in range(Y.shape[0]):

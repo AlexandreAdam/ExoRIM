@@ -119,7 +119,8 @@ if __name__ == "__main__":
         item_per_epoch=args.number_images,
         pixels=hyperparameters["pixels"],
         dirname=train_dir,
-        batch_size=args.batch
+        batch_size=args.batch,
+        fixed=True
     )
     test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod, format=args.format)
     cost_function = MSE()
