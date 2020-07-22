@@ -1,4 +1,5 @@
-from .kpi import kpi
-from .model import RIM, MSE
-from .simulated_data import CenteredImagesv1
-from .operators import Baselines, phase_closure_operator
+from .model import Model
+from .loss import MSE
+from .rim import RIM
+from .physical_model import PhysicalModel
+from .operators import Baselines, phase_closure_operator, NDFTM

@@ -37,7 +37,7 @@ class Baselines:
         _, ui = np.unique(np.round(UVC[:, 0], self.precision), return_index=True)
         _, vi = np.unique(np.round(UVC[:, 1], self.precision), return_index=True)
         # We keep only the rows of the operators corresponding to the union of u_index and v_index
-        distinct_baselines = np.sort(np.array(list(set(ui).union(set(vi)))))
+        distinct_baselines = np.sort(np.array(list(set(ui).union(set(vi)))))  # sort to keep row order
         self.BLM = BLM[distinct_baselines]
         self.UVC = UVC[distinct_baselines]
         self.nbuv = distinct_baselines.size
@@ -88,7 +88,7 @@ def NDFTM(coords, wavelength, pixels, plate_scale, inv=False, dprec=True):
     if inv is True:
         WW = np.zeros((pixels ** 2, nuv), dtype=mydtype)
         for i in range(nuv):
-            # Inverse is scaled correctly with the 4 pi^2
+            # Inverse is scaled correctly with the 4 pi^2 (2D transform)
             WW[:, i] = 1./4./np.pi**2 * np.exp(i2pi * (uvc[i, 0] * xx.flatten() +
                                       uvc[i, 1] * yy.flatten()) / float(pixels))
     else:
@@ -98,6 +98,10 @@ def NDFTM(coords, wavelength, pixels, plate_scale, inv=False, dprec=True):
             WW[i] = np.exp(-i2pi * (uvc[i, 0] * xx.flatten() +
                                     uvc[i, 1] * yy.flatten()) / float(pixels))
     return WW
+
+
+def bispectra_projectors():
+    pass
 
 
 def phase_closure_operator(B: Baselines, fixed_aperture=0):

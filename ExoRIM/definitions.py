@@ -127,7 +127,7 @@ def pixel_grid(pixels, symmetric=True):
     return xx, yy
 
 
-def min_max_scaler(X, minimum, maximum, bkg=0):
+def logsumexp_scaler(X, minimum, maximum, bkg=0):
     """
     This function implement a scaler with a smooth maximum functions for gradient operations.
     Our smooth maximum operator is a poor approximation of the maximum function in this range, and so we rescale
@@ -141,20 +141,24 @@ def min_max_scaler(X, minimum, maximum, bkg=0):
     return minimum + (INTENSITY_SCALER * X - bkg) * (maximum - minimum) / (x_max - bkg)
 
 
-def softmax_min_max_scaler(X, minimum, maximum):
+def softmax_scaler(X, minimum, maximum):
     """
     Implement a more versatile scaler using softmax, which can be used to approximate both a maximum and a
     minimum smooth function by adjusting the alpha parameter.
     """
-    _X = tf.keras.layers.Flatten(data_format="channels_last")(X)
+    dims = len(X.shape)
+    if dims > 2:
+        _X = tf.keras.layers.Flatten(data_format="channels_last")(X)
+    else:
+        _X = X
     # Note that this smooth maximum approximator tends to have better results for alpha -> infinity
     alpha = INTENSITY_SCALER
-    # X dot softmax(alpha * X) broadcasted over batch
+    # X dot softmax(alpha * X) broadcasted over batch dimension
     x_max = tf.einsum("...i, ...i -> ...", _X, tf.math.softmax(alpha * _X))
-    x_max = tf.reshape(x_max, x_max.shape + [1, 1, 1])  # for broadcast sum
+    x_max = tf.reshape(x_max, x_max.shape + [1]*(dims - 1))  # hack to broadcast sum
     x_min = tf.einsum("...i, ...i -> ...", _X, tf.math.softmax(-alpha * _X))
-    x_min = tf.reshape(x_min, x_min.shape + [1, 1, 1])
-    return minimum + (X - x_min) * (maximum - minimum) / (x_max - x_min)
+    x_min = tf.reshape(x_min, x_min.shape + [1]*(dims - 1))
+    return minimum + (X - x_min) * (maximum - minimum) / (x_max - x_min + 1e-8)
 
 
 #    Copyright (C) 2018 Andrew Chael
@@ -266,17 +270,17 @@ def chisqgrad_bs(image, A1, A2, A3, B, sigma, pix, floor=1e-6):
 # REGULARIZERS = ['gs', 'tv', 'tv2', 'l1w', 'lA', 'patch', 'simple', 'compact', 'compact2', 'rgauss']
 #
 
+
 def chisq_cphase(image, A1, A2, A3, clphase, sigma):
     """Closure Phases (normalized) chi-squared"""
     sig = tf.cast(sigma, mycomplex)
     im = cast_to_complex_flatten(image)
     einsum = "ij, ...j -> ...i"
-    t_einsum = "ji, ...j -> ...i"
     V1 = tf.einsum(einsum, A1, im)
     V2 = tf.einsum(einsum, A2, im)
     V3 = tf.einsum(einsum, A3, im)
     clphase_samples = tf.math.angle(V1 * V2 * V3)
-    chisq = 0.5 * tf.reduce_sum(tf.math.square((1.0 - tf.math.cos(clphase-clphase_samples)) / sig), axis=1)
+    chisq = tf.reduce_mean((1.0 - tf.math.cos(clphase-clphase_samples) / sig**2), axis=1)
     return chisq
 
 
@@ -289,9 +293,13 @@ def chisqgrad_cphase(image, A1, A2, A3, clphase, sigma, pix):
     V1 = tf.einsum(einsum, A1, im)
     V2 = tf.einsum(einsum, A2, im)
     V3 = tf.einsum(einsum, A3, im)
-    VB = V1 * V2 * V3
-    clphase_samples = tf.math.angle(VB)
-    wdiff = (1 - tf.math.cos(clphase - clphase_samples)) * tf.math.sin(clphase - clphase_samples)/(sigma**2)
+    B = V1 * tf.math.conj(V2) * V3
+    clphase_samples = tf.math.angle(B)
+    wdiff = tf.cast(tf.math.sin(clphase - clphase_samples)/sigma**2, mycomplex)
+    out = tf.einsum(t_einsum, tf.math.conj(A1), wdiff / tf.math.conj(V1))
+    out = out + tf.einsum(t_einsum, A2, wdiff / V2)
+    out = out + tf.einsum(t_einsum, tf.math.conj(A3), wdiff / tf.math.conj(V3))
+    out = -2. * tf.math.imag(out) / B.shape[1]
     out = tf.reshape(out, shape=[-1, pix, pix, 1])
     return out
 

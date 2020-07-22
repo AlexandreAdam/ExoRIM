@@ -106,22 +106,36 @@ def save_loglikelihood_grad(grad, dirname, epoch, batch, index_mod, epoch_mod, s
             np.savetxt(os.path.join(dirname, f"grad_{epoch:04}_{true_image_index[i]:04}_{step[i, j]:02}.txt"), g)
 
 
-# def create_datasets(meta_data, rim, dirname, batch_size=None):
-#     images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data), dtype=tf.float32)
-#     k_images = rim.physical_model.simulate_noisy_image(images)
-#     X = tf.data.Dataset.from_tensor_slices(k_images)  # split along batch dimension
-#     Y = tf.data.Dataset.from_tensor_slices(images)
-#     dataset = tf.data.Dataset.zip((X, Y))
-#     if batch_size is not None: # for train set
-#         dataset = dataset.batch(batch_size, drop_remainder=True)
-#         dataset = dataset.enumerate(start=0)
-#         dataset = dataset.cache()  # accelerate the second and subsequent iterations over the dataset
-#         dataset = dataset.prefetch(AUTOTUNE)  # Batch is prefetched by CPU while training on the previous batch occurs
-#     else:
-#         # batch together all examples, for test set
-#         dataset = dataset.batch(images.shape[0], drop_remainder=True)
-#         dataset = dataset.cache()
-#     return dataset
+# Uses the simulated_data/CenteredImagesGenerator class
+def create_dataset_from_generator(
+        physical_model,
+        item_per_epoch=1000,
+        pixels=32,
+        dirname=None,
+        batch_size=50,
+        highest_contrast=0.5,
+        max_point_source=10
+):
+    from ExoRIM.simulated_data import CenteredImagesGenerator
+    from ExoRIM.definitions import dtype, mycomplex
+    gen = CenteredImagesGenerator(
+        physical_model=physical_model,
+        total_items_per_epoch=item_per_epoch,
+        channels=1,
+        pixels=pixels,
+        highest_contrast=highest_contrast,
+        max_point_sources=max_point_source,
+        save=dirname
+    )
+    shapes = (tf.TensorShape([None]), tf.TensorShape([pixels, pixels, 1]))
+    dataset = tf.data.Dataset.from_generator(gen.generator, output_types=(mycomplex, dtype), output_shapes=shapes)
+    dataset = dataset.cache()              # accelerate the second and subsequent iterations over the dataset
+    dataset = dataset.batch(batch_size, drop_remainder=True)
+    dataset = dataset.enumerate(start=0)
+    dataset = dataset.prefetch(AUTOTUNE)  # Batch is prefetched by CPU while training on the previous batch occurs
+    return dataset
+
+# TODO eventually make a dataset with random uv coverage
 
 
 def load_dataset(dirname, rim, batch_size=None):

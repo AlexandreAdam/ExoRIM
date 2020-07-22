@@ -1,8 +1,8 @@
 import numpy as np
 from ExoRIM.definitions import k_truncated_poisson
+from ExoRIM.physical_model import PhysicalModel
 import xara
-
-# Image intensity must be in range [0, 1]
+import os, pickle
 
 
 class CenteredImagesv1:
@@ -12,7 +12,7 @@ class CenteredImagesv1:
             seed=42,
             channels=1,
             pixels=32,
-            highest_contrast=0.95,
+            highest_contrast=0.5,
             max_point_sources=10
     ):
         """
@@ -63,6 +63,10 @@ class CenteredImagesv1:
         image += intensity * (rho < sigma)
         return image
 
+    @staticmethod
+    def normalize(X, minimum, maximum):
+        return minimum + (X - X.min()) * (maximum - minimum) / (X.max() - X.min() + 1e-8)
+
     def generate_epoch_images(self):
         """
 
@@ -77,8 +81,8 @@ class CenteredImagesv1:
                     1 - self.contrast[i][j],
                     *self.coordinates[i][j]
                 )
-        # normalize by flux
-        images = images / np.reshape(np.sum(images, axis=(1, 2, 3)), [images.shape[0], 1, 1, 1])
+        # normalize
+        images = self.normalize(images, minimum=0, maximum=1)
         # recenter image
         for j, im in enumerate(images[...,0]):
             (x0, y0) = xara.core.centroid(im, threshold=1e-4)
@@ -262,3 +266,47 @@ class CenteredCircle:
 
     def _widths(self):
         return np.random.uniform(0, 12, size=self.total_items)
+
+
+class CenteredImagesGenerator:
+    """
+    This Generator produce dataset from a fixed uv coverage map. This uv coverage is interpreted by the physical model
+    passed to the class
+    """
+    def __init__(
+            self,
+            physical_model: PhysicalModel,
+            total_items_per_epoch,
+            channels=1,
+            pixels=32,
+            highest_contrast=0.5,
+            max_point_sources=10,
+            save=None  # should the data directory path already created!
+    ):
+        self.physical_model = physical_model
+        self.total_items_per_epoch = total_items_per_epoch
+        self.channels = channels
+        self.pixels = pixels
+        self.highest_contrast = highest_contrast
+        self.max_point_sources = max_point_sources
+        self.epoch = -1  # internal variable to reseed the random generator
+        self.save = save
+
+    def generator(self):
+        self.epoch += 1
+        meta_data = CenteredImagesv1(
+            total_items=self.total_items_per_epoch,
+            seed=self.epoch,
+            channels=self.channels,
+            pixels=self.pixels,
+            highest_contrast=self.highest_contrast,
+            max_point_sources=self.max_point_sources
+        )
+        if self.save is not None:
+            with open(os.path.join(self.save, f"meta_data_{self.epoch}.pickle"), "wb") as f:
+                pickle.dump(meta_data, f)
+        Y = meta_data.generate_epoch_images()
+        X = self.physical_model.simulate_noisy_data(Y)
+        for i in range(Y.shape[0]):
+            yield X[i], Y[i]
+

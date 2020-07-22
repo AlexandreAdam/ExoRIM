@@ -1,8 +1,9 @@
-from ExoRIM.model import RIM, MSE, PhysicalModelv2
-from ExoRIM.operators import Baselines, phase_closure_operator, NDFTM
+from ExoRIM import RIM, MSE, PhysicalModel
+from ExoRIM.loss import KLDivergence, MAE
 from ExoRIM.simulated_data import CenteredImagesv1, OffCenteredBinaries, CenteredCircle
 from preprocessing.simulate_data import create_and_save_data
 from ExoRIM.definitions import mas2rad, dtype
+from ExoRIM.utilities import create_dataset_from_generator
 from argparse import ArgumentParser
 from datetime import datetime
 import tensorflow as tf
@@ -35,13 +36,13 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("-n", "--number_images", type=int, default=100)
     parser.add_argument("-w", "--wavelength", type=float, default=0.5e-6)
-    parser.add_argument("--SNR", type=float, default=1000, help="Signal to noise ratio")
+    parser.add_argument("--SNR", type=float, default=200, help="Signal to noise ratio")
     # note that default param resolution is 5.24 mas
     parser.add_argument("--plate_scale", type=float, default=3.2, help="plate scale in mas/pixel, that is 206265/(1000 * f[mm] * pixel_density[pixel/mm])")
     parser.add_argument("-s", "--split", type=float, default=0.8)
     parser.add_argument("-b", "--batch", type=int, default=10, help="Batch size")
     parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
-    parser.add_argument("--holes", type=int, default=21, help="Number of holes in the mask")
+    parser.add_argument("--holes", type=int, default=50, help="Number of holes in the mask")
     parser.add_argument("--longest_baseline", type=float, default=6., help="Longest baseline (meters) in the mask, up to noise added")
     parser.add_argument("--mask_variance", type=float, default=1., help="Variance of the noise added to rho coordinate of aperture (in meter)")
     parser.add_argument("-m", "--min_delta", type=float, default=0, help="Tolerance for early stopping")
@@ -53,12 +54,12 @@ if __name__ == "__main__":
     parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
     args = parser.parse_args()
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
-    with open("hyperparameters_small.json", "r") as f:
+    with open("hyperparameters.json", "r") as f:
         hyperparameters = json.load(f)
-    train_meta = CenteredImagesv1(
-        total_items=args.number_images,
-        pixels=hyperparameters["pixels"]
-    )
+    # train_meta = CenteredImagesv1(
+    #     total_items=args.number_images,
+    #     pixels=hyperparameters["pixels"]
+    # )
     test_meta = CenteredImagesv1(
         total_items=int(args.number_images * (1 - args.split)),
         pixels=hyperparameters["pixels"]
@@ -66,6 +67,7 @@ if __name__ == "__main__":
     hyperparameters["batch"] = args.batch
     hyperparameters["date"] = date
     # metrics only support grey scale images
+    mae = MAE()
     metrics = {
         "ssim": lambda Y_pred, Y_true: tf.image.ssim(Y_pred, Y_true, max_val=1.0),
         # Bug is tf 2.0.0, make sure filter size is small enough such that H/2**4 and W/2**4 >= filter size
@@ -74,15 +76,16 @@ if __name__ == "__main__":
         # Hence, using 3 power factors with filter size=2 works, and so does 2 power factors with filter_size <= 8
         # paper power factors are [0.0448, 0.2856, 0.3001, 0.2363, 0.1333]
         # After test, it seems filter_size=11 also works with 2 power factors and 32 pixel image
-        "ssim_multiscale_01": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
-                                                                              filter_size=11,
-                                                                              power_factors=[0.0448, 0.2856]),
-        "ssim_multiscale_23": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
-                                                                              filter_size=11,
-                                                                              power_factors=[0.3001, 0.2363]),
-        "ssim_multiscale_34": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
-                                                                              filter_size=11,
-                                                                              power_factors=[0.2363, 0.1333])
+        # "ssim_multiscale_01": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
+        #                                                                       filter_size=11,
+        #                                                                       power_factors=[0.0448, 0.2856]),
+        # "ssim_multiscale_23": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
+        #                                                                       filter_size=11,
+        #                                                                       power_factors=[0.3001, 0.2363]),
+        # "ssim_multiscale_34": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
+        #                                                                       filter_size=11,
+        #                                                                       power_factors=[0.2363, 0.1333])
+        "mae": lambda Y_pred, Y_true: mae.test(Y_pred, Y_true)
     }
 
     basedir = os.getcwd()  # assumes script is run from base directory
@@ -98,31 +101,38 @@ if __name__ == "__main__":
     test_dir = os.path.join(data_dir, "test")
     os.mkdir(test_dir)
 
-    # mask_coordinates = np.loadtxt(os.path.join(projector_dir, f"mask_{args.holes}_holes.txt"))
-    # with open(os.path.join(projector_dir, f"projectors_{args.holes}_holes.pickle"), "rb") as f:
-    #     arrays = pickle.load(f)
-
     circle_mask = np.zeros((args.holes, 2))
     for i in range(args.holes):
         circle_mask[i, 0] = (args.longest_baseline + np.random.normal(0, args.mask_variance)) * np.cos(2 * np.pi * i / args.holes)
         circle_mask[i, 1] = (args.longest_baseline + np.random.normal(0, args.mask_variance)) * np.sin(2 * np.pi * i / args.holes)
-    baselines = Baselines(mask_coordinates=circle_mask)
-    cpo = phase_closure_operator(baselines)
-    dftm = NDFTM(baselines.UVC, args.wavelength, hyperparameters["pixels"], args.plate_scale)
-    dftm_i = NDFTM(baselines.UVC, args.wavelength, hyperparameters["pixels"], args.plate_scale, inv=True)
-    m2pix = mas2rad(args.plate_scale) * hyperparameters["pixels"] / args.wavelength
-    # phys = PhysicalModel(circle_mask, hyperparameters["pixels"], visibility_noise=1e-3, cp_noise=1e-5, m2pix=m2pix)
-    phys = PhysicalModelv2(hyperparameters["pixels"], cpo, dftm, dftm_i, args.SNR)
+    phys = PhysicalModel(
+        pixels=hyperparameters["pixels"],
+        mask_coordinates=circle_mask,
+        wavelength=args.wavelength,
+        plate_scale=args.plate_scale,
+        SNR=args.SNR
+    )
     rim = RIM(physical_model=phys, hyperparameters=hyperparameters)
-    train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format=args.format)
+    # train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format=args.format)
+    train_dataset = create_dataset_from_generator(
+        physical_model=phys,
+        item_per_epoch=args.number_images,
+        pixels=hyperparameters["pixels"],
+        dirname=train_dir,
+        batch_size=args.batch
+    )
     test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod, format=args.format)
     cost_function = MSE()
-    epochs_schedule = [50, 100, 200]
-    # for i, lr in enumerate([1e-4, 1e-4, 1e-4]):
+    learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=1e-1,
+        decay_steps=100000,
+        decay_rate=0.96,
+        staircase=True
+    )
     history = rim.fit(
         train_dataset=train_dataset,
         test_dataset=test_dataset,
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate_schedule),
         max_time=args.training_time,
         cost_function=cost_function,
         min_delta=args.min_delta,
