@@ -1,7 +1,6 @@
 import numpy as np
-from ExoRIM.definitions import k_truncated_poisson
+from ExoRIM.definitions import k_truncated_poisson, centroid
 from ExoRIM.physical_model import PhysicalModel
-import xara
 import os, pickle
 
 
@@ -85,7 +84,7 @@ class CenteredImagesv1:
         images = self.normalize(images, minimum=0, maximum=1)
         # recenter image
         for j, im in enumerate(images[...,0]):
-            (x0, y0) = xara.core.centroid(im, threshold=1e-4)
+            (x0, y0) = centroid(im, threshold=1e-4)
             dy = int(y0) - self.pixels//2
             dx = int(x0) - self.pixels//2
             im = np.pad(im, ((abs(dy), abs(dy)), (abs(dx), abs(dx))), constant_values=(0, 0))

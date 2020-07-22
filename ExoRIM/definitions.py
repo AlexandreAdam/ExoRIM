@@ -127,6 +127,42 @@ def pixel_grid(pixels, symmetric=True):
     return xx, yy
 
 
+def centroid(image, threshold=0, binarize=False):
+    ''' ------------------------------------------------------
+    Determines the center of gravity of an array
+    Parameters:
+    ----------
+    - image: the array
+    - threshold: value above which pixels are taken into account
+    - binarize: binarizes the image before centroid (boolean)
+    Remarks:
+    -------
+    The binarize option can be useful for apertures, expected
+    to be uniformly lit.
+    ------------------------------------------------------ '''
+
+    signal = np.where(image > threshold)
+    sy, sx = image.shape[0], image.shape[1]  # size of "image"
+    bkg_cnt = np.median(image)
+
+    temp = np.zeros((sy, sx))
+
+    if binarize is True:
+        temp[signal] = 1.0
+    else:
+        temp[signal] = image[signal]
+
+    profx = 1.0 * temp.sum(axis=0)
+    profy = 1.0 * temp.sum(axis=1)
+    profx -= np.min(profx)
+    profy -= np.min(profy)
+
+    x0 = (profx * np.arange(sx)).sum() / profx.sum()
+    y0 = (profy * np.arange(sy)).sum() / profy.sum()
+
+    return (x0, y0)
+
+
 def logsumexp_scaler(X, minimum, maximum, bkg=0):
     """
     This function implement a scaler with a smooth maximum functions for gradient operations.
