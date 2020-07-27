@@ -8,6 +8,7 @@ import collections
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
+
 def save_physical_model_projectors(filename, physical_model):
     arrays = {
         "cos_projector": physical_model.cos_projector,
@@ -19,7 +20,7 @@ def save_physical_model_projectors(filename, physical_model):
 
 
 def convert_to_8_bit(image):
-    return (255.0 * image).astype(np.uint8) # since image is passed through a sigmoid, min and max and force to be 0 and 1
+    return (255.0 * image).astype(np.uint8)
 
 
 def convert_to_float(image):
@@ -137,6 +138,29 @@ def create_dataset_from_generator(
     dataset = dataset.prefetch(AUTOTUNE)  # Batch is prefetched by CPU while training on the previous batch occurs
     return dataset
 
+
+def replay_dataset_from_generator(dataset:tf.data.Dataset, epochs, dirname, format, fixed, index_mod=1, epoch_mod=1):
+    if fixed:
+        max_epoch = 1
+    else:
+        max_epoch = epochs
+    for epoch in range(max_epoch):
+        image_index = 0
+        if epoch % epoch_mod == 0:
+            for batch_index, (vis, image) in dataset:
+                for im in image.numpy():  # iterate over batch
+                    if image_index % index_mod != 0:
+                        image_index += 1
+                        continue
+                    im = im[..., 0]  # remove channel dim
+                    if format == "png":
+                        im = convert_to_8_bit(im)
+                        im = Image.fromarray(im, mode="L")
+                        im.save(os.path.join(dirname, f"image_{epoch:04}_{image_index:04}.png"))
+                    elif format == "txt":
+                        np.savetxt(os.path.join(dirname, f"image_{epoch:04}_{image_index:04}.txt"), im)
+                    image_index += 1
+
 # TODO eventually make a dataset with random uv coverage
 
 
@@ -162,3 +186,14 @@ def load_dataset(dirname, rim, batch_size=None):
         dataset = dataset.batch(images.shape[0], drop_remainder=True)
         dataset = dataset.cache()
     return dataset
+
+
+class No_Manager:
+    """
+    This is a little hack that allows us to pass an empty manager to a "with" block.
+    """
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        pass

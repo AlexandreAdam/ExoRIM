@@ -1,7 +1,7 @@
 import numpy as np
-from ExoRIM.definitions import k_truncated_poisson, centroid
+import tensorflow as tf
+from ExoRIM.definitions import k_truncated_poisson, centroid, dtype
 from ExoRIM.physical_model import PhysicalModel
-import os, pickle
 
 
 class CenteredImagesv1:
@@ -232,15 +232,11 @@ class CenteredCircle:
     ):
         """
         This class defines the characteristics of a simulated dataset to train ExoRIM. It produces images with a
-        centered blob and few fainter point sources near the center of the image. Information like widths of the
-        point sources and contrasts are attached to the object for future analysis and reproducibility.
+        centered blob.
 
         :param total_items: Total number of item to generate for an epoch
         :param pixels: Number of pixels on a side of the square CCD camera
         :param channels: Color dimension
-        :param max_point_sources: Maximum number of point source in a single image
-        :param highest_contrast: Determine the faintest object created in an image: is defined as the delta in
-                apparent magnitude
         """
         assert channels == 1
         np.random.seed(seed)
@@ -268,19 +264,15 @@ class CenteredCircle:
 
 
 class CenteredImagesGenerator:
-    """
-    This Generator produce dataset from a fixed uv coverage map. This uv coverage is interpreted by the physical model
-    passed to the class
-    """
     def __init__(
             self,
             physical_model: PhysicalModel,
             total_items_per_epoch,
             channels=1,
             pixels=32,
-            highest_contrast=0.5,
+            highest_contrast=0.3,
             max_point_sources=10,
-            save=None,  # should the data directory path already created!
+            save=None,  # should be the data directory path already created!
             fixed=False
     ):
         self.physical_model = physical_model
@@ -289,29 +281,87 @@ class CenteredImagesGenerator:
         self.pixels = pixels
         self.highest_contrast = highest_contrast
         self.max_point_sources = max_point_sources
-        self.epoch = -1  # internal variable to reseed the random generator
+        self.epoch = -1  # internal variable to reseed the random generator each epoch if fixed is false
         self.save = save
-        self.fixed = fixed  # this parameter allows us to keep the same dataset each epoch (for analysis mainly)
-        if self.fixed:
-            self.epoch = 42  # because we can
+        # fixed switch allows train on the same dataset each epoch and reproduce it if needed with the seed 42
+        self.fixed = fixed
 
     def generator(self):
+        self.epoch += 1
         if not self.fixed:
-            self.epoch += 1
-        meta_data = CenteredImagesv1(
-            total_items=self.total_items_per_epoch,
-            seed=self.epoch,
-            channels=self.channels,
-            pixels=self.pixels,
-            highest_contrast=self.highest_contrast,
-            max_point_sources=self.max_point_sources
-        )
-        if self.save is not None:
-            if not self.fixed or self.epoch < 1:
-                with open(os.path.join(self.save, f"meta_data_{self.epoch}.pickle"), "wb") as f:
-                    pickle.dump(meta_data, f)
-        Y = meta_data.generate_epoch_images()
-        X = self.physical_model.simulate_noisy_data(Y)
-        for i in range(Y.shape[0]):
-            yield X[i], Y[i]
+            np.random.seed(self.epoch)
+        else:
+            np.random.seed(42)
+        for i in range(self.total_items_per_epoch):
+            Y = tf.constant(self.generate_image(), dtype=dtype)
+            X = self.physical_model.simulate_noisy_data(tf.reshape(Y, [1, *Y.shape]))
+            X = tf.reshape(X, X.shape[1:])  # drop the batch dimension acquired in physical model
+            yield X, Y
 
+    def gaussian_psf_convolution(self, image, sigma, intensity,  xp=0, yp=0):
+        image_coords = np.arange(image.shape[0]) - image.shape[0] / 2.
+        xx, yy = np.meshgrid(image_coords, image_coords)
+        image = np.zeros_like(xx)
+        rho_squared = (xx - xp) ** 2 + (yy - yp) ** 2
+        image += intensity * np.exp(-0.5 * (rho_squared / sigma ** 2))
+        return image
+
+    def circular_psf(self, sigma, intensity, xp, yp):
+        image_coords = np.arange(self.pixels) - self.pixels / 2.
+        xx, yy = np.meshgrid(image_coords, image_coords)
+        image = np.zeros_like(xx)
+        rho = np.sqrt((xx - xp) ** 2 + (yy - yp) ** 2)
+        image += intensity * (rho < sigma)
+        return image
+
+    @staticmethod
+    def normalize(X, minimum, maximum):
+        # return np.tanh(X)
+        return minimum + (X - X.min()) * (maximum - minimum) / (X.max() - X.min() + 1e-8)
+
+    def recenter(self, image):
+        (x0, y0) = centroid(image, threshold=1e-4)
+        dy = int(y0) - self.pixels//2
+        dx = int(x0) - self.pixels//2
+        im = np.pad(image, ((abs(dy), abs(dy)), (abs(dx), abs(dx))), constant_values=(0, 0))
+        im = np.roll(np.roll(im, -dx, axis=1), -dy, axis=0)
+        cutdy = -abs(dy) if dy != 0 else None
+        cutdx = -abs(dx) if dx != 0 else None
+        im = im[abs(dy):cutdy, abs(dx):cutdx]
+        return im
+
+    def generate_image(self):
+        image = np.zeros(shape=(self.pixels, self.pixels))
+        # images += 1e-5 * np.random.random(size=images.shape) + 1e-4  # background
+        nps = self._nps()[0]
+        width = self._width(nps)
+        intensity = 1 - self._contrasts(nps)
+        coordinates = self._coordinates(nps)
+        for i in range(nps):
+            # image += self.gaussian_psf_convolution(width[i], intensity[i], *coordinates[i])
+            image += self.gaussian_psf_convolution(image, width[i], intensity[i], *coordinates[i])
+        # image = self.recenter(image)
+        image = self.normalize(image, minimum=0, maximum=1)
+        image = np.reshape(image, newshape=[self.pixels, self.pixels, 1])
+        return image
+
+    def _nps(self, p="uniform", mu=2):
+        pool = np.arange(2, self.max_point_sources + 1)
+        if p == "uniform":
+            p = None
+        elif p == "poisson":
+            p = k_truncated_poisson(k=pool, mu=mu)
+        else:
+            raise NotImplementedError(f"p={p} but supported are uniform and poisson")
+        return np.random.choice(pool, size=1, p=p)
+
+    def _width(self, nps):
+        return np.random.uniform(1, self.pixels/3, size=nps)
+
+    def _contrasts(self, nps):
+        return np.random.uniform(0.1, self.highest_contrast, size=nps)
+
+    def _coordinates(self, nps):
+        # coordinate in central square (5 pixels from the edge) to avoid objects at the edge.
+        pool = np.arange(-self.pixels // 2 + 5, self.pixels // 2 - 5)
+        return np.random.choice(pool, size=(nps, 2))

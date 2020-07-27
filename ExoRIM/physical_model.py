@@ -178,9 +178,9 @@ class PhysicalModelv2:
     This class works with the pynufft which should be installed by the user from
     https://github.com/jyhmiinlin/pynufft using git.
     """
-    def __init__(self, pixels, wavelength, plate_scale, SNR, vis_phase_std=np.pi/3):
+    def __init__(self, pixels, mask_coordinates, wavelength, plate_scale, SNR, vis_phase_std=np.pi/3):
         self.version = "v2"
-        self.wavelenght = wavelength
+        self.wavelength = wavelength
         self.plate_scale = plate_scale
         self.SNR = SNR
         self.phase_std = vis_phase_std # TODO make a noise model for this

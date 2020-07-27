@@ -3,7 +3,7 @@ from ExoRIM.loss import KLDivergence, MAE
 from ExoRIM.simulated_data import CenteredImagesv1, OffCenteredBinaries, CenteredCircle
 from preprocessing.simulate_data import create_and_save_data
 from ExoRIM.definitions import mas2rad, dtype
-from ExoRIM.utilities import create_dataset_from_generator
+from ExoRIM.utilities import create_dataset_from_generator, replay_dataset_from_generator
 from argparse import ArgumentParser
 from datetime import datetime
 import tensorflow as tf
@@ -48,10 +48,11 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--min_delta", type=float, default=0, help="Tolerance for early stopping")
     parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping")
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
-    parser.add_argument("-e", "--max_epoch", type=int, default=100, help="Maximum number of epoch")
+    parser.add_argument("-e", "--max_epoch", type=int, default=20, help="Maximum number of epoch")
     parser.add_argument("--index_save_mod", type=int, default=20, help="Image index to be saved")
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
     parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
+    parser.add_argument("--fixed", action="store_true", help="Keeps the dataset fix for each epochs to monitor progress")
     args = parser.parse_args()
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
     with open("hyperparameters.json", "r") as f:
@@ -120,13 +121,13 @@ if __name__ == "__main__":
         pixels=hyperparameters["pixels"],
         dirname=train_dir,
         batch_size=args.batch,
-        fixed=True
+        fixed=args.fixed
     )
     test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod, format=args.format)
     cost_function = MSE()
     learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=1e-1,
-        decay_steps=100000,
+        initial_learning_rate=1e-3,
+        decay_steps=10000,
         decay_rate=0.96,
         staircase=True
     )
@@ -153,3 +154,13 @@ if __name__ == "__main__":
         np.savetxt(os.path.join(results_dir, key + ".txt"), item)
     with open(os.path.join(models_dir, "hyperparameters.json"), "w") as f:
         json.dump(rim.hyperparameters, f)
+    # saves the ground truth images
+    replay_dataset_from_generator(
+        train_dataset,
+        epochs=rim.hyperparameters["epoch"],
+        dirname=train_dir,
+        fixed=args.fixed,
+        format="txt",
+        index_mod=args.index_save_mod,
+        epoch_mod=args.epoch_save_mod
+    )

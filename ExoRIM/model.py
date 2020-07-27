@@ -30,6 +30,7 @@ class ConvGRU(tf.keras.Model):
             kernel_initializer=initializer
         )
 
+
     def call(self, features, ht):
         """
         Compute the new state tensor h_{t+1}.
