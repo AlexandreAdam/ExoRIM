@@ -181,6 +181,7 @@ class RIM:
                         output, grads = self.call(X)
                         cost_value = cost_function(output, Y)
                         cost_value += tf.reduce_sum(self.model.losses)  # Add layer specific regularizer losses (L2 in definitions)
+                        tf.summary.scalar("loss", cost_value, step=step)
                     epoch_loss.update_state([cost_value])
                     gradient = tape.gradient(cost_value, self.model.trainable_weights)
                     clipped_gradient = gradient
@@ -191,14 +192,12 @@ class RIM:
                         save_loglikelihood_grad(grads, output_dir, epoch + _epoch_start, batch, **output_save_mod)
                     for key, item in metrics_train.items():
                         metrics_train[key] += metrics[key](output[..., -1], Y).numpy()
+                        tf.summary.scalar(key, metrics[key](output[..., -1], Y), step=step)
                     step += 1
                     tf.summary.experimental.set_step(step)
-                tf.summary.record_if(True)
                 for key, item in metrics_train.items():
                     history[key + "_train"].append(item/(batch + 1))
-                    tf.summary.scalar(key, item/(batch + 1), step=step)
                 history["train_loss"].append(epoch_loss.result().numpy())
-                tf.summary.scalar("loss", epoch_loss.result(), step=step)
                 self._train_writer.flush()
 
             if test_dataset is not None:
@@ -213,8 +212,10 @@ class RIM:
                             history[key + "_test"].append(item(test_output[..., -1], Y).numpy())
                             tf.summary.scalar(key, item(test_output[..., -1], Y), step=step)
                     self._test_writer.flush()
-
-            print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e} | val_loss={history['test_loss'][-1]:.2e}")
+            try:
+                print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e} | val_loss={history['test_loss'][-1]:.2e}")
+            except IndexError:
+                print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e}")
             if history[track][-1] < min_score - min_delta:
                 _patience = patience
                 min_score = history[track][-1]
