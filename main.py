@@ -10,6 +10,11 @@ import tensorflow as tf
 import numpy as np
 import json
 import os
+try:
+    import wandb
+    wandb.init(project="exorim", sync_tensorboard=True)
+except ImportError:
+    print("wandb not installed, package ignored")
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
@@ -70,7 +75,7 @@ if __name__ == "__main__":
     # metrics only support grey scale images
     mae = MAE()
     metrics = {
-        "ssim": lambda Y_pred, Y_true: tf.image.ssim(Y_pred, Y_true, max_val=1.0),
+        "ssim": lambda Y_pred, Y_true: tf.reduce_mean(tf.image.ssim(Y_pred, Y_true, max_val=1.0)),
         # Bug is tf 2.0.0, make sure filter size is small enough such that H/2**4 and W/2**4 >= filter size
         # alternatively (since H/2**4 is = 1 in our case), it is possible to lower the power factors such that
         # H/(2**(len(power factor)-1)) > filter size
@@ -102,6 +107,12 @@ if __name__ == "__main__":
     test_dir = os.path.join(data_dir, "test")
     os.mkdir(test_dir)
 
+    # another approach to save results using tensorboard and wandb
+    logdir = os.path.join(basedir, "logs", date)
+    os.mkdir(logdir)
+    os.mkdir(os.path.join(logdir, "train"))
+    os.mkdir(os.path.join(logdir, "test"))
+
     circle_mask = np.zeros((args.holes, 2))
     for i in range(args.holes):
         circle_mask[i, 0] = (args.longest_baseline + np.random.normal(0, args.mask_variance)) * np.cos(2 * np.pi * i / args.holes)
@@ -113,7 +124,7 @@ if __name__ == "__main__":
         plate_scale=args.plate_scale,
         SNR=args.SNR
     )
-    rim = RIM(physical_model=phys, hyperparameters=hyperparameters)
+    rim = RIM(physical_model=phys, hyperparameters=hyperparameters, logdir=logdir)
     # train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format=args.format)
     train_dataset = create_dataset_from_generator(
         physical_model=phys,

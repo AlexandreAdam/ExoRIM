@@ -4,9 +4,19 @@ from PIL import Image
 import os, glob
 import pickle
 import collections
-
+from contextlib import nullcontext  # python 3.7 needed for this
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
+
+
+class nullwriter:
+    @staticmethod
+    def flush():
+        pass
+
+    @staticmethod
+    def as_default():
+        return nullcontext()
 
 
 def save_physical_model_projectors(filename, physical_model):
@@ -187,13 +197,3 @@ def load_dataset(dirname, rim, batch_size=None):
         dataset = dataset.cache()
     return dataset
 
-
-class No_Manager:
-    """
-    This is a little hack that allows us to pass an empty manager to a "with" block.
-    """
-    def __enter__(self):
-        pass
-
-    def __exit__(self, exception_type, exception_value, exception_traceback):
-        pass

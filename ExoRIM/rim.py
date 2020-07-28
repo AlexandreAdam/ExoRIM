@@ -1,5 +1,5 @@
 from ExoRIM.definitions import dtype, softmax_scaler, default_hyperparameters
-from ExoRIM.utilities import save_output, save_gradient_and_weights, save_loglikelihood_grad
+from ExoRIM.utilities import save_output, save_gradient_and_weights, save_loglikelihood_grad, nullwriter
 from ExoRIM.model import Model
 import tensorflow as tf
 import numpy as np
@@ -8,7 +8,7 @@ import os
 
 
 class RIM:
-    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=dtype, weight_file=None):
+    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=dtype, weight_file=None, logdir=None):
         self._dtype = dtype
         self.hyperparameters = hyperparameters
         self.channels = hyperparameters["channels"]
@@ -23,7 +23,16 @@ class RIM:
             self.model.call(y, h)
             self.model.load_weights(weight_file)
         self.physical_model = physical_model
-        # self.cutoffs = tf.constant([16, 15, 14, 13, 12, 11, 11, 9, 8], dtype)
+        if logdir is not None:
+            if not os.path.isdir(os.path.join(logdir, "train")):
+                os.mkdir(os.path.join(logdir, "train"))
+            if not os.path.isdir(os.path.join(logdir, "test")):
+                os.mkdir(os.path.join(logdir, "test"))
+            self._train_writer = tf.summary.create_file_writer(os.path.join(logdir, "train"))
+            self._test_writer = tf.summary.create_file_writer(os.path.join(logdir, "test"))
+        else:
+            self._test_writer = nullwriter()
+            self._train_writer = nullwriter()
 
     @staticmethod
     @tf.function
@@ -158,37 +167,53 @@ class RIM:
         min_score = np.inf
         epoch_loss = tf.metrics.Mean()
         _patience = patience
+        step = 1  # Counts the number of batches evaluated
+        tf.summary.experimental.set_step(step)
         while _patience > 0 and epoch < max_epochs and (time.time() - start) < max_time*3600:
             epoch_loss.reset_states()
             metrics_train = {key: 0 for key in metrics.keys()}
-            for batch, (X, Y) in train_dataset:  # X and Y by ML convention, batch is an index
-                batch = batch.numpy()
-                with tf.GradientTape() as tape:
-                    tape.watch(self.model.trainable_weights)
-                    output, grads = self.call(X)
-                    cost_value = cost_function(output, Y)
-                    cost_value += tf.reduce_sum(self.model.losses)  # Add layer specific regularizer losses (L2 in definitions)
-                epoch_loss.update_state([cost_value])
-                gradient = tape.gradient(cost_value, self.model.trainable_weights)
-                clipped_gradient = gradient
-                optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
-                if output_dir is not None:
-                    save_output(output, output_dir, epoch + _epoch_start, batch, format="txt", **output_save_mod)
-                    save_gradient_and_weights(gradient, self.model.trainable_weights, output_dir, epoch + _epoch_start, batch)
-                    save_loglikelihood_grad(grads, output_dir, epoch + _epoch_start, batch, **output_save_mod)
+            with self._train_writer.as_default():
+                for batch, (X, Y) in train_dataset:  # X and Y by ML convention, batch is an index
+                    batch = batch.numpy()
+                    tf.summary.record_if(step % output_save_mod["index_mod"] == 0)  # for the model call summaries
+                    with tf.GradientTape() as tape:
+                        tape.watch(self.model.trainable_weights)
+                        output, grads = self.call(X)
+                        cost_value = cost_function(output, Y)
+                        cost_value += tf.reduce_sum(self.model.losses)  # Add layer specific regularizer losses (L2 in definitions)
+                    epoch_loss.update_state([cost_value])
+                    gradient = tape.gradient(cost_value, self.model.trainable_weights)
+                    clipped_gradient = gradient
+                    optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
+                    if output_dir is not None:
+                        save_output(output, output_dir, epoch + _epoch_start, batch, format="txt", **output_save_mod)
+                        save_gradient_and_weights(gradient, self.model.trainable_weights, output_dir, epoch + _epoch_start, batch)
+                        save_loglikelihood_grad(grads, output_dir, epoch + _epoch_start, batch, **output_save_mod)
+                    for key, item in metrics_train.items():
+                        metrics_train[key] += metrics[key](output[..., -1], Y).numpy()
+                    step += 1
+                    tf.summary.experimental.set_step(step)
+                tf.summary.record_if(True)
                 for key, item in metrics_train.items():
-                    metrics_train[key] += tf.math.reduce_mean(metrics[key](output[..., -1], Y)).numpy()
-            for key, item in metrics_train.items():
-                history[key + "_train"].append(item/(batch + 1))
-            history["train_loss"].append(epoch_loss.result().numpy())
+                    history[key + "_train"].append(item/(batch + 1))
+                    tf.summary.scalar(key, item/(batch + 1), step=step)
+                history["train_loss"].append(epoch_loss.result().numpy())
+                tf.summary.scalar("loss", epoch_loss.result(), step=step)
+                self._train_writer.flush()
+
             if test_dataset is not None:
-                for X, Y in test_dataset: # this dataset should not be batched, so this for loop has 1 iteration
-                    test_output, _ = self.call(X)  # investigate why predict returns NaN scores and output
-                    test_cost = cost_function(test_output, Y)
-                    test_cost += tf.reduce_sum(self.model.losses)
-                    history["test_loss"].append(test_cost.numpy())
-                    for key, item in metrics.items():
-                        history[key + "_test"].append(tf.math.reduce_mean(item(test_output[..., -1], Y)).numpy())
+                with self._test_writer.as_default():
+                    for X, Y in test_dataset:  # this dataset should not be batched, so this for loop has 1 iteration
+                        test_output, _ = self.call(X)  # investigate why predict returns NaN scores and output
+                        test_cost = cost_function(test_output, Y)
+                        test_cost += tf.reduce_sum(self.model.losses)
+                        history["test_loss"].append(test_cost.numpy())
+                        tf.summary.scalar("loss", test_cost, step=step)
+                        for key, item in metrics.items():
+                            history[key + "_test"].append(item(test_output[..., -1], Y).numpy())
+                            tf.summary.scalar(key, item(test_output[..., -1], Y), step=step)
+                    self._test_writer.flush()
+
             print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e} | val_loss={history['test_loss'][-1]:.2e}")
             if history[track][-1] < min_score - min_delta:
                 _patience = patience

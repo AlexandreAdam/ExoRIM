@@ -13,4 +13,6 @@ __pycache__/
 coords.txt
 notebooks/*.mp4
 notebooks/*.png
+wandb/*
+logs/*
 

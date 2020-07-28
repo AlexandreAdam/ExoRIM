@@ -1,5 +1,6 @@
 import tensorflow as tf
 from ExoRIM.definitions import initializer, default_hyperparameters, dtype
+from ExoRIM.utilities import nullwriter
 
 
 class ConvGRU(tf.keras.Model):
@@ -135,24 +136,41 @@ class Model(tf.keras.Model):
         :param yt: Image tensor of shape [batch, pixel, pixel, channel], correspond to the step t of the reconstruction.
         :param ht: Hidden memory tensor updated in the Recurrent Block
         """
+
         input = yt
         for layer in self.downsampling_block:
             input = layer(input)
+            summary_histograms(layer, input, layer.trainable_weights)
         for layer in self.convolution_block:
             input = layer(input)
+            summary_histograms(layer, input, layer.trainable_weights)
         # ===== Recurrent Block =====
         ht_1, ht_2 = tf.split(ht, 2, axis=3)
         ht_1 = self.gru1(input, ht_1)  # to be recombined in new state
+        summary_histograms(self.gru1, ht_1, self.gru1.trainable_weights)
         if self.hidden_conv is not None:
             ht_1_features = self.hidden_conv(ht_1)
+            summary_histograms(self.hidden_conv, ht_1_features, self.hidden_conv.trainable_weigths)
         else:
             ht_1_features = ht_1
         ht_2 = self.gru2(ht_1_features, ht_2)
+        summary_histograms(self.gru2, ht_2, self.gru2.trainable_weights)
         # ===========================
         delta_xt = self.upsampling_block[0](ht_2)
+        summary_histograms(self.upsampling_block[0], delta_xt, self.upsampling_block[0].trainable_weights)
         for layer in self.upsampling_block[1:]:
             delta_xt = layer(delta_xt)
+            summary_histograms(layer, delta_xt, layer.trainable_weights)
         for layer in self.transposed_convolution_block:
             delta_xt = layer(delta_xt)
+            summary_histograms(layer, delta_xt, layer.trainable_weights)
         new_state = tf.concat([ht_1, ht_2], axis=3)
         return delta_xt, new_state
+
+
+def summary_histograms(layer, activation=None, weights=None):
+    if activation is not None:
+        tf.summary.histogram(layer.name + "_activation", data=activation, step=tf.summary.experimental.get_step())
+    if weights is not None:
+        for w in weights:
+            tf.summary.histogram(w.name, data=w, step=tf.summary.experimental.get_step())
