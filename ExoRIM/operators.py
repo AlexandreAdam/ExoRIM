@@ -115,6 +115,7 @@ def phase_closure_operator(B: Baselines, fixed_aperture=0):
     Statistically independent bispectrum: each B must contain 1 and only 1 baseline which is not
         contained in other triangles.
     """
+    # There is a bug for a redundant baseline --> test with different arrays
     N = B.nbap # number of apertures in the mask
     BLM = B.BLM
     q = (N-1) * (N-2) // 2

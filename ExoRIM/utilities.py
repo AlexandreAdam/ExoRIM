@@ -5,7 +5,7 @@ import os, glob
 import pickle
 import collections
 try:
-    from contextlib import nullcontext  # python 3.7 needed for this
+    from contextlib import nullcontext  # python > 3.7 needed for this
 except ImportError:
     # Backward compatibility with python <= 3.6
     class nullcontext:
@@ -46,7 +46,7 @@ def convert_to_float(image):
     return tf.cast(image, tf.float32)/255.
 
 
-def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod, format="png"):
+def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, timestep_mod, format="png", step_mod=None):
     if epoch % epoch_mod != 0:
         return
     out = output
@@ -57,26 +57,26 @@ def save_output(output, dirname, epoch, batch, index_mod, epoch_mod, step_mod, f
         image_index = np.arange(out.shape[0])
         true_image_index = image_index + batch * out.shape[0]
         image_index = image_index[(true_image_index) % index_mod == 0]
-        step = np.arange(out.shape[-1])
-        step = step[(step + 1) % step_mod == 0]
-        step = np.tile(step, reps=[image_index.size, 1])  # fancy broadcasting of the indices
-        image_index = np.tile(image_index, reps=[step.shape[1], 1])
-        for i, I in enumerate(out[image_index.T, ..., step]): # note that array is reshaped to [batch, steps, pix, pix, channel]
+        timestep = np.arange(out.shape[-1])
+        timestep = timestep[(timestep + 1) % timestep_mod == 0]
+        timestep = np.tile(timestep, reps=[image_index.size, 1])  # fancy broadcasting of the indices
+        image_index = np.tile(image_index, reps=[timestep.shape[1], 1])
+        for i, I in enumerate(out[image_index.T, ..., timestep]): # note that array is reshaped to [batch, steps, pix, pix, channel]
             for j, image in enumerate(I[..., 0]):
                 if format == "png":
                     image = convert_to_8_bit(image)
                     image = Image.fromarray(image, mode="L")
-                    image.save(os.path.join(dirname, f"output_{epoch:04}_{true_image_index[i]:04}_{step[i, j]:02}.png"))
+                    image.save(os.path.join(dirname, f"output_{epoch:04}_{true_image_index[i]:04}_{timestep[i, j]:02}.png"))
                 elif format == "txt":
-                    np.savetxt(os.path.join(dirname, f"output_{epoch:04}_{true_image_index[i]:04}_{step[i, j]:02}.txt"), image)
+                    np.savetxt(os.path.join(dirname, f"output_{epoch:04}_{true_image_index[i]:04}_{timestep[i, j]:02}.txt"), image)
     elif len(out.shape) == 4:
         # TODO parallelize this one
-        for step in range(out.shape[-1]):
-            if step % step_mod == 0:
+        for timestep in range(out.shape[-1]):
+            if timestep % timestep_mod == 0:
                 continue
-            image = convert_to_8_bit(out[:, :, 0, step])
+            image = convert_to_8_bit(out[:, :, 0, timestep])
             image = Image.fromarray(image, mode="L")
-            image.save(os.path.join(dirname, f"output_{epoch:03}_000_{step:02}.png"))
+            image.save(os.path.join(dirname, f"output_{epoch:03}_000_{timestep:02}.png"))
 
 
 def update(d, u):
@@ -109,20 +109,20 @@ def save_gradient_and_weights(grad, trainable_weight, dirname, epoch, batch):
         pickle.dump(d, f)
 
 
-def save_loglikelihood_grad(grad, dirname, epoch, batch, index_mod, epoch_mod, step_mod):
+def save_loglikelihood_grad(grad, dirname, epoch, batch, index_mod, epoch_mod, timestep_mod, step_mod):
     if epoch % epoch_mod != 0:
         return
     out = grad.numpy()
     image_index = np.arange(out.shape[0])
     true_image_index = image_index + batch * out.shape[0]
     image_index = image_index[(true_image_index) % index_mod == 0]
-    step = np.arange(out.shape[-1])
-    step = step[(step + 1) % step_mod == 0]
-    step = np.tile(step, reps=[image_index.size, 1])
-    image_index = np.tile(image_index, reps=[step.shape[1], 1])
-    for i, G in enumerate(out[image_index.T, ..., step]):
+    timestep = np.arange(out.shape[-1])
+    timestep = timestep[(timestep + 1) % timestep_mod == 0]
+    timestep = np.tile(timestep, reps=[image_index.size, 1])
+    image_index = np.tile(image_index, reps=[timestep.shape[1], 1])
+    for i, G in enumerate(out[image_index.T, ..., timestep]):
         for j, g in enumerate(G):
-            np.savetxt(os.path.join(dirname, f"grad_{epoch:04}_{true_image_index[i]:04}_{step[i, j]:02}.txt"), g)
+            np.savetxt(os.path.join(dirname, f"grad_{epoch:04}_{true_image_index[i]:04}_{timestep[i, j]:02}.txt"), g)
 
 
 # Uses the simulated_data/CenteredImagesGenerator class
@@ -205,3 +205,79 @@ def load_dataset(dirname, rim, batch_size=None):
         dataset = dataset.cache()
     return dataset
 
+
+
+# #TODO work on these functions
+# # from collections import defaultdict, namedtuple
+# # from typing import List
+# # import tensorflow as tf
+#
+#
+# def extract_images_from_event(event_filename: str, image_tags: List[str]):
+#     from tensorflow.python.summary.summary_iterator import summary_iterator
+#
+#     TensorBoardImage = namedtuple("TensorBoardImage", ["topic", "image", "cnt"])
+#     topic_counter = defaultdict(lambda: 0)
+#     serialized_examples = tf.data.TFRecordDataset(event_filename)
+#     for serialized_example in serialized_examples:
+#         event = tf.Event.FromString(serialized_example.numpy())
+#         for v in summary_iterator("/path/to/log/file"):
+#             if v.tag in image_tags:
+#                 if v.HasField('tensor'):  # event for images using tensor field
+#                     s = v.tensor.string_val[2]  # first elements are W and H
+#
+#                     tf_img = tf.image.decode_image(s)  # [H, W, C]
+#                     np_img = tf_img.numpy()
+#
+#                     topic_counter[v.tag] += 1
+#
+#                     cnt = topic_counter[v.tag]
+#                     tbi = TensorBoardImage(topic=v.tag, image=np_img, cnt=cnt)
+#
+#                     yield tbi
+#
+#
+#
+#
+# def tabulate_events(dpath):
+#     from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+#     summary_iterators = [EventAccumulator(os.path.join(dpath, dname)).Reload() for dname in os.listdir(dpath)]
+#
+#     tags = summary_iterators[0].Tags()['scalars']
+#
+#     for it in summary_iterators:
+#         assert it.Tags()['scalars'] == tags
+#
+#     out = defaultdict(list)
+#     steps = []
+#
+#     for tag in tags:
+#         steps = [e.step for e in summary_iterators[0].Scalars(tag)]
+#
+#         for events in zip(*[acc.Scalars(tag) for acc in summary_iterators]):
+#             assert len(set(e.step for e in events)) == 1
+#
+#             out[tag].append([e.value for e in events])
+#
+#     return out, steps
+#
+#
+# def to_csv(dpath):
+#     import pandas as pd
+#     dirs = os.listdir(dpath)
+#
+#     d, steps = tabulate_events(dpath)
+#     tags, values = zip(*d.items())
+#     np_values = np.array(values)
+#
+#     for index, tag in enumerate(tags):
+#         df = pd.DataFrame(np_values[index], index=steps, columns=dirs)
+#         df.to_csv(get_file_path(dpath, tag))
+#
+#
+# def get_file_path(dpath, tag):
+#     file_name = tag.replace("/", "_") + '.csv'
+#     folder_path = os.path.join(dpath, 'csv')
+#     if not os.path.exists(folder_path):
+#         os.makedirs(folder_path)
+#     return os.path.join(folder_path, file_name)

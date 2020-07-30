@@ -1,4 +1,4 @@
-from ExoRIM.definitions import dtype, softmax_scaler, default_hyperparameters
+from ExoRIM.definitions import dtype, softmax_scaler, default_hyperparameters, log_scaling
 from ExoRIM.utilities import save_output, save_gradient_and_weights, save_loglikelihood_grad, nullwriter
 from ExoRIM.model import Model
 import tensorflow as tf
@@ -8,7 +8,7 @@ import os
 
 
 class RIM:
-    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=dtype, weight_file=None, logdir=None):
+    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=dtype, weight_file=None):
         self._dtype = dtype
         self.hyperparameters = hyperparameters
         self.channels = hyperparameters["channels"]
@@ -23,16 +23,6 @@ class RIM:
             self.model.call(y, h)
             self.model.load_weights(weight_file)
         self.physical_model = physical_model
-        if logdir is not None:
-            if not os.path.isdir(os.path.join(logdir, "train")):
-                os.mkdir(os.path.join(logdir, "train"))
-            if not os.path.isdir(os.path.join(logdir, "test")):
-                os.mkdir(os.path.join(logdir, "test"))
-            self._train_writer = tf.summary.create_file_writer(os.path.join(logdir, "train"))
-            self._test_writer = tf.summary.create_file_writer(os.path.join(logdir, "test"))
-        else:
-            self._test_writer = nullwriter()
-            self._train_writer = nullwriter()
 
     @staticmethod
     @tf.function
@@ -42,7 +32,12 @@ class RIM:
     @staticmethod
     @tf.function
     def inverse_link_function(eta):
-        return softmax_scaler(eta, minimum=0, maximum=1)
+        return tf.math.sigmoid(eta) #softmax_scaler(eta, minimum=0, maximum=1)
+
+    @staticmethod
+    @tf.function
+    def grad_scaling(grad):
+        return softmax_scaler(grad, minimum=-1, maximum=1) #log_scaling(grad)
 
 # filter idea does not work
     # @staticmethod
@@ -72,7 +67,7 @@ class RIM:
         # scale in range [-1, 1] to accelerate learning
         eta_0 = self.link_function(y0)
         # Scale gradient to the same dynamical range as y
-        grad = softmax_scaler(grad, minimum=-1., maximum=1.) #self.gradient_filters(grad, self.cutoffs)
+        grad = self.grad_scaling(grad)
         stacked_input = tf.concat([eta_0, grad], axis=3)
         # compute gradient update
         gt, ht = self.model(stacked_input, h0)
@@ -85,7 +80,7 @@ class RIM:
         grads = grad
         for current_step in range(self.steps - 1):
             grad = self.physical_model.grad_log_likelihood_v2(yt, X)
-            grad = softmax_scaler(grad, minimum=-1., maximum=1.)  #self.gradient_filters(grad, self.cutoffs)
+            grad = self.grad_scaling(grad)  #self.gradient_filters(grad, self.cutoffs)
             gt, ht = self.model(stacked_input, ht)
             eta_t = eta_t + gt
             yt = self.inverse_link_function(eta_t)
@@ -118,7 +113,9 @@ class RIM:
             output_dir=None,
             output_save_mod=None,
             checkpoint_dir=None,
-            name="rim"
+            name="rim",
+            logdir=None,
+            record=True
     ):
         """
         This function trains the weights of the model on the training dataset, which should be a
@@ -147,12 +144,25 @@ class RIM:
         :param name: Name of the model
         :return: history, a dictionary with loss and metrics score at each epoch
         """
+        if logdir is not None:
+            if not os.path.isdir(os.path.join(logdir, "train")):
+                os.mkdir(os.path.join(logdir, "train"))
+            if not os.path.isdir(os.path.join(logdir, "test")):
+                os.mkdir(os.path.join(logdir, "test"))
+            train_writer = tf.summary.create_file_writer(os.path.join(logdir, "train"))
+            test_writer = tf.summary.create_file_writer(os.path.join(logdir, "test"))
+        else:
+            test_writer = nullwriter()
+            train_writer = nullwriter()
+        if record is False:  # TODO remove when summaries are removed from Model
+            self.model._timestep_mod = -1
         if metrics is None:
             metrics = {}
         if output_save_mod is None and output_dir is not None:
             output_save_mod = {
                 "index_mod": 1,
                 "epoch_mod": 1,
+                "time_mod": 1,
                 "step_mod": 1
             },
         start = time.time()
@@ -172,36 +182,46 @@ class RIM:
         while _patience > 0 and epoch < max_epochs and (time.time() - start) < max_time*3600:
             epoch_loss.reset_states()
             metrics_train = {key: 0 for key in metrics.keys()}
-            with self._train_writer.as_default():
+            with train_writer.as_default():
                 for batch, (X, Y) in train_dataset:  # X and Y by ML convention, batch is an index
                     batch = batch.numpy()
-                    tf.summary.record_if(step % output_save_mod["index_mod"] == 0)  # for the model call summaries
                     with tf.GradientTape() as tape:
                         tape.watch(self.model.trainable_weights)
                         output, grads = self.call(X)
                         cost_value = cost_function(output, Y)
                         cost_value += tf.reduce_sum(self.model.losses)  # Add layer specific regularizer losses (L2 in definitions)
-                        tf.summary.scalar("loss", cost_value, step=step)
                     epoch_loss.update_state([cost_value])
                     gradient = tape.gradient(cost_value, self.model.trainable_weights)
-                    clipped_gradient = gradient
-                    optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))
-                    if output_dir is not None:
-                        save_output(output, output_dir, epoch + _epoch_start, batch, format="txt", **output_save_mod)
-                        save_gradient_and_weights(gradient, self.model.trainable_weights, output_dir, epoch + _epoch_start, batch)
-                        save_loglikelihood_grad(grads, output_dir, epoch + _epoch_start, batch, **output_save_mod)
+                    clipped_gradient = [tf.clip_by_value(grad, -10, 10) for grad in gradient]
+                    optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))  # backpropagation
+
+                    # ========= Summaries and logs =================
+                    tf.summary.scalar("loss", cost_value, step=step)
                     for key, item in metrics_train.items():
-                        metrics_train[key] += metrics[key](output[..., -1], Y).numpy()
-                        tf.summary.scalar(key, metrics[key](output[..., -1], Y), step=step)
+                        score = metrics[key](output[..., -1], Y)
+                        metrics_train[key] += score.numpy()
+                        tf.summary.scalar(key, score, step=step)
+                    # dramatically slows down the training if enabled and step_mod too low
+                    if record and step % output_save_mod["step_mod"] == 0:
+                        tf.summary.image(f"Output_{step:04}", output[..., -1], max_outputs=1, description="Model prediction (last timestep reconstruction")
+                        tf.summary.image(f"Ground_truth_{step:04}", Y, max_outputs=1, description="Ground Truth Image")
+                        tf.summary.image(f"Log_Likelihood_Gradient_{step:04}", tf.reshape(grads[0,...], [-1, self.pixels, self.pixels, 1]), max_outputs=20, description="Log Likelihood gradient for each time steps")
+                        for i, grad in enumerate(gradient):
+                            tf.summary.histogram(name=self.model.trainable_weights[i].name + "_gradient", data=grad, step=step)
+                        if output_dir is not None:
+                            save_output(output, output_dir, epoch + _epoch_start, batch, format="txt", **output_save_mod)
+                            save_gradient_and_weights(gradient, self.model.trainable_weights, output_dir, epoch + _epoch_start, batch)
+                            save_loglikelihood_grad(grads, output_dir, epoch + _epoch_start, batch, **output_save_mod)
+                    # ================================================
                     step += 1
                     tf.summary.experimental.set_step(step)
                 for key, item in metrics_train.items():
                     history[key + "_train"].append(item/(batch + 1))
                 history["train_loss"].append(epoch_loss.result().numpy())
-                self._train_writer.flush()
+                train_writer.flush()
 
             if test_dataset is not None:
-                with self._test_writer.as_default():
+                with test_writer.as_default():
                     for X, Y in test_dataset:  # this dataset should not be batched, so this for loop has 1 iteration
                         test_output, _ = self.call(X)  # investigate why predict returns NaN scores and output
                         test_cost = cost_function(test_output, Y)
@@ -209,9 +229,10 @@ class RIM:
                         history["test_loss"].append(test_cost.numpy())
                         tf.summary.scalar("loss", test_cost, step=step)
                         for key, item in metrics.items():
-                            history[key + "_test"].append(item(test_output[..., -1], Y).numpy())
-                            tf.summary.scalar(key, item(test_output[..., -1], Y), step=step)
-                    self._test_writer.flush()
+                            score = item(test_output[..., -1], Y)
+                            history[key + "_test"].append(score.numpy())
+                            tf.summary.scalar(key, score, step=step)
+                    test_writer.flush()
             try:
                 print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e} | val_loss={history['test_loss'][-1]:.2e}")
             except IndexError:

@@ -10,11 +10,11 @@ import tensorflow as tf
 import numpy as np
 import json
 import os
-try:
-    import wandb
-    wandb.init(project="exorim", sync_tensorboard=True)
-except ImportError:
-    print("wandb not installed, package ignored")
+# try:
+    # import wandb
+    # wandb.init(project="exorim", sync_tensorboard=True)
+# except ImportError:
+#     print("wandb not installed, package ignored")
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
@@ -124,7 +124,7 @@ if __name__ == "__main__":
         plate_scale=args.plate_scale,
         SNR=args.SNR
     )
-    rim = RIM(physical_model=phys, hyperparameters=hyperparameters, logdir=logdir)
+    rim = RIM(physical_model=phys, hyperparameters=hyperparameters)
     # train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format=args.format)
     train_dataset = create_dataset_from_generator(
         physical_model=phys,
@@ -156,10 +156,13 @@ if __name__ == "__main__":
         output_dir=results_dir,
         checkpoint_dir=models_dir,
         max_epochs=args.max_epoch,
+        logdir=logdir,
         output_save_mod={
             "index_mod": args.index_save_mod,
             "epoch_mod": args.epoch_save_mod,
-            "step_mod": 1}#hyperparameters["steps"]},
+            "step_mod": 5,
+            "timestep_mod": 1
+        }
     )
     for key, item in history.items():
         np.savetxt(os.path.join(results_dir, key + ".txt"), item)

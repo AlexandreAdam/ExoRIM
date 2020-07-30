@@ -4,8 +4,8 @@ from ExoRIM.utilities import nullwriter
 
 
 class ConvGRU(tf.keras.Model):
-    def __init__(self, filters, kernel_size):
-        super(ConvGRU, self).__init__()
+    def __init__(self, filters, kernel_size, **kwargs):
+        super(ConvGRU, self).__init__(dtype=dtype, **kwargs)
         self.update_gate = tf.keras.layers.Conv2D(
             filters=filters,
             kernel_size=kernel_size,
@@ -46,9 +46,42 @@ class ConvGRU(tf.keras.Model):
         return new_state  # h_{t+1}
 
 
+class ResidualBlock(tf.keras.Model):
+    def __init__(self, filters, kernel_size, alpha, kernel_reg_amp, bias_reg_amp, **kwargs):
+        super(ResidualBlock, self).__init__(dtype, **kwargs)
+        self.conv1 = tf.keras.layers.Conv2D(
+            filters=filters,
+            kernel_size=kernel_size,
+            strides=1,
+            padding="same",
+            data_format="channels_last",
+            activation=tf.keras.layers.LeakyReLU(alpha),
+            kernel_initializer=initializer,
+            kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp)
+        )
+        self.conv2 = tf.keras.layers.Conv2D(
+            filters=filters,
+            kernel_size=kernel_size,
+            strides=1,
+            padding="same",
+            data_format="channels_last",
+            activation=tf.keras.layers.LeakyReLU(alpha=alpha),
+            kernel_initializer=initializer,
+            kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp)
+        )
+
+    def call(self, X):
+        features = self.conv1(X)
+        features = self.conv2(features)
+        return tf.add(X, features)
+
+
 class Model(tf.keras.Model):
     def __init__(self, hyperparameters=default_hyperparameters, dtype=dtype):
         super(Model, self).__init__(dtype=dtype)
+        self._timestep_mod = 30  # silent instance attribute to be modified if needed in the RIM fit method
         self.downsampling_block = []
         self.convolution_block = []
         self.recurrent_block = []
@@ -136,41 +169,129 @@ class Model(tf.keras.Model):
         :param yt: Image tensor of shape [batch, pixel, pixel, channel], correspond to the step t of the reconstruction.
         :param ht: Hidden memory tensor updated in the Recurrent Block
         """
-
+        # TODO remove summary or reduce number printed since this slows down enormously the training time
         input = yt
         for layer in self.downsampling_block:
             input = layer(input)
-            summary_histograms(layer, input, layer.trainable_weights)
+            if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+                summary_histograms(layer, input)
         for layer in self.convolution_block:
             input = layer(input)
-            summary_histograms(layer, input, layer.trainable_weights)
+            if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+                summary_histograms(layer, input)
         # ===== Recurrent Block =====
         ht_1, ht_2 = tf.split(ht, 2, axis=3)
         ht_1 = self.gru1(input, ht_1)  # to be recombined in new state
-        summary_histograms(self.gru1, ht_1, self.gru1.trainable_weights)
+        summary_histograms(self.gru1, ht_1)
         if self.hidden_conv is not None:
             ht_1_features = self.hidden_conv(ht_1)
-            summary_histograms(self.hidden_conv, ht_1_features, self.hidden_conv.trainable_weigths)
+            if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+                summary_histograms(self.hidden_conv, ht_1_features)
         else:
             ht_1_features = ht_1
         ht_2 = self.gru2(ht_1_features, ht_2)
-        summary_histograms(self.gru2, ht_2, self.gru2.trainable_weights)
+        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            summary_histograms(self.gru2, ht_2)
         # ===========================
         delta_xt = self.upsampling_block[0](ht_2)
-        summary_histograms(self.upsampling_block[0], delta_xt, self.upsampling_block[0].trainable_weights)
+        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            summary_histograms(self.upsampling_block[0], delta_xt)
         for layer in self.upsampling_block[1:]:
             delta_xt = layer(delta_xt)
-            summary_histograms(layer, delta_xt, layer.trainable_weights)
+            if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+                summary_histograms(layer, delta_xt)
         for layer in self.transposed_convolution_block:
             delta_xt = layer(delta_xt)
-            summary_histograms(layer, delta_xt, layer.trainable_weights)
+            if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+                summary_histograms(layer, delta_xt)
         new_state = tf.concat([ht_1, ht_2], axis=3)
         return delta_xt, new_state
 
 
-def summary_histograms(layer, activation=None, weights=None):
-    if activation is not None:
-        tf.summary.histogram(layer.name + "_activation", data=activation, step=tf.summary.experimental.get_step())
-    if weights is not None:
-        for w in weights:
-            tf.summary.histogram(w.name, data=w, step=tf.summary.experimental.get_step())
+class Modelv2(tf.keras.Model):
+    """
+    A different version of the model, with a single GRU cell and a residual block after downsampling.
+    """
+    def __init__(self, hyperparameters, dtype=dtype):
+        super(Modelv2, self).__init__(dtype=dtype)
+        self._timestep_mod = 30  # silent instance attribute to be modified if needed in the RIM fit method
+        kernel_reg_amp = hyperparameters["Regularizer Amplitude"]["kernel"]
+        bias_reg_amp = hyperparameters["Regularizer Amplitude"]["bias"]
+        self.conv1 = tf.keras.layers.Conv2D(
+            filters=hyperparameters["Conv1"]["filters"],
+            kernel_size=hyperparameters["Conv1"]["kernel_size"],
+            strides=2,
+            padding="same",
+            data_format="channels_last",
+            activation=tf.keras.layers.LeakyReLU(alpha=hyperparameters["alpha"]),
+            kernel_initializer=initializer,
+            kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+            name="Conv1"
+        )
+        self.res1 = ResidualBlock(
+            filters=hyperparameters["Res1"]["filters"],
+            kernel_size=hyperparameters["Res1"]["kernel_size"],
+            alpha=hyperparameters["alpha"],
+            kernel_reg_amp=kernel_reg_amp,
+            bias_reg_amp=bias_reg_amp,
+            name="Res1"
+        )
+        self.gru = ConvGRU(
+            filters=hyperparameters["GRU"]["filters"],
+            kernel_size=hyperparameters["GRU"]["kernel_size"],
+            name="GRU"
+        )
+        self.tconv1 = tf.keras.layers.Conv2DTranspose(
+            filters=hyperparameters["TConv"]["filters"],
+            kernel_size=hyperparameters["TConv"]["kernel_size"],
+            strides=1,
+            padding="same",
+            data_format="channels_last",
+            activation=tf.keras.layers.LeakyReLU(alpha=hyperparameters["alpha"]),
+            kernel_initializer=initializer,
+            kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+            name="TConv1"
+        )
+        self.fraction_tconv = tf.keras.layers.Conv2DTranspose(
+            filters=hyperparameters["Fraction_TConv"]["filters"],
+            kernel_size=hyperparameters["Fraction_TConv"]["kernel_size"],
+            strides=2,
+            padding="same",
+            data_format="channels_last",
+            activation=tf.keras.layers.LeakyReLU(alpha=hyperparameters["alpha"]),
+            kernel_initializer=initializer,
+            kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+            bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+            name="Fraction_TConv"
+        )
+
+    # TODO remove summaries when analysis are completed
+    def call(self, xt, ht):
+        features = self.conv1(xt)
+        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            summary_histograms(self.conv1, features)
+
+        features = self.res1(features)
+        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            summary_histograms(self.res1, features)
+
+        ht_2 = self.gru(features, ht)
+        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            summary_histograms(self.gru, ht_2)
+
+        delta_xt = self.tconv1(ht_2)
+        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            summary_histograms(self.tconv1, delta_xt)
+
+        delta_xt = self.fraction_tconv(delta_xt)
+        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            summary_histograms(self.fraction_tconv, delta_xt)
+        return delta_xt, ht_2
+
+
+def summary_histograms(layer, activation):
+    tf.summary.histogram(layer.name + "_activation", data=activation, step=tf.summary.experimental.get_step())
+    for weights in layer.trainable_weights:
+        tf.summary.histogram(weights.name, data=weights, step=tf.summary.experimental.get_step())

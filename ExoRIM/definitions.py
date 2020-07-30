@@ -13,7 +13,7 @@ default_hyperparameters = {
         "steps": 12,
         "pixels": 32,
         "channels": 1,
-        "state_size": 8,
+        "state_size": 16,
         "state_depth": 32,
         "Regularizer Amplitude": {
             "kernel": 0.01,
@@ -38,7 +38,7 @@ default_hyperparameters = {
             }},
             {"Conv_2": {
                 "kernel_size": [3, 3],
-                "filters": 8,
+                "filters": 16,
                 "strides": [1, 1]
             }}
         ],
@@ -163,6 +163,7 @@ def centroid(image, threshold=0, binarize=False):
     return (x0, y0)
 
 
+@tf.function
 def logsumexp_scaler(X, minimum, maximum, bkg=0):
     """
     This function implement a scaler with a smooth maximum functions for gradient operations.
@@ -177,6 +178,7 @@ def logsumexp_scaler(X, minimum, maximum, bkg=0):
     return minimum + (INTENSITY_SCALER * X - bkg) * (maximum - minimum) / (x_max - bkg)
 
 
+@tf.function
 def softmax_scaler(X, minimum, maximum):
     """
     Implement a more versatile scaler using softmax, which can be used to approximate both a maximum and a
@@ -195,6 +197,18 @@ def softmax_scaler(X, minimum, maximum):
     x_min = tf.einsum("...i, ...i -> ...", _X, tf.math.softmax(-alpha * _X))
     x_min = tf.reshape(x_min, x_min.shape + [1]*(dims - 1))
     return minimum + (X - x_min) * (maximum - minimum) / (x_max - x_min + 1e-8)
+
+
+def log_scaling(X, base=10.):
+    """
+    This function separate positive and negative values of the tensor (axis=1 and 2) and computes their logarithm separately.
+    """
+    positive = X * tf.cast(X > 0, dtype) + 1e-5
+    negative = - X * tf.cast(X < 0, dtype) + 1e-5
+    positve = tf.clip_by_value(tf.math.log(positive) / tf.math.log(base), 0, 30)
+    negative = - tf.clip_by_value(tf.math.log(negative) / tf.math.log(base), 0, 30)
+    return positve + negative
+
 
 
 #    Copyright (C) 2018 Andrew Chael
@@ -218,21 +232,24 @@ def softmax_scaler(X, minimum, maximum):
 # DFT Chi-squared and Gradient Functions
 ##################################################################################################
 
+@tf.function
 def cast_to_complex_flatten(image):
     im = tf.dtypes.cast(image, mycomplex)
     im = tf.keras.layers.Flatten(data_format="channels_last")(im)
     return im
 
 
+@tf.function
 def chisq_vis(image, A, vis, sigma):
     """Visibility chi-squared"""
-    sig = tf.cast(sigma, mycomplex)
+    sig = tf.cast(sigma, dtype)
     im = cast_to_complex_flatten(image)
     samples = tf.einsum("ij, ...j -> ...i", A, im)
-    chisq = 0.5 * tf.reduce_mean(tf.math.abs((samples - vis) / sig)**2, axis=1)
+    chisq = 0.5 * tf.reduce_mean((tf.math.abs(samples - vis) / sig)**2, axis=1)
     return chisq
 
 
+@tf.function
 def chisqgrad_vis(image, A, vis, sigma, pix, floor=1e-6):
     """The gradient of the visibility chi-squared"""
     sig = tf.cast(sigma + floor, mycomplex)  # prevent dividing by zero
@@ -244,14 +261,16 @@ def chisqgrad_vis(image, A, vis, sigma, pix, floor=1e-6):
     return out
 
 
+@tf.function
 def chisq_amp(image, A, amp, sigma):
     """Visibility Amplitudes (normalized) chi-squared"""
-    sig = tf.cast(sigma, mycomplex)
+    sig = tf.cast(sigma, dtype)
     im = cast_to_complex_flatten(image)
     amp_samples = tf.math.abs(tf.einsum("ij, ...j -> ...i", A, im))
-    return tf.math.reduce_mean(tf.math.abs((amp - amp_samples)/sig)**2, axis=1)
+    return tf.math.reduce_mean(((amp - amp_samples)/sig)**2, axis=1)
 
 
+@tf.function
 def chisqgrad_amp(image, A, amp, sigma, pix, floor=1e-6):
     """The gradient of the amplitude chi-squared"""
     im = cast_to_complex_flatten(image)
@@ -265,6 +284,7 @@ def chisqgrad_amp(image, A, amp, sigma, pix, floor=1e-6):
     return out / amp.shape[1]
 
 
+@tf.function
 def chisq_bs(image, A1, A2, A3, B, sigma):
     """
 
@@ -275,7 +295,7 @@ def chisq_bs(image, A1, A2, A3, B, sigma):
     :param sigma:
     :return:
     """
-    sig = tf.cast(sigma, mycomplex)
+    sig = tf.cast(sigma, dtype)
     im = cast_to_complex_flatten(image)
     V1 = tf.einsum("ij, ...j -> ...i", A1, im)
     V2 = tf.einsum("ij, ...j -> ...i", A2, im)
@@ -285,6 +305,7 @@ def chisq_bs(image, A1, A2, A3, B, sigma):
     return chisq
 
 
+@tf.function
 def chisqgrad_bs(image, A1, A2, A3, B, sigma, pix, floor=1e-6):
     """The gradient of the bispectrum chi-squared"""
     sig = tf.cast(sigma, mycomplex)
@@ -301,15 +322,11 @@ def chisqgrad_bs(image, A1, A2, A3, B, sigma, pix, floor=1e-6):
     out = tf.reshape(out, shape=[-1, pix, pix, 1])
     return out
 
-# DATATERMS = ['vis', 'amp', 'bs', 'cphase', 'cphase_diag',
-#              'camp', 'logcamp', 'logcamp_diag', 'logamp']
-# REGULARIZERS = ['gs', 'tv', 'tv2', 'l1w', 'lA', 'patch', 'simple', 'compact', 'compact2', 'rgauss']
-#
 
-
+@tf.function
 def chisq_cphase(image, A1, A2, A3, clphase, sigma):
     """Closure Phases (normalized) chi-squared"""
-    sig = tf.cast(sigma, mycomplex)
+    sig = tf.cast(sigma, dtype)
     im = cast_to_complex_flatten(image)
     einsum = "ij, ...j -> ...i"
     V1 = tf.einsum(einsum, A1, im)
@@ -320,6 +337,7 @@ def chisq_cphase(image, A1, A2, A3, clphase, sigma):
     return chisq
 
 
+@tf.function
 def chisqgrad_cphase(image, A1, A2, A3, clphase, sigma, pix):
     """The gradient of the closure phase chi-squared"""
 

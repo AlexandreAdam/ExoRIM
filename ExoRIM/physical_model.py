@@ -8,7 +8,7 @@ class PhysicalModel:
     """
     This model create discrete Fourier matrices and scales poorly on large number of pixels and baselines.
     """
-    def __init__(self, pixels, mask_coordinates, wavelength, plate_scale, SNR, vis_phase_std=np.pi/3):
+    def __init__(self, pixels, mask_coordinates, wavelength, plate_scale, SNR, vis_phase_std=1e-5):
         """
 
         :param pixels: Number of pixels on the side of the reconstructed image
@@ -46,6 +46,7 @@ class PhysicalModel:
         self.A2 = tf.tensordot(self.V2_projector, self.A, axes=1)
         self.A3 = tf.tensordot(self.V3_projector, self.A, axes=1)
 
+    @tf.function
     def forward(self, image):
         """
 
@@ -58,11 +59,13 @@ class PhysicalModel:
         y = tf.concat([visibilities, bispectra], axis=1)  # p + q length vectors of type complex128
         return y
 
+    @tf.function
     def fourier_transform(self, image):
         im = tf.cast(image, mycomplex)
         flat = tf.keras.layers.Flatten(data_format="channels_last")(im)
         return tf.einsum("...ij, ...j->...i", self.A, flat)  # tensordot broadcasted on batch_size
 
+    @tf.function
     def inverse_fourier_transform(self, X):
         amp = tf.cast(X[..., :self.p], mycomplex)
         flat = tf.einsum("...ij, ...j->...i", self.A_adjoint, amp)
@@ -70,12 +73,14 @@ class PhysicalModel:
         flat = tf.cast(flat, dtype)
         return tf.reshape(flat, [-1, self.pixels, self.pixels, 1])
 
+    @tf.function
     def bispectrum(self, V):
         V1 = tf.einsum("ij, ...j -> ...i", self.V1_projector, V)
         V2 = tf.einsum("ij, ...j -> ...i", self.V2_projector, V)
         V3 = tf.einsum("ij, ...j -> ...i", self.V3_projector, V)
         return V1 * tf.math.conj(V2) * V3  # hack that works with baseline class! Be careful using other methods
 
+    @tf.function
     def log_likelihood_v1(self, Y_pred, X):
         """
         :param Y_pred: reconstructed image
@@ -90,20 +95,35 @@ class PhysicalModel:
         chi2_cp = tf.reduce_mean(tf.square((cp_pred - cp_true)/(sigma_cp + 1e-6)), axis=1)
         return chi2_amp + chi2_cp
 
-    def grad_log_likelihood_v2(self, Y_pred, X, alpha_amp=1., alpha_vis=None, alpha_bis=None, alpha_cp=1.):
+    @tf.function
+    def grad_log_likelihood_v2(self, Y_pred, X, alpha_amp=1., alpha_vis=1., alpha_bis=None, alpha_cp=1.):
         """
         :param Y_pred: reconstructed image
         :param X: interferometric data from measurements (complex vector from forward method)
         """
         # sigma_amp, sigma_bis, sigma_cp = self.get_std(X)
         grad = alpha_amp * chisqgrad_amp(Y_pred, self.A, tf.math.abs(X[..., :self.p]), 1/self.SNR, self.pixels)
+        # grad = grad + alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], 1/self.SNR, self.pixels)
+        # if alpha_bis is not None:
+        #     grad = grad + alpha_bis * chisqgrad_bs(Y_pred, self.A1, self.A2, self.A3, X[..., self.p:], sigma_bis, self.pixels)
+        grad = grad + alpha_cp * chisqgrad_cphase(Y_pred, self.A1, self.A2, self.A3, tf.math.angle(X[..., self.p:]), self.phase_std, self.pixels)
+        return grad
+
+    @tf.function
+    def grad_log_likelihood_v3(self, Y_pred, X, alpha_amp=1., alpha_vis=None, alpha_bis=None, alpha_cp=1.):
+        """
+        :param Y_pred: reconstructed image
+        :param X: interferometric data from measurements (complex vector from forward method)
+        """
+        # sigma_amp, sigma_bis, sigma_cp = self.get_std(X)
+        grad_amp = chisqgrad_amp(Y_pred, self.A, tf.math.abs(X[..., :self.p]), 1/self.SNR, self.pixels)
         # grad = alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], sigma_amp, self.pixels)
         # if alpha_bis is not None:
         #     grad = grad + alpha_bis * chisqgrad_bs(Y_pred, self.A1, self.A2, self.A3, X[..., self.p:], sigma_bis, self.pixels)
-        if alpha_cp is not None:
-            grad = grad + alpha_cp * chisqgrad_cphase(Y_pred, self.A1, self.A2, self.A3, tf.math.angle(X[..., self.p:]), self.phase_std, self.pixels)
-        return grad
+        grad_cp = chisqgrad_cphase(Y_pred, self.A1, self.A2, self.A3, tf.math.angle(X[..., self.p:]), self.phase_std, self.pixels)
+        return tf.concat([grad_amp, grad_cp], axis=3)
 
+    @tf.function
     def grad_log_likelihood_v1(self, Y_pred, X):
         with tf.GradientTape() as tape:
             tape.watch(Y_pred)
@@ -142,7 +162,7 @@ class PhysicalModel:
         # add noise in polar form
         amp = tf.cast(gain * tf.math.abs(X[..., :self.p]), mycomplex)
         phase = 1j * tf.cast(tf.math.angle(X[..., :self.p]) + phase_error, mycomplex)
-        noisy_vis = amp * np.exp(phase)
+        noisy_vis = amp * tf.math.exp(phase)
         noisy_bis = self.bispectrum(noisy_vis)
         out = tf.concat([noisy_vis, noisy_bis], axis=1)
         return out
