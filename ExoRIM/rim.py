@@ -1,4 +1,4 @@
-from ExoRIM.definitions import dtype, softmax_scaler, default_hyperparameters, log_scaling
+from ExoRIM.definitions import dtype, softmax_scaler, default_hyperparameters, log_scaling, gradient_summary_log_scale
 from ExoRIM.utilities import save_output, save_gradient_and_weights, save_loglikelihood_grad, nullwriter
 from ExoRIM.model import Model
 import tensorflow as tf
@@ -37,7 +37,7 @@ class RIM:
     @staticmethod
     @tf.function
     def grad_scaling(grad):
-        return softmax_scaler(grad, minimum=-1, maximum=1) #log_scaling(grad)
+        return tf.clip_by_value(grad, -100, 100) #grad # softmax_scaler(grad, minimum=-1, maximum=1) #log_scaling(grad)
 
 # filter idea does not work
     # @staticmethod
@@ -92,9 +92,9 @@ class RIM:
         return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype)
 
     def initial_guess(self, X):
-        y0 = self.physical_model.inverse_fourier_transform(X)
+        # y0 = self.physical_model.inverse_fourier_transform(X)
         # y0 = softmax_scaler(y0, minimum=0, maximum=1.)
-        # y0 = tf.ones(shape=[X.shape[0], self.pixels, self.pixels, 1]) / 100
+        y0 = tf.ones(shape=[X.shape[0], self.pixels, self.pixels, 1]) / 100
         return y0
 
     def fit(
@@ -203,22 +203,26 @@ class RIM:
                         tf.summary.scalar(key, score, step=step)
                     # dramatically slows down the training if enabled and step_mod too low
                     if record and step % output_save_mod["step_mod"] == 0:
-                        tf.summary.image(f"Output_{step:04}", output[..., -1], max_outputs=1, description="Model prediction (last timestep reconstruction")
-                        tf.summary.image(f"Ground_truth_{step:04}", Y, max_outputs=1, description="Ground Truth Image")
-                        tf.summary.image(f"Log_Likelihood_Gradient_{step:04}", tf.reshape(grads[0,...], [-1, self.pixels, self.pixels, 1]), max_outputs=20, description="Log Likelihood gradient for each time steps")
+                        tf.summary.image(f"Output_{epoch:04}_{batch:04}", output[..., -1], max_outputs=1, description="Model prediction (last timestep reconstruction")
+                        tf.summary.image(f"Ground_truth_{epoch:04}_{batch:04}", Y, max_outputs=1, description="Ground Truth Image")
+                        # This one is badly rendered by a 8 bit conversion, 
+                        tf.summary.histogram(name=f"Log_Likelihood_Gradient_log_{batch:04}", data=tf.math.log(tf.math.abs(grads[0]))/tf.math.log(10.), description="Log Likelihood gradient for each time steps")
+                        tf.summary.histogram(name=f"Log_Likelihood_Gradient_sign_{batch:04}", data=tf.math.sign(grads[0]), description="Log Likelihood gradient for each time steps")
+
                         for i, grad in enumerate(gradient):
                             tf.summary.histogram(name=self.model.trainable_weights[i].name + "_gradient", data=grad, step=step)
                         if output_dir is not None:
                             save_output(output, output_dir, epoch + _epoch_start, batch, format="txt", **output_save_mod)
                             save_gradient_and_weights(gradient, self.model.trainable_weights, output_dir, epoch + _epoch_start, batch)
                             save_loglikelihood_grad(grads, output_dir, epoch + _epoch_start, batch, **output_save_mod)
-                    # ================================================
+                    train_writer.flush()
                     step += 1
                     tf.summary.experimental.set_step(step)
+                    # ================================================
                 for key, item in metrics_train.items():
                     history[key + "_train"].append(item/(batch + 1))
                 history["train_loss"].append(epoch_loss.result().numpy())
-                train_writer.flush()
+
 
             if test_dataset is not None:
                 with test_writer.as_default():
@@ -232,7 +236,7 @@ class RIM:
                             score = item(test_output[..., -1], Y)
                             history[key + "_test"].append(score.numpy())
                             tf.summary.scalar(key, score, step=step)
-                    test_writer.flush()
+                        test_writer.flush()
             try:
                 print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e} | val_loss={history['test_loss'][-1]:.2e}")
             except IndexError:

@@ -210,6 +210,13 @@ def log_scaling(X, base=10.):
     return positve + negative
 
 
+def gradient_summary_log_scale(grad, base=10.):
+    # assumes gradient have already been rescaled to the range [-1, 1], such that logs are always < 0
+    positive = grad * tf.cast(grad > 0, dtype) + 1e-12
+    negative = - grad * tf.cast(grad < 0, dtype) + 1e-12
+    positve = - tf.math.log(positive) / tf.math.log(base)
+    negative = tf.math.log(negative) / tf.math.log(base)
+    return softmax_scaler(positve + negative, 0, 1)
 
 #    Copyright (C) 2018 Andrew Chael
 #
@@ -258,7 +265,7 @@ def chisqgrad_vis(image, A, vis, sigma, pix, floor=1e-6):
     wdiff = (vis - samples)/(sig**2)
     out = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(A), wdiff))
     out = tf.reshape(out, [-1, pix, pix, 1])
-    return out
+    return out / vis.shape[1]
 
 
 @tf.function

@@ -106,7 +106,7 @@ class PhysicalModel:
         # grad = grad + alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], 1/self.SNR, self.pixels)
         # if alpha_bis is not None:
         #     grad = grad + alpha_bis * chisqgrad_bs(Y_pred, self.A1, self.A2, self.A3, X[..., self.p:], sigma_bis, self.pixels)
-        grad = grad + alpha_cp * chisqgrad_cphase(Y_pred, self.A1, self.A2, self.A3, tf.math.angle(X[..., self.p:]), self.phase_std, self.pixels)
+        # grad = grad + alpha_cp * chisqgrad_cphase(Y_pred, self.A1, self.A2, self.A3, tf.math.angle(X[..., self.p:]), self.phase_std, self.pixels)
         return grad
 
     @tf.function

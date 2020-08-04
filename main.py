@@ -60,6 +60,7 @@ if __name__ == "__main__":
     parser.add_argument("--fixed", action="store_true", help="Keeps the dataset fix for each epochs to monitor progress")
     args = parser.parse_args()
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
+    print(f"id = {date}")
     with open("hyperparameters.json", "r") as f:
         hyperparameters = json.load(f)
     # train_meta = CenteredImagesv1(

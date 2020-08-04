@@ -356,7 +356,7 @@ class CenteredImagesGenerator:
         return np.random.choice(pool, size=1, p=p)
 
     def _width(self, nps):
-        return np.random.uniform(1, self.pixels/3, size=nps)
+        return np.random.uniform(1, 5, size=nps)
 
     def _contrasts(self, nps):
         return np.random.uniform(0.1, self.highest_contrast, size=nps)

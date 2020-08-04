@@ -1,5 +1,7 @@
 import numpy as np
 import tensorflow as tf
+from ExoRIM.simulated_data import CenteredImagesGenerator
+from ExoRIM.definitions import dtype, mycomplex
 from PIL import Image
 import os, glob
 import pickle
@@ -136,8 +138,6 @@ def create_dataset_from_generator(
         max_point_source=10,
         fixed=False
 ):
-    from ExoRIM.simulated_data import CenteredImagesGenerator
-    from ExoRIM.definitions import dtype, mycomplex
     gen = CenteredImagesGenerator(
         physical_model=physical_model,
         total_items_per_epoch=item_per_epoch,
