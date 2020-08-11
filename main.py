@@ -47,7 +47,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--split", type=float, default=0.8)
     parser.add_argument("-b", "--batch", type=int, default=10, help="Batch size")
     parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
-    parser.add_argument("--holes", type=int, default=50, help="Number of holes in the mask")
+    parser.add_argument("--holes", type=int, default=21, help="Number of holes in the mask")
     parser.add_argument("--longest_baseline", type=float, default=6., help="Longest baseline (meters) in the mask, up to noise added")
     parser.add_argument("--mask_variance", type=float, default=1., help="Variance of the noise added to rho coordinate of aperture (in meter)")
     parser.add_argument("-m", "--min_delta", type=float, default=0, help="Tolerance for early stopping")
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         initial_learning_rate=1e-3,
         decay_steps=10000,
-        decay_rate=0.96,
+        decay_rate=0.90,
         staircase=True
     )
     history = rim.fit(

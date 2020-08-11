@@ -27,17 +27,16 @@ class RIM:
     @staticmethod
     @tf.function
     def link_function(y):
-        return softmax_scaler(y, minimum=-1, maximum=1)
+        return tf.math.log(y) #softmax_scaler(y, minimum=-1, maximum=1)
 
     @staticmethod
     @tf.function
     def inverse_link_function(eta):
-        return tf.math.sigmoid(eta) #softmax_scaler(eta, minimum=0, maximum=1)
+        return tf.math.exp(eta) #softmax_scaler(eta, minimum=0, maximum=1)
 
-    @staticmethod
     @tf.function
-    def grad_scaling(grad):
-        return tf.clip_by_value(grad, -100, 100) #grad # softmax_scaler(grad, minimum=-1, maximum=1) #log_scaling(grad)
+    def grad_scaling(self, grad):
+        return tf.clip_by_value(1/self.physical_model.SNR**2 * grad, -100, 100) # softmax_scaler(grad, minimum=-1, maximum=1) #log_scaling(grad)  #grad #
 
 # filter idea does not work
     # @staticmethod
@@ -64,27 +63,22 @@ class RIM:
         y0 = self.initial_guess(X)
         h0 = self.init_hidden_states(batch_size)
         grad = self.physical_model.grad_log_likelihood_v2(y0, X)
-        # scale in range [-1, 1] to accelerate learning
         eta_0 = self.link_function(y0)
-        # Scale gradient to the same dynamical range as y
         grad = self.grad_scaling(grad)
         stacked_input = tf.concat([eta_0, grad], axis=3)
         # compute gradient update
         gt, ht = self.model(stacked_input, h0)
         # update image
         eta_t = eta_0 + gt
-        # apply inverse link function to go back to image space
-        yt = self.inverse_link_function(eta_t)
         # save output and log likelihood gradient (latter for analysis)
-        outputs = tf.reshape(yt, yt.shape + [1])  # Plus one dimension for step stack
+        outputs = tf.reshape(eta_t, eta_t.shape + [1])  # Plus one dimension for step stack
         grads = grad
         for current_step in range(self.steps - 1):
-            grad = self.physical_model.grad_log_likelihood_v2(yt, X)
+            grad = self.physical_model.grad_log_likelihood_v2(self.inverse_link_function(eta_t), X)
             grad = self.grad_scaling(grad)  #self.gradient_filters(grad, self.cutoffs)
             gt, ht = self.model(stacked_input, ht)
             eta_t = eta_t + gt
-            yt = self.inverse_link_function(eta_t)
-            outputs = tf.concat([outputs, tf.reshape(yt, yt.shape + [1])], axis=4)
+            outputs = tf.concat([outputs, tf.reshape(eta_t, eta_t.shape + [1])], axis=4)
             grads = tf.concat([grads, grad], axis=3)
         return outputs, grads
 
@@ -187,8 +181,9 @@ class RIM:
                     batch = batch.numpy()
                     with tf.GradientTape() as tape:
                         tape.watch(self.model.trainable_weights)
-                        output, grads = self.call(X)
-                        cost_value = cost_function(output, Y)
+                        eta_output, grads = self.call(X)
+                        output = tf.math.exp(eta_output)
+                        cost_value = cost_function(eta_output, tf.math.log(Y + 1e-8))
                         cost_value += tf.reduce_sum(self.model.losses)  # Add layer specific regularizer losses (L2 in definitions)
                     epoch_loss.update_state([cost_value])
                     gradient = tape.gradient(cost_value, self.model.trainable_weights)
@@ -211,10 +206,11 @@ class RIM:
 
                         for i, grad in enumerate(gradient):
                             tf.summary.histogram(name=self.model.trainable_weights[i].name + "_gradient", data=grad, step=step)
-                        if output_dir is not None:
-                            save_output(output, output_dir, epoch + _epoch_start, batch, format="txt", **output_save_mod)
-                            save_gradient_and_weights(gradient, self.model.trainable_weights, output_dir, epoch + _epoch_start, batch)
-                            save_loglikelihood_grad(grads, output_dir, epoch + _epoch_start, batch, **output_save_mod)
+                    # independant save of outputs
+                    if output_dir is not None:
+                        save_output(output, output_dir, epoch + _epoch_start, batch, format="txt", **output_save_mod)
+                        save_gradient_and_weights(gradient, self.model.trainable_weights, output_dir, epoch + _epoch_start, batch)
+                        save_loglikelihood_grad(grads, output_dir, epoch + _epoch_start, batch, **output_save_mod)
                     train_writer.flush()
                     step += 1
                     tf.summary.experimental.set_step(step)
@@ -223,12 +219,12 @@ class RIM:
                     history[key + "_train"].append(item/(batch + 1))
                 history["train_loss"].append(epoch_loss.result().numpy())
 
-
             if test_dataset is not None:
                 with test_writer.as_default():
                     for X, Y in test_dataset:  # this dataset should not be batched, so this for loop has 1 iteration
-                        test_output, _ = self.call(X)  # investigate why predict returns NaN scores and output
-                        test_cost = cost_function(test_output, Y)
+                        test_eta_output, _ = self.call(X)  # investigate why predict returns NaN scores and output
+                        test_output = tf.math.exp(test_eta_output)
+                        test_cost = cost_function(test_eta_output, tf.math.log(Y + 1e-8))
                         test_cost += tf.reduce_sum(self.model.losses)
                         history["test_loss"].append(test_cost.numpy())
                         tf.summary.scalar("loss", test_cost, step=step)

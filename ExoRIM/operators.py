@@ -154,6 +154,55 @@ def phase_closure_operator(B: Baselines, fixed_aperture=0):
     return A
 
 
+def redundant_phase_closure_operator(B: Baselines):
+    """
+    The phase closure operator (CPO) can act on visibilities phase vector and map them to bispectra phases. Its shape
+    is (q, p):
+        q: Number of independent closure phases
+        p: Number of independent visibilities
+    It is computed by drawing all possible triangles in the mask array from a fixed aperture (where phase is taken as
+     0).
+    Statistically independent bispectrum: each B must contain 1 and only 1 baseline which is not
+        contained in other triangles.
+    """
+    # There is a bug for a redundant baseline --> test with different arrays
+    N = B.nbap # number of apertures in the mask
+    BLM = B.BLM
+    q = N * (N - 1) * (N - 2) // 6
+    q_indep = (N-1) * (N-2) // 2
+    print(f"There are {q_indep} independant closure phases and {q} total closure phases")
+    p = B.nbuv  # number of independant visibilities phases for non-redundant mask
+    A = np.zeros((q, p))  # closure phase operator satisfying A*(V phases) = (Closure Phases)
+    A_index = 0  # index for A_temp
+    for i in range(N):
+        for j in range(i+1, N): # i, j, and k select a triangle of apertures
+            # k index is vectorized
+            k = np.arange(j + 1, N)
+            k = np.delete(k, np.where(k == i))
+            if k.size == 0:
+                break
+            # find baseline indices b1, b2 and b3 from triangle i,j,k by searching for the row index where two index were paired in Baseline Map
+            b1 = np.nonzero((BLM[:, i] != 0) & (BLM[:, j] != 0))[0][0] # should be a single index
+            b1 = np.repeat(b1, k.size) # therefore put in an array to match shape of b2 and b3
+            # b2k and b3k keep track of which triangle the baseline belongs to (since indices are returned ordered by numpy nonzero)
+            # in other words, the baselines b2 are associated with pairs of apertures j and k[b2k]
+            b2, b2k = np.nonzero((BLM[:, k] != 0) & (BLM[:, j] != 0)[:, np.newaxis]) # index is broadcasted to shape of k
+            b3, b3k = np.nonzero((BLM[:, k] != 0) & (BLM[:, i] != 0)[:, np.newaxis])
+            diag = np.arange(A_index, A_index + k.size)
+            # signs are retrieved from Baseline Map in order to satisfy closure relation: (i - j) + (j - k) + (k - i)
+            A[diag, b1] += BLM[b1, i]
+            A[diag, b2] += BLM[b2, j]
+            A[diag, b3] += BLM[b3, k[b3k]]
+            # Sanity check that this works: closure relation should always return 0 for any three objects (1,2,3) when gain is 1
+            assert np.array_equal(
+                np.sign(A[diag, b1]) * (np.sign(BLM[b1, i]) * 1 + np.sign(BLM[b1, j]) * 2) \
+                   + np.sign(A[diag, b2]) * (np.sign(BLM[b2, j]) * 2 + np.sign(BLM[b2, k[b2k]]) * 3)\
+                   + np.sign(A[diag, b3]) * (np.sign(BLM[b3, i]) * 1 + np.sign(BLM[b3, k[b3k]]) * 3),
+                np.zeros(k.size)
+            ), f"Closure relation is wrong!"
+            A_index += k.size
+    return A
+
 def orthogonal_phase_closure_operator(B: Baselines):
     # kept as reference --> this method does not seem to work,
     # phase closure for unresolved source with basic noise model is not respected,

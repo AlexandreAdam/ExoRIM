@@ -145,7 +145,6 @@ def create_dataset_from_generator(
         pixels=pixels,
         highest_contrast=highest_contrast,
         max_point_sources=max_point_source,
-        save=dirname,
         fixed=fixed
     )
     shapes = (tf.TensorShape([None]), tf.TensorShape([pixels, pixels, 1]))

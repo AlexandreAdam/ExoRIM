@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
-from ExoRIM.definitions import dtype, mycomplex, chisqgrad_vis, chisqgrad_bs, mas2rad, chisqgrad_amp, chisqgrad_cphase
-from ExoRIM.operators import Baselines, phase_closure_operator, NDFTM
+from ExoRIM.definitions import dtype, mycomplex, chisqgrad_amp, chisqgrad_cphase, rad2mas, triangle_pulse_f, mas2rad, chisqgrad_vis
+from ExoRIM.operators import Baselines, phase_closure_operator, NDFTM, redundant_phase_closure_operator
 
 
 class PhysicalModel:
@@ -17,11 +17,22 @@ class PhysicalModel:
         self.version = "v1"
         self.pixels = pixels
         self.baselines = Baselines(mask_coordinates=mask_coordinates)
+        self.resolution = rad2mas(wavelength / 2 / np.max(np.sqrt(self.baselines.UVC[:, 0]**2 + self.baselines.UVC[:, 1]**2)))
+        if plate_scale >= self.resolution:
+            print(f"Plate scale should smaller than theoretical resolution ~ {self.resolution} mas. "
+                  f"Ideal plate scale = {self.resolution/10} mas, to avoid aliasing due to pixelated image.")
+
+        self.pulse = triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 0] / wavelength, mas2rad(self.resolution))
+        self.pulse *= triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 1] / wavelength, mas2rad(self.resolution))
+
         self.CPO = phase_closure_operator(self.baselines)
-        self.A = NDFTM(self.baselines.UVC, wavelength, pixels, plate_scale)
+
+        # This operator scales like N^3 where N is the number of non-redundant apertures
+        # self.CPO = redundant_phase_closure_operator(self.baselines)
+        self.A = NDFTM(self.baselines.UVC, wavelength, pixels, plate_scale) #* self.pulse[:, np.newaxis]
         self.A_adjoint = NDFTM(self.baselines.UVC, wavelength, pixels, plate_scale, inv=True)
         self.p = self.A.shape[0]  # number of visibility samples
-        self.q = self.CPO.shape[0]  # number of independent closure phases
+        self.q = self.CPO.shape[0]  # number of closure phases
         self.SNR = SNR
         self.phase_std = vis_phase_std
         # create matrices that project visibilities to bispectra (V1 = V_{ij}, V_2 = V_{jk} and V_3 = V_{ki})
@@ -96,14 +107,14 @@ class PhysicalModel:
         return chi2_amp + chi2_cp
 
     @tf.function
-    def grad_log_likelihood_v2(self, Y_pred, X, alpha_amp=1., alpha_vis=1., alpha_bis=None, alpha_cp=1.):
+    def grad_log_likelihood_v2(self, Y_pred, X, alpha_amp=0.1, alpha_vis=1., alpha_bis=None, alpha_cp=1.):
         """
         :param Y_pred: reconstructed image
         :param X: interferometric data from measurements (complex vector from forward method)
         """
         # sigma_amp, sigma_bis, sigma_cp = self.get_std(X)
-        grad = alpha_amp * chisqgrad_amp(Y_pred, self.A, tf.math.abs(X[..., :self.p]), 1/self.SNR, self.pixels)
-        # grad = grad + alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], 1/self.SNR, self.pixels)
+        # grad = alpha_amp * chisqgrad_amp(Y_pred, self.A, tf.math.abs(X[..., :self.p]), 1/self.SNR, self.pixels)
+        grad = alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], 1/self.SNR, self.pixels)
         # if alpha_bis is not None:
         #     grad = grad + alpha_bis * chisqgrad_bs(Y_pred, self.A1, self.A2, self.A3, X[..., self.p:], sigma_bis, self.pixels)
         # grad = grad + alpha_cp * chisqgrad_cphase(Y_pred, self.A1, self.A2, self.A3, tf.math.angle(X[..., self.p:]), self.phase_std, self.pixels)
@@ -115,6 +126,7 @@ class PhysicalModel:
         :param Y_pred: reconstructed image
         :param X: interferometric data from measurements (complex vector from forward method)
         """
+        # low_pass_filter = tf.math.sqrt(self.baselines.UVC[:, 0]**2 + self.baselines.UVC[:, 1]**2)
         # sigma_amp, sigma_bis, sigma_cp = self.get_std(X)
         grad_amp = chisqgrad_amp(Y_pred, self.A, tf.math.abs(X[..., :self.p]), 1/self.SNR, self.pixels)
         # grad = alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], sigma_amp, self.pixels)

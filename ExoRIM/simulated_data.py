@@ -272,7 +272,6 @@ class CenteredImagesGenerator:
             pixels=32,
             highest_contrast=0.3,
             max_point_sources=10,
-            save=None,  # should be the data directory path already created!
             fixed=False
     ):
         self.physical_model = physical_model
@@ -282,7 +281,6 @@ class CenteredImagesGenerator:
         self.highest_contrast = highest_contrast
         self.max_point_sources = max_point_sources
         self.epoch = -1  # internal variable to reseed the random generator each epoch if fixed is false
-        self.save = save
         # fixed switch allows train on the same dataset each epoch and reproduce it if needed with the seed 42
         self.fixed = fixed
 

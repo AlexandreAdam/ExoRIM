@@ -163,7 +163,20 @@ def centroid(image, threshold=0, binarize=False):
     return (x0, y0)
 
 
-@tf.function
+def triangle_pulse_f(omega, pdim):
+    out = np.ones_like(omega)
+    mask = np.where(omega != 0)[0]
+    out[mask] *= (4.0/(pdim**2 * omega**2)) * (np.sin((pdim * omega)/2.0))**2
+    return out
+
+
+def rectangular_pulse_f(omega, pdim):
+    out = np.ones_like(omega)
+    mask = np.where(omega != 0)[0]
+    out[mask] *= (2.0/(pdim * omega)) * (np.sin((pdim * omega)/2.0))
+    return out
+
+
 def logsumexp_scaler(X, minimum, maximum, bkg=0):
     """
     This function implement a scaler with a smooth maximum functions for gradient operations.
@@ -178,7 +191,6 @@ def logsumexp_scaler(X, minimum, maximum, bkg=0):
     return minimum + (INTENSITY_SCALER * X - bkg) * (maximum - minimum) / (x_max - bkg)
 
 
-@tf.function
 def softmax_scaler(X, minimum, maximum):
     """
     Implement a more versatile scaler using softmax, which can be used to approximate both a maximum and a
@@ -239,14 +251,12 @@ def gradient_summary_log_scale(grad, base=10.):
 # DFT Chi-squared and Gradient Functions
 ##################################################################################################
 
-@tf.function
 def cast_to_complex_flatten(image):
     im = tf.dtypes.cast(image, mycomplex)
     im = tf.keras.layers.Flatten(data_format="channels_last")(im)
     return im
 
 
-@tf.function
 def chisq_vis(image, A, vis, sigma):
     """Visibility chi-squared"""
     sig = tf.cast(sigma, dtype)
@@ -256,7 +266,6 @@ def chisq_vis(image, A, vis, sigma):
     return chisq
 
 
-@tf.function
 def chisqgrad_vis(image, A, vis, sigma, pix, floor=1e-6):
     """The gradient of the visibility chi-squared"""
     sig = tf.cast(sigma + floor, mycomplex)  # prevent dividing by zero
@@ -268,7 +277,6 @@ def chisqgrad_vis(image, A, vis, sigma, pix, floor=1e-6):
     return out / vis.shape[1]
 
 
-@tf.function
 def chisq_amp(image, A, amp, sigma):
     """Visibility Amplitudes (normalized) chi-squared"""
     sig = tf.cast(sigma, dtype)
@@ -277,21 +285,18 @@ def chisq_amp(image, A, amp, sigma):
     return tf.math.reduce_mean(((amp - amp_samples)/sig)**2, axis=1)
 
 
-@tf.function
 def chisqgrad_amp(image, A, amp, sigma, pix, floor=1e-6):
     """The gradient of the amplitude chi-squared"""
     im = cast_to_complex_flatten(image)
     V_samples = tf.einsum("ij, ...j -> ...i", A, im)
     amp_samples = tf.math.abs(V_samples)
-    product = ((amp - amp_samples)) / ((sigma + floor)**2) / amp_samples
+    product = (amp - amp_samples) / ((sigma + floor)**2) / amp_samples
     product = tf.cast(product, mycomplex)
-    adjoint = tf.transpose(tf.math.conj(A))
-    out = -2.0 * tf.math.real(tf.einsum("ij, ...j -> ...i", adjoint, V_samples * product))
+    out = - 2.0 * tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(A), V_samples * product))
     out = tf.reshape(out, shape=[-1, pix, pix, 1])
     return out / amp.shape[1]
 
 
-@tf.function
 def chisq_bs(image, A1, A2, A3, B, sigma):
     """
 
@@ -307,12 +312,11 @@ def chisq_bs(image, A1, A2, A3, B, sigma):
     V1 = tf.einsum("ij, ...j -> ...i", A1, im)
     V2 = tf.einsum("ij, ...j -> ...i", A2, im)
     V3 = tf.einsum("ij, ...j -> ...i", A3, im)
-    B_sample = V1 * V2 * V3
+    B_sample = V1 * tf.math.conj(V2) * V3
     chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(B - B_sample)/sig), axis=1)
     return chisq
 
 
-@tf.function
 def chisqgrad_bs(image, A1, A2, A3, B, sigma, pix, floor=1e-6):
     """The gradient of the bispectrum chi-squared"""
     sig = tf.cast(sigma, mycomplex)
@@ -322,15 +326,16 @@ def chisqgrad_bs(image, A1, A2, A3, B, sigma, pix, floor=1e-6):
     V1 = tf.einsum(einsum, A1, im)
     V2 = tf.einsum(einsum, A2, im)
     V3 = tf.einsum(einsum, A3, im)
-    B_samples = V1 * V2 * V3
+    B_samples = V1 * tf.math.conj(V2) * V3
     wdiff = tf.math.conj(B - B_samples)/(sig + floor)**2
-    out = tf.einsum(t_einsum, A1, wdiff * V2 * V3) + tf.einsum(t_einsum, A2, wdiff * V1 * V3) + tf.einsum(t_einsum, A3, wdiff * V1 * V2)
+    out = tf.einsum(t_einsum, A1, wdiff * V2 * V3)
+    out += tf.einsum(t_einsum, A2, wdiff * V1 * V3)
+    out += tf.einsum(t_einsum, A3, wdiff * V1 * V2)
     out = -tf.math.real(out) / B.shape[1]
     out = tf.reshape(out, shape=[-1, pix, pix, 1])
     return out
 
 
-@tf.function
 def chisq_cphase(image, A1, A2, A3, clphase, sigma):
     """Closure Phases (normalized) chi-squared"""
     sig = tf.cast(sigma, dtype)
@@ -339,12 +344,11 @@ def chisq_cphase(image, A1, A2, A3, clphase, sigma):
     V1 = tf.einsum(einsum, A1, im)
     V2 = tf.einsum(einsum, A2, im)
     V3 = tf.einsum(einsum, A3, im)
-    clphase_samples = tf.math.angle(V1 * V2 * V3)
+    clphase_samples = tf.math.angle(V1 * tf.math.conj(V2) * V3)
     chisq = tf.reduce_mean((1.0 - tf.math.cos(clphase-clphase_samples) / sig**2), axis=1)
     return chisq
 
 
-@tf.function
 def chisqgrad_cphase(image, A1, A2, A3, clphase, sigma, pix):
     """The gradient of the closure phase chi-squared"""
 
@@ -357,9 +361,9 @@ def chisqgrad_cphase(image, A1, A2, A3, clphase, sigma, pix):
     B = V1 * tf.math.conj(V2) * V3
     clphase_samples = tf.math.angle(B)
     wdiff = tf.cast(tf.math.sin(clphase - clphase_samples)/sigma**2, mycomplex)
-    out = tf.einsum(t_einsum, tf.math.conj(A1), wdiff / tf.math.conj(V1))
-    out = out + tf.einsum(t_einsum, A2, wdiff / V2)
-    out = out + tf.einsum(t_einsum, tf.math.conj(A3), wdiff / tf.math.conj(V3))
+    out = tf.einsum(t_einsum, A1, wdiff / V1)
+    out += tf.einsum(t_einsum, A2, wdiff / V2)
+    out += tf.einsum(t_einsum, A3, wdiff / V3)
     out = -2. * tf.math.imag(out) / B.shape[1]
     out = tf.reshape(out, shape=[-1, pix, pix, 1])
     return out

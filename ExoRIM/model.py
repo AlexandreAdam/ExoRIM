@@ -87,6 +87,13 @@ class Model(tf.keras.Model):
         self.recurrent_block = []
         self.upsampling_block = []
         self.transposed_convolution_block = []
+        self.batch_norm = []
+        try:
+            batch_norm_params = hyperparameters["Batch Norm"]
+        except KeyError:
+            batch_norm_params = {}
+        for i in range(5):
+            self.batch_norm.append(tf.keras.layers.BatchNormalization(axis=-1, **batch_norm_params)) # last axis is channel dimension -> to be normalised
         kernel_reg_amp = hyperparameters["Regularizer Amplitude"]["kernel"]
         bias_reg_amp = hyperparameters["Regularizer Amplitude"]["bias"]
         for layer in hyperparameters["Downsampling Block"]:
@@ -175,10 +182,12 @@ class Model(tf.keras.Model):
             input = layer(input)
             if tf.summary.experimental.get_step() % self._timestep_mod == 0:
                 summary_histograms(layer, input)
+        input = self.batch_norm[0](input)
         for layer in self.convolution_block:
             input = layer(input)
             if tf.summary.experimental.get_step() % self._timestep_mod == 0:
                 summary_histograms(layer, input)
+        input = self.batch_norm[1](input)
         # ===== Recurrent Block =====
         ht_1, ht_2 = tf.split(ht, 2, axis=3)
         ht_1 = self.gru1(input, ht_1)  # to be recombined in new state
@@ -193,13 +202,12 @@ class Model(tf.keras.Model):
         if tf.summary.experimental.get_step() % self._timestep_mod == 0:
             summary_histograms(self.gru2, ht_2)
         # ===========================
-        delta_xt = self.upsampling_block[0](ht_2)
-        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
-            summary_histograms(self.upsampling_block[0], delta_xt)
-        for layer in self.upsampling_block[1:]:
+        delta_xt = self.batch_norm[3](ht_2)
+        for layer in self.upsampling_block:
             delta_xt = layer(delta_xt)
             if tf.summary.experimental.get_step() % self._timestep_mod == 0:
                 summary_histograms(layer, delta_xt)
+        delta_xt = self.batch_norm[4](delta_xt)
         for layer in self.transposed_convolution_block:
             delta_xt = layer(delta_xt)
             if tf.summary.experimental.get_step() % self._timestep_mod == 0:
