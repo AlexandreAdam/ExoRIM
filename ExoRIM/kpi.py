@@ -32,7 +32,7 @@ from scipy.sparse.linalg import svds
 
 
 
-class kpi(object):
+class KPI(object):
     ''' Fundamental kernel-phase relations
 
     -----------------------------------------------------------------------

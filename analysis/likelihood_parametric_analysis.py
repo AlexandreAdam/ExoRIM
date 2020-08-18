@@ -1,15 +1,8 @@
-import os
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy
 from ExoRIM.definitions import mas2rad
 import ExoRIM as exo
 import tensorflow as tf
-from celluloid import Camera
-from IPython.display import HTML
-from matplotlib.lines import Line2D
-from joypy import joyplot
-import pandas as pd
 tf.keras.backend.set_floatx('float32')
 
 
@@ -39,10 +32,7 @@ y = (L + np.random.normal(0, var, N)) * np.sin(2 * np.pi * np.arange(N) / N)
 circle_mask = np.array([x, y]).T
 image_coords = np.arange(pixels) - pixels / 2.
 xx, yy = np.meshgrid(image_coords, image_coords)
-# image = np.zeros_like(xx)
-# for x in circle_mask:
-#     rho_squared = np.sqrt((xx-x[0]) ** 2 + (yy - x[1]) ** 2)
-#     image += np.sqrt(rho_squared) < 0.7
+
 
 def bispectra(V):
     V1 = tf.einsum("ij, ...j -> ...i", V1_projector, V)
@@ -52,6 +42,7 @@ def bispectra(V):
 
 def zero_pad(image):
     return np.pad(image, pixels//2, 'constant', constant_values=0)
+
 
 def zero_pad_over_batch(images):
     out = np.zeros((images.shape[0], 2*pixels, 2*pixels))

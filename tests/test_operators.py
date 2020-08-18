@@ -1,7 +1,8 @@
 from ExoRIM.operators import Baselines
 from pynfft.nfft import NFFT
-from ExoRIM.operators import NDFTM
+from ExoRIM.operators import NDFTM, closure_phase_covariance, closure_phase_operator
 from ExoRIM.definitions import mas2rad
+from scipy.special import jv
 import numpy as np
 import time
 
@@ -59,4 +60,31 @@ def test_pynfft():
     print(f"Took {end:.4f} seconds to compute NFFT")
     assert np.allclose(np.abs(vis), np.abs(vis1), rtol=1e-5)
     assert np.allclose(np.sin(np.angle(vis) - np.angle(vis1)), np.zeros_like(vis), atol=1e-5)
+
+
+# def test_fourier_transform_matrix():
+#     N = 12
+#     mask = np.random.normal(0, 1, N)
+#     B = Baselines(mask)
+
+def test_closure_phase_covariance_operator():
+    N = 4
+    mask = np.random.normal(0, 2, (N, 2))
+    B = Baselines(mask)
+    sigma = 1
+    CPO = closure_phase_operator(B)
+    pc_cov = closure_phase_covariance(CPO, sigma)
+    print(pc_cov)
+    expected_result = np.array([
+        [3, 1, -1],
+        [1, 3, 1],
+        [-1, 1, 3]
+    ])
+    assert np.all(np.equal(pc_cov, expected_result))
+    sigma = 2
+    CPO = closure_phase_operator(B)
+    pc_cov = closure_phase_covariance(CPO, sigma)
+    expected_result *= sigma**2
+    print(pc_cov)
+    assert np.all(np.equal(pc_cov, expected_result))
 

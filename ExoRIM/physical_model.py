@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from ExoRIM.definitions import dtype, mycomplex, chisqgrad_amp, chisqgrad_cphase, rad2mas, triangle_pulse_f, mas2rad, chisqgrad_vis
-from ExoRIM.operators import Baselines, phase_closure_operator, NDFTM, redundant_phase_closure_operator
+from ExoRIM.operators import Baselines, closure_phase_operator, NDFTM, redundant_phase_closure_operator, closure_phase_covariance_inverse
 
 
 class PhysicalModel:
@@ -25,7 +25,7 @@ class PhysicalModel:
         self.pulse = triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 0] / wavelength, mas2rad(self.resolution))
         self.pulse *= triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 1] / wavelength, mas2rad(self.resolution))
 
-        self.CPO = phase_closure_operator(self.baselines)
+        self.CPO = closure_phase_operator(self.baselines)
 
         # This operator scales like N^3 where N is the number of non-redundant apertures
         # self.CPO = redundant_phase_closure_operator(self.baselines)
@@ -35,6 +35,7 @@ class PhysicalModel:
         self.q = self.CPO.shape[0]  # number of closure phases
         self.SNR = SNR
         self.phase_std = vis_phase_std
+        self.SIGMA = tf.constant(closure_phase_covariance_inverse(self.CPO, 1/SNR), dtype)
         # create matrices that project visibilities to bispectra (V1 = V_{ij}, V_2 = V_{jk} and V_3 = V_{ki})
         bisp_i = np.where(self.CPO != 0)
         V1_i = (bisp_i[0][0::3], bisp_i[1][0::3])
@@ -114,7 +115,7 @@ class PhysicalModel:
         """
         # sigma_amp, sigma_bis, sigma_cp = self.get_std(X)
         # grad = alpha_amp * chisqgrad_amp(Y_pred, self.A, tf.math.abs(X[..., :self.p]), 1/self.SNR, self.pixels)
-        grad = alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], 1/self.SNR, self.pixels)
+        grad = alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], 1/self.SNR)
         # if alpha_bis is not None:
         #     grad = grad + alpha_bis * chisqgrad_bs(Y_pred, self.A1, self.A2, self.A3, X[..., self.p:], sigma_bis, self.pixels)
         # grad = grad + alpha_cp * chisqgrad_cphase(Y_pred, self.A1, self.A2, self.A3, tf.math.angle(X[..., self.p:]), self.phase_std, self.pixels)

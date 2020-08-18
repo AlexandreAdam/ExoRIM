@@ -1,13 +1,26 @@
-from ExoRIM.operators import phase_closure_operator, redundant_phase_closure_operator, Baselines
+from ExoRIM.operators import closure_phase_operator, redundant_phase_closure_operator, Baselines
 import numpy as np
 import tensorflow as tf
 from ExoRIM.physical_model import PhysicalModel
 import ExoRIM as exo
-from ExoRIM.definitions import rad2mas, chisqgrad_cphase, chisqgrad_vis, chisqgrad_amp, mas2rad, chisqgrad_bs, rectangular_pulse_f, triangle_pulse_f
+from ExoRIM.operators import closure_phase_covariance_inverse, orthogonal_phase_closure_operator
+from ExoRIM.definitions import rad2mas, chisqgrad_cphase, chisqgrad_vis, chisqgrad_amp, \
+    mas2rad, chisqgrad_bs, rectangular_pulse_f, triangle_pulse_f, chisqgrad_cphase_v2_auto, TWOPI, \
+    chisq_bs, chisqgrad_bs_auto, chisqgrad_vis_auto
 import matplotlib.pyplot as plt
 import scipy.stats as st
 from scipy.signal import fftconvolve
 import os
+from ExoRIM.kpi import KPI
+from matplotlib.ticker import FuncFormatter
+
+
+def fft_filter_hf(image):
+    image_hat = np.fft.fft2(image)
+    max_f = np.unravel_index(np.argsort(np.abs(image_hat)**2)[-5:][::-1], image_hat.shape)
+    image_hat[max_f] *=0.1
+    return np.abs(np.fft.ifft2(image_hat))
+
 
 
 def gkern(kernlen=21, nsig=3):
@@ -22,6 +35,7 @@ def gkern(kernlen=21, nsig=3):
 
 
 def main():
+    np.random.seed(42)
     os.chdir("..")
     basedir = os.getcwd()
     results = os.path.join(basedir, "results", "experiment3")
@@ -32,12 +46,15 @@ def main():
     L = 6
     pixels = 64
     wavel = 0.5e-6
+
     mask = np.random.normal(0, L, (N, 2))
     x = (L + np.random.normal(0, 1, N)) * np.cos(2 * np.pi * np.arange(N) / N)
     y = (L + np.random.normal(0, 1, N)) * np.sin(2 * np.pi * np.arange(N) / N)
     circle_mask = np.array([x, y]).T
-    basel = Baselines(circle_mask)
+    basel = Baselines(mask)
     b = np.sqrt(basel.UVC[:, 0]**2 + basel.UVC[:, 1]**2)
+    sampled_scales = rad2mas(wavel/2/b)
+    print(sampled_scales)
     bx = basel.UVC[:, 0]
     by = basel.UVC[:, 1]
     mL = np.max(np.sqrt(basel.UVC[:, 0]**2 + basel.UVC[:, 1]**2))
@@ -47,7 +64,8 @@ def main():
     print(f"Longest baseline {mL:.2f} m")
     print(f"Theoretical resolution {rad2mas(1.22* wavel/2/mL):.5f} mas")
     print(f"Ideal plate scale {rad2mas(wavel / 4 / mL):.5f} mas")
-    plate_scale = np.linspace(rad2mas(1.22 * wavel / 2 / mL)/10, rad2mas(1.22 * wavel/4/mL)*2, 10)
+    plate_scale = np.linspace(rad2mas(1.22 * wavel / 4 / mL)*2/10, rad2mas(1.22 * wavel/4/mL)*2, 10)
+    # plate_scale = np.array([0.6])
     m2pix = pixels * mas2rad(plate_scale) / wavel
     # print(m2pix)
     # print(np.sort(rad2mas(wavel / 2 / b)))
@@ -55,30 +73,36 @@ def main():
     # print(np.sort(rad2mas(wavel / 2 / by)))
 
 
-    blur_kernel = gkern(5, 1)
-    image_coords = np.arange(pixels) - pixels / 2.
-    xx, yy = np.meshgrid(image_coords, image_coords)
-    image1 = np.zeros_like(xx)
-    rho = np.sqrt((xx) ** 2 + (yy) ** 2)
-    image1 += np.exp(-rho**2 / 6 ** 2)
-    # rho = np.sqrt((xx - 2) ** 2 + (yy + 5) ** 2)
-    # image1 += np.exp(-rho**2 / 5 ** 2)
-    # rho = np.sqrt((xx + 3) ** 2 + (yy + 5) ** 2)
-    # image1 += np.exp(-rho**2 / 5 ** 2)
-    # image1 = fftconvolve(image1, blur_kernel, "same")
-    # rho = np.sqrt((xx) ** 2 + (yy) ** 2)
-    # image1 += np.exp(-rho**2 / 5 ** 2)
-
-    noise = np.zeros_like(xx)
-    xx_prime = xx
-    yy_prime = yy
-    rho_prime = np.sqrt(xx_prime**2 + yy_prime**2)
-    noise += np.exp(-rho_prime**2/6**2)
-    rho_prime = np.sqrt((xx_prime - 5)**2 + (yy_prime - 5)**2)
-    noise += 0.8*np.exp(-rho_prime**2/8**2)
-
-
     for pl in plate_scale:
+        size = 5  # mas
+        pixel_size = size / pl
+        dx = -8 / pl
+        dy = 8 / pl
+        by = 3 / pl
+        blur_kernel = gkern(5, 1)
+        image_coords = np.arange(pixels) - pixels / 2.
+        xx, yy = np.meshgrid(image_coords, image_coords)
+        image1 = np.zeros_like(xx)
+        rho = np.sqrt((xx) ** 2 + (yy) ** 2 / by)
+        image1 += np.exp(-rho ** 2 / pixel_size ** 2)
+        rho = np.sqrt((xx - dx) ** 2 + (yy + dy) ** 2 / by)
+        image1 += np.exp(-rho ** 2 / pixel_size ** 2)
+        # rho = np.sqrt((xx + 3) ** 2 + (yy + 5) ** 2)
+        # image1 += np.exp(-rho**2 / 5 ** 2)
+        # image1 = fftconvolve(image1, blur_kernel, "same")
+        # rho = np.sqrt((xx) ** 2 + (yy) ** 2)
+        # image1 += np.exp(-rho**2 / 5 ** 2)
+
+        pixel_size = 4 / pl
+        dx += 0
+        dy += 2/pl
+        noise = np.zeros_like(xx)
+        noise += np.exp(-rho ** 2 / pixel_size ** 2)
+        xx_prime = xx - dx
+        yy_prime = yy + dy
+        rho_prime = np.sqrt(xx_prime ** 2 + yy_prime ** 2 / by)
+        noise += np.exp(-rho_prime ** 2 / pixel_size ** 2)
+
         SNR = 100
         phase_std = 1e-6
 
@@ -86,7 +110,6 @@ def main():
         print(plate_scale)
         print(exo.definitions.rad2mas(1.22 * wavel / 4 / L))
         ndftm = exo.operators.NDFTM(B.UVC, wavel, pixels, pl)
-        ndftm_i = exo.operators.NDFTM(B.UVC, wavel, pixels, pl, inv=True)
         p = N * (N - 1) // 2
         q = (N - 1) * (N - 2) // 2
         # q = N * (N - 1) * (N - 2) // 6
@@ -94,9 +117,12 @@ def main():
         dtype = exo.definitions.dtype
         pulse = triangle_pulse_f(2 * np.pi * B.UVC[:, 0] / wavel, mas2rad(theoretical_pl)) * triangle_pulse_f(2 * np.pi * B.UVC[:, 1] / wavel, mas2rad(theoretical_pl))
         pulse = tf.constant(pulse.reshape((pulse.size, 1)), mycomplex)
-        baselines = exo.operators.Baselines(mask_coordinates=circle_mask)
-        CPO = exo.operators.phase_closure_operator(baselines)
+        baselines = exo.operators.Baselines(mask_coordinates=mask)
+        CPO = exo.operators.closure_phase_operator(baselines)
         # CPO = exo.operators.redundant_phase_closure_operator(baselines)
+        # CPO = exo.operators.orthogonal_phase_closure_operator(baselines)
+        # CPO = KPI(mask).uv_to_bsp
+        sigma = tf.constant(closure_phase_covariance_inverse(CPO, phase_std), dtype)
         bisp_i = np.where(CPO != 0)
         V1_i = (bisp_i[0][0::3], bisp_i[1][0::3])
         V2_i = (bisp_i[0][1::3], bisp_i[1][1::3])
@@ -126,34 +152,59 @@ def main():
         V = tf.constant(ndftm.dot(image1.flatten()).reshape((1, -1)), mycomplex)
         Bisp = bispectra(V)
         phase_noise = np.random.normal(0, np.pi / 3, size=[B.nbap])
-        visibility_phase_noise = np.einsum("ij, ...j -> ...i", B.BLM, phase_noise)
-        # phys = PhysicalModel(pixels, mask, wavel, pl, 100)
-        # X = phys.forward(np.ravel(image1).reshape((1, pixels**2)))
+        imvec = tf.constant(noise.reshape((1, pixels, pixels, 1)))
+        phstd = tf.constant(phase_std, dtype)
+        snr = tf.constant(SNR, dtype)
 
-        grad_cp = chisqgrad_cphase(np.ravel(noise).reshape((1, pixels**2)), A1, A2, A2, tf.math.angle(Bisp), phase_std, pixels)
-        grad_vis = chisqgrad_vis(np.ravel(noise).reshape((1, pixels**2)), A, V, 1/SNR, pixels)
-        grad_amp = chisqgrad_amp(np.ravel(noise).reshape((1, pixels**2)), A, tf.math.abs(V), 1/SNR, pixels)
-        grad_bs = chisqgrad_bs(np.ravel(noise).reshape((1, pixels**2)), A1, A2, A3, Bisp, 1/SNR, pixels)
+        grad_cp = chisqgrad_cphase(imvec, A1, A2, A2, tf.math.angle(Bisp), phstd)
+        grad_vis = chisqgrad_vis(imvec, A, V, 1/snr)
+        grad_vis_auto = chisqgrad_vis_auto(imvec, A, V, 1/snr)
+        grad_amp = chisqgrad_amp(imvec, A, tf.math.abs(V), 1/snr)
+        grad_bs = chisqgrad_bs(imvec, A1, A2, A3, Bisp, 1/snr)
+        grad_cp_v2 = chisqgrad_cphase_v2_auto(imvec, A, CPO, clphase=tf.math.angle(Bisp)%TWOPI, sigma=sigma)#phstd)
+        grad_bs_auto = chisqgrad_bs_auto(imvec, A1, A2, A3, Bisp, 1/snr)
         # grad_cp_hat = np.fft.fftshift(np.fft.fft2(grad_cp.numpy().reshape((pixels, pixels))))
-        fig, axs = plt.subplots(2, 3, figsize=(20, 10), dpi=80)
+        fig, axs = plt.subplots(3, 3, figsize=(20, 10), dpi=80)
         axs[0, 0].set_title("Ground Truth")
         axs[0, 0].imshow(image1, cmap="gray")
         axs[0, 1].set_title("Prediction")
         axs[0, 1].imshow(noise, cmap="gray")
+
         axs[0, 2].set_title(r"$\nabla_x \chi^2_{cp}$")
-        im = axs[0, 2].imshow(phase_std**2*grad_cp.numpy().reshape((pixels, pixels)))
+        im = axs[0, 2].imshow(fft_filter_hf(phase_std**2*grad_cp.numpy().reshape((pixels, pixels))))
         plt.colorbar(im, ax=axs[0, 2])
+
         axs[1, 0].set_title(r"$\nabla_x \chi^2_{vis}$")
         im = axs[1, 0].imshow(1/SNR**2*grad_vis.numpy().reshape((pixels, pixels)))
         plt.colorbar(im, ax=axs[1, 0])
-        axs[1, 1].set_title(r"$\nabla_x \chi^2_{amp}$")
-        im = axs[1, 1].imshow(1/SNR**2*grad_amp.numpy().reshape((pixels, pixels)))
+
+        axs[1, 1].set_title(r"$\nabla_x \chi^2_{visAuto}$")
+        im = axs[1, 1].imshow(tf.image.rot90(1/SNR**2*grad_vis_auto, k=2).numpy().reshape((pixels, pixels)))
         plt.colorbar(im, ax=axs[1, 1])
-        axs[1, 2].set_title(r"$\nabla_x \chi^2_{bis}$")
-        im = axs[1, 2].imshow(phase_std**2*grad_bs.numpy().reshape((pixels, pixels)))
+
+        axs[1, 2].set_title(r"$\nabla_x \chi^2_{cpv2Auto}$")
+        im = axs[1, 2].imshow(fft_filter_hf(phase_std**2*grad_cp_v2.numpy().reshape((pixels, pixels))))
         plt.colorbar(im, ax=axs[1, 2])
+
+        axs[2, 0].set_title(r"$\nabla_x \chi^2_{bis}$")
+        im = axs[2, 0].imshow(fft_filter_hf(phase_std**2*grad_bs.numpy().reshape((pixels, pixels))))
+        plt.colorbar(im, ax=axs[2, 0])
+
+        axs[2, 1].set_title(r"$\nabla_x \chi^2_{amp}$")
+        im = axs[2, 1].imshow(fft_filter_hf(1/SNR**2*grad_amp.numpy().reshape((pixels, pixels))))
+        plt.colorbar(im, ax=axs[2, 1])
+
+        axs[2, 2].set_title(r"$\nabla_x \chi^2_{bisAuto}$")
+        im = axs[2, 2].imshow(fft_filter_hf(phase_std**2*grad_bs_auto.numpy().reshape((pixels, pixels))))
+        plt.colorbar(im, ax=axs[2, 2])
+
         plt.suptitle(f"plate_scale = {pl:.3f} mas, theoretical resolution = {theoretical_pl:.3f} mas")
-        plt.savefig(os.path.join(results, f"full_redundant_set_with_pulse_{pl:.3f}.png"))
+        plt.savefig(os.path.join(results, f"non_redundant_set_with_pulse_{pl:.3f}.png"))
+
+        # fig, ax = plt.subplots()
+        # ax.hist(np.abs(pulse))
+        # ax.xaxis.set_major_formatter(FuncFormatter(lambda x,pos: f"{x/rad2mas(1):.2f}"))
+
         plt.show()
 if __name__ == '__main__':
     main()

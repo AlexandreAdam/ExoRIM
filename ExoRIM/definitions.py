@@ -8,6 +8,7 @@ mycomplex = tf.complex64
 initializer = tf.random_normal_initializer(stddev=0.1)
 DEGREE = 3.14159265358979323 / 180.
 INTENSITY_SCALER = tf.constant(1e6, dtype)
+TWOPI = tf.constant(2*np.pi, dtype)
 
 default_hyperparameters = {
         "steps": 12,
@@ -251,30 +252,84 @@ def gradient_summary_log_scale(grad, base=10.):
 # DFT Chi-squared and Gradient Functions
 ##################################################################################################
 
+
 def cast_to_complex_flatten(image):
     im = tf.dtypes.cast(image, mycomplex)
     im = tf.keras.layers.Flatten(data_format="channels_last")(im)
     return im
 
 
+def bispectrum(image, A1, A2, A3):
+    im = cast_to_complex_flatten(image)
+    einsum = "ij, ...j -> ...i"
+    V1 = tf.einsum(einsum, A1, im)
+    V2 = tf.einsum(einsum, A2, im)
+    V3 = tf.einsum(einsum, A3, im)
+    B = V1 * tf.math.conj(V2) * V3
+    return B
+
+
 def chisq_vis(image, A, vis, sigma):
-    """Visibility chi-squared"""
-    sig = tf.cast(sigma, dtype)
+    """
+    Chi squared of the complex visibilities.
+        image: batch of square matrix (3-tensor)
+        A: 2-tensor of phasor for the Fourier Transform (NDFTM operator)
+        vis: data product of visibilties (dtype must be mycomplex)
+        sigma: (0,1,2)-tensor. Inverse of the covariance matrix of the visibilities.
+    """
     im = cast_to_complex_flatten(image)
     samples = tf.einsum("ij, ...j -> ...i", A, im)
-    chisq = 0.5 * tf.reduce_mean((tf.math.abs(samples - vis) / sig)**2, axis=1)
+    diff = samples - vis
+    if len(sigma.shape) < 2:
+        chisq = 0.5 * tf.reduce_mean((tf.math.abs(diff) / sigma) ** 2, axis=1)
+    else:
+        sigma = tf.cast(sigma, mycomplex)
+        chisq = 0.5 * tf.einsum("...j, ...j -> ...", tf.einsum("...i, ij,  -> ...j", sigma, diff), tf.math.conj(diff))
+        chisq /= vis.shape[1]
     return chisq
 
 
-def chisqgrad_vis(image, A, vis, sigma, pix, floor=1e-6):
-    """The gradient of the visibility chi-squared"""
-    sig = tf.cast(sigma + floor, mycomplex)  # prevent dividing by zero
+def chisqgrad_vis(image, A, vis, sigma):
+    """
+    The gradient of the Chi squared of the complex visibilities relative to the image pixels. This is the analytical
+    version, which computes much faster than the AutoGrad version.
+    Also, this version only support diagonal covariance matrix, given in the form of a (0,1)-tensor. For a 2-tensor
+    covariance matrix, AutoGrad should be used since this analytical version is no longer valid.
+    """
+    sig = tf.cast(sigma, mycomplex)  # prevent dividing by zero
     im = cast_to_complex_flatten(image)
     samples = tf.einsum("ij, ...j -> ...i", A, im)
     wdiff = (vis - samples)/(sig**2)
     out = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(A), wdiff))
-    out = tf.reshape(out, [-1, pix, pix, 1])
+    out = tf.reshape(out, image.shape)
     return out / vis.shape[1]
+
+
+def chisqgrad_vis_auto(image, A, vis, sigma):
+    """
+    The gradient of the Chi squared of the complex visibilities relative to the image pixels. This is the
+    AutoGrad version.
+    """
+    with tf.GradientTape() as tape:
+        tape.watch(image)
+        chisq = chisq_vis(image, A, vis, sigma)
+    gradient = tape.gradient(target=chisq, sources=image)
+    return gradient
+
+
+def chisq_vis_phases(image, A, vphases, sigma):
+    pass
+
+def chisq_vis_phases_v2(image, A, vphases, sigma):
+    im = cast_to_complex_flatten(image)
+    vphases_samples = tf.math.angle(tf.einsum("ij, ...j -> ...i", A, im)) % TWOPI
+    diff = vphases - vphases_samples
+    if len(sigma.shape) < 2:
+        chisq = tf.reduce_mean(tf.math.square(diff / sigma), axis=1)
+    else:
+        chisq = tf.einsum("...i, ...i -> ...", tf.einsum("...i, ij -> ...j", diff, sigma), diff)
+        chisq /= vphases.shape[1]
+    return chisq
 
 
 def chisq_amp(image, A, amp, sigma):
@@ -285,28 +340,19 @@ def chisq_amp(image, A, amp, sigma):
     return tf.math.reduce_mean(((amp - amp_samples)/sig)**2, axis=1)
 
 
-def chisqgrad_amp(image, A, amp, sigma, pix, floor=1e-6):
+def chisqgrad_amp(image, A, amp, sigma):
     """The gradient of the amplitude chi-squared"""
     im = cast_to_complex_flatten(image)
     V_samples = tf.einsum("ij, ...j -> ...i", A, im)
     amp_samples = tf.math.abs(V_samples)
-    product = (amp - amp_samples) / ((sigma + floor)**2) / amp_samples
+    product = (amp - amp_samples) / (sigma)**2 / amp_samples
     product = tf.cast(product, mycomplex)
     out = - 2.0 * tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(A), V_samples * product))
-    out = tf.reshape(out, shape=[-1, pix, pix, 1])
+    out = tf.reshape(out, shape=image.shape)
     return out / amp.shape[1]
 
 
 def chisq_bs(image, A1, A2, A3, B, sigma):
-    """
-
-    :param image: Image tensor
-    :param Amatrices:
-    :param B: Bispectrum projection matrix to project from complex visibilities to bispectrum ()
-    :param bis:
-    :param sigma:
-    :return:
-    """
     sig = tf.cast(sigma, dtype)
     im = cast_to_complex_flatten(image)
     V1 = tf.einsum("ij, ...j -> ...i", A1, im)
@@ -317,7 +363,7 @@ def chisq_bs(image, A1, A2, A3, B, sigma):
     return chisq
 
 
-def chisqgrad_bs(image, A1, A2, A3, B, sigma, pix, floor=1e-6):
+def chisqgrad_bs(image, A1, A2, A3, B, sigma):
     """The gradient of the bispectrum chi-squared"""
     sig = tf.cast(sigma, mycomplex)
     im = cast_to_complex_flatten(image)
@@ -327,13 +373,21 @@ def chisqgrad_bs(image, A1, A2, A3, B, sigma, pix, floor=1e-6):
     V2 = tf.einsum(einsum, A2, im)
     V3 = tf.einsum(einsum, A3, im)
     B_samples = V1 * tf.math.conj(V2) * V3
-    wdiff = tf.math.conj(B - B_samples)/(sig + floor)**2
+    wdiff = tf.math.conj(B - B_samples)/(sig)**2
     out = tf.einsum(t_einsum, A1, wdiff * V2 * V3)
     out += tf.einsum(t_einsum, A2, wdiff * V1 * V3)
     out += tf.einsum(t_einsum, A3, wdiff * V1 * V2)
     out = -tf.math.real(out) / B.shape[1]
-    out = tf.reshape(out, shape=[-1, pix, pix, 1])
+    out = tf.reshape(out, shape=image.shape)
     return out
+
+
+def chisqgrad_bs_auto(image, A1, A2, A3, B, sigma):
+    with tf.GradientTape() as tape:
+        tape.watch(image)
+        chisq = chisq_bs(image, A1, A2, A3, B, sigma)
+    gradient = tape.gradient(target=chisq, sources=image)
+    return gradient
 
 
 def chisq_cphase(image, A1, A2, A3, clphase, sigma):
@@ -345,242 +399,60 @@ def chisq_cphase(image, A1, A2, A3, clphase, sigma):
     V2 = tf.einsum(einsum, A2, im)
     V3 = tf.einsum(einsum, A3, im)
     clphase_samples = tf.math.angle(V1 * tf.math.conj(V2) * V3)
-    chisq = tf.reduce_mean((1.0 - tf.math.cos(clphase-clphase_samples) / sig**2), axis=1)
+    chisq = tf.reduce_mean(((1 - tf.math.cos(clphase - clphase_samples)) / sig)**2, axis=1)
     return chisq
 
 
-def chisqgrad_cphase(image, A1, A2, A3, clphase, sigma, pix):
-    """The gradient of the closure phase chi-squared"""
-
+def chisq_cphase_v2(image, A, CPO, clphase, sigma):
+    """
+    The A operator is the discrete fourier transform matrix.
+    CPO is the closure phase operator.
+    Closure phases chi squared with optional non-diagonal covariance matrix inverse (sigma). The chis squared depends
+    directly on the closure phases, and not on the bispectrum phasors. Thus, the phase wrapping in the range [0, 2pi) is
+    explicit in this derivation.
+    Note that this version chooses to work with the linear operator instead of the Bispectrum.
+    """
     im = cast_to_complex_flatten(image)
-    einsum = "ij, ...j -> ...i"
-    t_einsum = "ji, ...j -> ...i"
-    V1 = tf.einsum(einsum, A1, im)
-    V2 = tf.einsum(einsum, A2, im)
-    V3 = tf.einsum(einsum, A3, im)
+    phi = tf.math.angle(tf.einsum("ij, ...j -> ...i", A, im)) % TWOPI
+    clphase_sample = tf.einsum("ij, ...j -> ...i", CPO, phi) % TWOPI
+    diff = clphase - clphase_sample
+    if len(sigma.shape) < 2:
+        chisq = 0.5 * tf.reduce_mean((diff/sigma)**2, axis=1)
+    else:
+        chisq = 0.5 * tf.einsum("...i, ...i -> ...", tf.einsum("...i, ij -> ...j", diff, sigma), diff)
+    return chisq
+
+
+def chisqgrad_cphase(image, A1, A2, A3, clphase, sigma):
+    """The gradient of the closure phase chi-squared for a sigma (0,1)-tensor"""
+    im = cast_to_complex_flatten(image)
+    V1 = tf.einsum("ij, ...j -> ...i", A1, im)
+    V2 = tf.einsum("ij, ...j -> ...i", A2, im)
+    V3 = tf.einsum("ij, ...j -> ...i", A3, im)
     B = V1 * tf.math.conj(V2) * V3
     clphase_samples = tf.math.angle(B)
-    wdiff = tf.cast(tf.math.sin(clphase - clphase_samples)/sigma**2, mycomplex)
-    out = tf.einsum(t_einsum, A1, wdiff / V1)
-    out += tf.einsum(t_einsum, A2, wdiff / V2)
-    out += tf.einsum(t_einsum, A3, wdiff / V3)
+    wdiff = tf.cast(tf.math.sin(clphase - clphase_samples) / sigma ** 2, mycomplex)
+    out = tf.einsum("ji, ...j -> ...i", tf.math.conj(A1), wdiff / tf.math.conj(V1))
+    out = out + tf.einsum("ji, ...j -> ...i", A2, wdiff / V2)
+    out = out + tf.einsum("ji, ...j -> ...i", tf.math.conj(A3), wdiff / tf.math.conj(V3))
     out = -2. * tf.math.imag(out) / B.shape[1]
-    out = tf.reshape(out, shape=[-1, pix, pix, 1])
+    out = tf.reshape(out, shape=image.shape)
     return out
 
-#
-# def chisq_cphase_diag(imvec, Amatrices, clphase_diag, sigma):
-#     """Diagonalized closure phases (normalized) chi-squared"""
-#     clphase_diag = np.concatenate(clphase_diag) * ehc.DEGREE
-#     sigma = np.concatenate(sigma) * ehc.DEGREE
-#
-#     A3_diag = Amatrices[0]
-#     tform_mats = Amatrices[1]
-#
-#     clphase_diag_samples = []
-#     for iA, A3 in enumerate(A3_diag):
-#         clphase_samples = np.angle(np.dot(A3[0], imvec) *
-#                                    np.dot(A3[1], imvec) *
-#                                    np.dot(A3[2], imvec))
-#         clphase_diag_samples.append(np.dot(tform_mats[iA], clphase_samples))
-#     clphase_diag_samples = np.concatenate(clphase_diag_samples)
-#
-#     chisq = np.sum((1.0 - np.cos(clphase_diag-clphase_diag_samples))/(sigma**2))
-#     chisq *= (2.0/len(clphase_diag))
-#     return chisq
-#
-#
-# def chisqgrad_cphase_diag(imvec, Amatrices, clphase_diag, sigma):
-#     """The gradient of the diagonalized closure phase chi-squared"""
-#     clphase_diag = clphase_diag * ehc.DEGREE
-#     sigma = sigma * ehc.DEGREE
-#
-#     A3_diag = Amatrices[0]
-#     tform_mats = Amatrices[1]
-#
-#     deriv = np.zeros_like(imvec)
-#     for iA, A3 in enumerate(A3_diag):
-#
-#         i1 = np.dot(A3[0], imvec)
-#         i2 = np.dot(A3[1], imvec)
-#         i3 = np.dot(A3[2], imvec)
-#         clphase_samples = np.angle(i1 * i2 * i3)
-#         clphase_diag_samples = np.dot(tform_mats[iA], clphase_samples)
-#
-#         clphase_diag_measured = clphase_diag[iA]
-#         clphase_diag_sigma = sigma[iA]
-#
-#         term1 = np.dot(np.dot((np.sin(clphase_diag_measured-clphase_diag_samples) /
-#                                (clphase_diag_sigma**2.0)), (tform_mats[iA]/i1)), A3[0])
-#         term2 = np.dot(np.dot((np.sin(clphase_diag_measured-clphase_diag_samples) /
-#                                (clphase_diag_sigma**2.0)), (tform_mats[iA]/i2)), A3[1])
-#         term3 = np.dot(np.dot((np.sin(clphase_diag_measured-clphase_diag_samples) /
-#                                (clphase_diag_sigma**2.0)), (tform_mats[iA]/i3)), A3[2])
-#         deriv += -2.0*np.imag(term1 + term2 + term3)
-#
-#     deriv *= 1.0/np.float(len(np.concatenate(clphase_diag)))
-#
-#     return deriv
-#
-#
-# def chisq_camp(imvec, Amatrices, clamp, sigma):
-#     """Closure Amplitudes (normalized) chi-squared"""
-#
-#     i1 = np.dot(Amatrices[0], imvec)
-#     i2 = np.dot(Amatrices[1], imvec)
-#     i3 = np.dot(Amatrices[2], imvec)
-#     i4 = np.dot(Amatrices[3], imvec)
-#     clamp_samples = np.abs((i1 * i2)/(i3 * i4))
-#
-#     chisq = np.sum(np.abs((clamp - clamp_samples)/sigma)**2)/len(clamp)
-#     return chisq
-#
-#
-# def chisqgrad_camp(imvec, Amatrices, clamp, sigma):
-#     """The gradient of the closure amplitude chi-squared"""
-#
-#     i1 = np.dot(Amatrices[0], imvec)
-#     i2 = np.dot(Amatrices[1], imvec)
-#     i3 = np.dot(Amatrices[2], imvec)
-#     i4 = np.dot(Amatrices[3], imvec)
-#     clamp_samples = np.abs((i1 * i2)/(i3 * i4))
-#
-#     pp = ((clamp - clamp_samples) * clamp_samples)/(sigma**2)
-#     pt1 = pp/i1
-#     pt2 = pp/i2
-#     pt3 = -pp/i3
-#     pt4 = -pp/i4
-#     out = (np.dot(pt1, Amatrices[0]) +
-#            np.dot(pt2, Amatrices[1]) +
-#            np.dot(pt3, Amatrices[2]) +
-#            np.dot(pt4, Amatrices[3]))
-#     out *= (-2.0/len(clamp)) * np.real(out)
-#     return out
-#
-#
-# def chisq_logcamp(imvec, Amatrices, log_clamp, sigma):
-#     """Log Closure Amplitudes (normalized) chi-squared"""
-#
-#     a1 = np.abs(np.dot(Amatrices[0], imvec))
-#     a2 = np.abs(np.dot(Amatrices[1], imvec))
-#     a3 = np.abs(np.dot(Amatrices[2], imvec))
-#     a4 = np.abs(np.dot(Amatrices[3], imvec))
-#
-#     samples = np.log(a1) + np.log(a2) - np.log(a3) - np.log(a4)
-#     chisq = np.sum(np.abs((log_clamp - samples)/sigma)**2) / (len(log_clamp))
-#     return chisq
-#
-#
-# def chisqgrad_logcamp(imvec, Amatrices, log_clamp, sigma):
-#     """The gradient of the Log closure amplitude chi-squared"""
-#
-#     i1 = np.dot(Amatrices[0], imvec)
-#     i2 = np.dot(Amatrices[1], imvec)
-#     i3 = np.dot(Amatrices[2], imvec)
-#     i4 = np.dot(Amatrices[3], imvec)
-#     log_clamp_samples = (np.log(np.abs(i1)) +
-#                          np.log(np.abs(i2)) -
-#                          np.log(np.abs(i3)) -
-#                          np.log(np.abs(i4)))
-#
-#     pp = (log_clamp - log_clamp_samples) / (sigma**2)
-#     pt1 = pp / i1
-#     pt2 = pp / i2
-#     pt3 = -pp / i3
-#     pt4 = -pp / i4
-#     out = (np.dot(pt1, Amatrices[0]) +
-#            np.dot(pt2, Amatrices[1]) +
-#            np.dot(pt3, Amatrices[2]) +
-#            np.dot(pt4, Amatrices[3]))
-#     out = (-2.0/len(log_clamp)) * np.real(out)
-#     return out
-#
-#
-# def chisq_logcamp_diag(imvec, Amatrices, log_clamp_diag, sigma):
-#     """Diagonalized log closure amplitudes (normalized) chi-squared"""
-#
-#     log_clamp_diag = np.concatenate(log_clamp_diag)
-#     sigma = np.concatenate(sigma)
-#
-#     A4_diag = Amatrices[0]
-#     tform_mats = Amatrices[1]
-#
-#     log_clamp_diag_samples = []
-#     for iA, A4 in enumerate(A4_diag):
-#
-#         a1 = np.abs(np.dot(A4[0], imvec))
-#         a2 = np.abs(np.dot(A4[1], imvec))
-#         a3 = np.abs(np.dot(A4[2], imvec))
-#         a4 = np.abs(np.dot(A4[3], imvec))
-#
-#         log_clamp_samples = np.log(a1) + np.log(a2) - np.log(a3) - np.log(a4)
-#         log_clamp_diag_samples.append(np.dot(tform_mats[iA], log_clamp_samples))
-#
-#     log_clamp_diag_samples = np.concatenate(log_clamp_diag_samples)
-#
-#     chisq = np.sum(np.abs((log_clamp_diag - log_clamp_diag_samples)/sigma)**2)
-#     chisq /= (len(log_clamp_diag))
-#
-#     return chisq
-#
-#
-# def chisqgrad_logcamp_diag(imvec, Amatrices, log_clamp_diag, sigma):
-#     """The gradient of the diagonalized log closure amplitude chi-squared"""
-#
-#     A4_diag = Amatrices[0]
-#     tform_mats = Amatrices[1]
-#
-#     deriv = np.zeros_like(imvec)
-#     for iA, A4 in enumerate(A4_diag):
-#
-#         i1 = np.dot(A4[0], imvec)
-#         i2 = np.dot(A4[1], imvec)
-#         i3 = np.dot(A4[2], imvec)
-#         i4 = np.dot(A4[3], imvec)
-#         log_clamp_samples = np.log(np.abs(i1)) + np.log(np.abs(i2)) - \
-#             np.log(np.abs(i3)) - np.log(np.abs(i4))
-#         log_clamp_diag_samples = np.dot(tform_mats[iA], log_clamp_samples)
-#
-#         log_clamp_diag_measured = log_clamp_diag[iA]
-#         log_clamp_diag_sigma = sigma[iA]
-#
-#         term1 = np.dot(np.dot(((log_clamp_diag_measured-log_clamp_diag_samples) /
-#                                (log_clamp_diag_sigma**2.0)), (tform_mats[iA]/i1)), A4[0])
-#         term2 = np.dot(np.dot(((log_clamp_diag_measured-log_clamp_diag_samples) /
-#                                (log_clamp_diag_sigma**2.0)), (tform_mats[iA]/i2)), A4[1])
-#         term3 = np.dot(np.dot(((log_clamp_diag_measured-log_clamp_diag_samples) /
-#                                (log_clamp_diag_sigma**2.0)), (tform_mats[iA]/i3)), A4[2])
-#         term4 = np.dot(np.dot(((log_clamp_diag_measured-log_clamp_diag_samples) /
-#                                (log_clamp_diag_sigma**2.0)), (tform_mats[iA]/i4)), A4[3])
-#         deriv += -2.0*np.real(term1 + term2 - term3 - term4)
-#
-#     deriv *= 1.0/np.float(len(np.concatenate(log_clamp_diag)))
-#
-#     return deriv
-#
-#
-# def chisq_logamp(imvec, A, amp, sigma):
-#     """Log Visibility Amplitudes (normalized) chi-squared"""
-#
-#     # to lowest order the variance on the logarithm of a quantity x is
-#     # sigma^2_log(x) = sigma^2/x^2
-#     logsigma = sigma / amp
-#
-#     amp_samples = np.abs(np.dot(A, imvec))
-#     chisq = np.sum(np.abs((np.log(amp) - np.log(amp_samples))/logsigma)**2)/len(amp)
-#     return chisq
-#
-# def chisqgrad_logamp(imvec, A, amp, sigma):
-#     """The gradient of the Log amplitude chi-squared"""
-#
-#     # to lowest order the variance on the logarithm of a quantity x is
-#     # sigma^2_log(x) = sigma^2/x^2
-#     logsigma = sigma / amp
-#
-#     i1 = np.dot(A, imvec)
-#     amp_samples = np.abs(i1)
-#
-#     pp = ((np.log(amp) - np.log(amp_samples))) / (logsigma**2) / i1
-#     out = (-2.0/len(amp)) * np.real(np.dot(pp, A))
-#     return out
-#
+
+def chisqgrad_cphase_auto(image, A1, A2, A3, clphase, sigma):
+    with tf.GradientTape() as tape:
+        tape.watch(image)
+        chisq = chisq_cphase(image, A1, A2, A3, clphase, sigma)
+    gradient = tape.gradient(target=chisq, sources=image)
+    return gradient
+
+
+def chisqgrad_cphase_v2_auto(image, A, CPO, clphase, sigma):
+    with tf.GradientTape() as tape:
+        tape.watch(image)
+        chisq = chisq_cphase_v2(image, A, CPO, clphase, sigma)
+    gradient = tape.gradient(target=chisq, sources=image)
+    return gradient
+
+

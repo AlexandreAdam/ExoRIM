@@ -1,6 +1,7 @@
 from ExoRIM.definitions import mas2rad, pixel_grid
 import numpy as np
 import scipy
+from scipy.linalg import inv as inverse
 
 
 class Baselines:
@@ -27,7 +28,7 @@ class Baselines:
         BLM = np.zeros((p, N))
         k = 0
         for i in range(N):
-            for j in range(i + 1, N):
+            for j in range(i+1, N):
                 UVC[k, 0] = mask[i, 0] - mask[j, 0]
                 UVC[k, 1] = mask[i, 1] - mask[j, 1]
                 BLM[k, i] += 1.0
@@ -100,11 +101,21 @@ def NDFTM(coords, wavelength, pixels, plate_scale, inv=False, dprec=True):
     return WW
 
 
-def bispectra_projectors():
-    pass
+def closure_phase_covariance(CPO, sigma):
+    if isinstance(sigma, np.ndarray):
+        assert sigma.size == CPO.shape[1], f"Baseline error vector should be of length {CPO.shape[1]}"
+    sigma_operator = np.eye(CPO.shape[1]) * sigma**2
+    cp_operator = CPO.dot(sigma_operator).dot(CPO.T)
+    return cp_operator
 
 
-def phase_closure_operator(B: Baselines, fixed_aperture=0):
+def closure_phase_covariance_inverse(CPO, sigma):
+    cp_operator = closure_phase_covariance(CPO, sigma)
+    inv = inverse(cp_operator)
+    return inv
+
+
+def closure_phase_operator(B: Baselines, fixed_aperture=0):
     """
     The phase closure operator (CPO) can act on visibilities phase vector and map them to bispectra phases. Its shape
     is (q, p):
@@ -203,6 +214,7 @@ def redundant_phase_closure_operator(B: Baselines):
             A_index += k.size
     return A
 
+
 def orthogonal_phase_closure_operator(B: Baselines):
     # kept as reference --> this method does not seem to work,
     # phase closure for unresolved source with basic noise model is not respected,
@@ -263,5 +275,5 @@ if __name__ == "__main__":
         circle_mask[i, 0] = (100 + 10 * np.random.normal()) * np.cos(2 * np.pi * i / 21)
         circle_mask[i, 1] = (100 + 10 * np.random.normal()) * np.sin(2 * np.pi * i / 21)
     B = Baselines(circle_mask)
-    phase_closure_operator(B, 0)
+    closure_phase_operator(B, 0)
     orthogonal_phase_closure_operator(B)

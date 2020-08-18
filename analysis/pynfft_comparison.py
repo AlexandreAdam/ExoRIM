@@ -2,6 +2,7 @@ from pynfft.nfft import NFFT
 from ExoRIM.operators import NDFTM
 from ExoRIM.definitions import mas2rad
 import numpy as np
+from scipy.special import j1
 import time
 
 pixels = 128

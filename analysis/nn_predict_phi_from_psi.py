@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import scipy as sp
 from ExoRIM.utilities import AUTOTUNE
-from ExoRIM.operators import phase_closure_operator, Baselines, redundant_phase_closure_operator
+from ExoRIM.operators import closure_phase_operator, Baselines, redundant_phase_closure_operator
 from ExoRIM.physical_model import PhysicalModel
 from ExoRIM.simulated_data import CenteredImagesGenerator
 from ExoRIM.definitions import chisqgrad_vis, chisqgrad_amp
@@ -257,7 +257,7 @@ class PhysicalModelPhases:
     # we just want the BLM and CPO
     def __init__(self):
         B = Baselines(mask)
-        self.C = tf.constant(phase_closure_operator(B), dtype)
+        self.C = tf.constant(closure_phase_operator(B), dtype)
         # self.C = tf.constant(redundant_phase_closure_operator(B), dtype)
         self.B = tf.constant(B.BLM, dtype)
 
