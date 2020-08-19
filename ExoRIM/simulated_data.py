@@ -269,15 +269,14 @@ class CenteredImagesGenerator:
             physical_model: PhysicalModel,
             total_items_per_epoch,
             channels=1,
-            pixels=32,
-            highest_contrast=0.3,
+            highest_contrast=0.6,
             max_point_sources=10,
             fixed=False
     ):
         self.physical_model = physical_model
         self.total_items_per_epoch = total_items_per_epoch
         self.channels = channels
-        self.pixels = pixels
+        self.pixels = physical_model.pixels
         self.highest_contrast = highest_contrast
         self.max_point_sources = max_point_sources
         self.epoch = -1  # internal variable to reseed the random generator each epoch if fixed is false
@@ -353,7 +352,8 @@ class CenteredImagesGenerator:
             raise NotImplementedError(f"p={p} but supported are uniform and poisson")
         return np.random.choice(pool, size=1, p=p)
 
-    def _width(self, nps):
+    @staticmethod
+    def _width(nps):
         return np.random.uniform(1, 5, size=nps)
 
     def _contrasts(self, nps):

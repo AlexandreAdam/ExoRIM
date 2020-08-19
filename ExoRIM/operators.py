@@ -1,7 +1,7 @@
 from ExoRIM.definitions import mas2rad, pixel_grid
 import numpy as np
-import scipy
 from scipy.linalg import inv as inverse
+from scipy.sparse.linalg import svds as svd
 
 
 class Baselines:
@@ -99,6 +99,21 @@ def NDFTM(coords, wavelength, pixels, plate_scale, inv=False, dprec=True):
             WW[i] = np.exp(-i2pi * (uvc[i, 0] * xx.flatten() +
                                     uvc[i, 1] * yy.flatten()) / float(pixels))
     return WW
+
+
+def closure_baselines_projectors(CPO):
+    (q, p) = CPO.shape
+    bisp_i = np.where(CPO != 0)
+    V1_i = (bisp_i[0][0::3], bisp_i[1][0::3])
+    V2_i = (bisp_i[0][1::3], bisp_i[1][1::3])
+    V3_i = (bisp_i[0][2::3], bisp_i[1][2::3])
+    V1 = np.zeros(shape=(q, p))
+    V1[V1_i] += 1.0
+    V2 = np.zeros(shape=(q, p))
+    V2[V2_i] += 1.0
+    V3 = np.zeros(shape=(q, p))
+    V3[V3_i] += 1.0
+    return V1, V2, V3
 
 
 def closure_phase_covariance(CPO, sigma):
@@ -261,7 +276,7 @@ def orthogonal_phase_closure_operator(B: Baselines):
     rank = np.linalg.matrix_rank(A.astype('double'), tol=1e-6)
     print("Closure phase operator matrix rank:", rank)
     print(f"Discards the {rank - p} smallest singular values")
-    u, s, vt = scipy.sparse.linalg.svds(A.astype('double').T, k=p)
+    u, s, vt = svd(A.astype('double').T, k=p)
     print(f"Closure phase projection operator U shape {u.T.shape}")
     return u.T
 

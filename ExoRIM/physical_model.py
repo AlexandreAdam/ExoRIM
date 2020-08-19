@@ -1,10 +1,11 @@
 import tensorflow as tf
 import numpy as np
-from ExoRIM.definitions import dtype, mycomplex, chisqgrad_amp, chisqgrad_cphase, rad2mas, triangle_pulse_f, mas2rad, chisqgrad_vis
+from ExoRIM.definitions import dtype, mycomplex, rad2mas, triangle_pulse_f, mas2rad
 from ExoRIM.operators import Baselines, closure_phase_operator, NDFTM, redundant_phase_closure_operator, closure_phase_covariance_inverse
+import ExoRIM.log_likelihood as chisq
 
 
-class PhysicalModel:
+class PhysicalModelv1:
     """
     This model create discrete Fourier matrices and scales poorly on large number of pixels and baselines.
     """
@@ -107,52 +108,15 @@ class PhysicalModel:
         chi2_cp = tf.reduce_mean(tf.square((cp_pred - cp_true)/(sigma_cp + 1e-6)), axis=1)
         return chi2_amp + chi2_cp
 
-    @tf.function
-    def grad_log_likelihood_v2(self, Y_pred, X, alpha_amp=0.1, alpha_vis=1., alpha_bis=None, alpha_cp=1.):
-        """
-        :param Y_pred: reconstructed image
-        :param X: interferometric data from measurements (complex vector from forward method)
-        """
-        # sigma_amp, sigma_bis, sigma_cp = self.get_std(X)
-        # grad = alpha_amp * chisqgrad_amp(Y_pred, self.A, tf.math.abs(X[..., :self.p]), 1/self.SNR, self.pixels)
-        grad = alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], 1/self.SNR)
-        # if alpha_bis is not None:
-        #     grad = grad + alpha_bis * chisqgrad_bs(Y_pred, self.A1, self.A2, self.A3, X[..., self.p:], sigma_bis, self.pixels)
-        # grad = grad + alpha_cp * chisqgrad_cphase(Y_pred, self.A1, self.A2, self.A3, tf.math.angle(X[..., self.p:]), self.phase_std, self.pixels)
-        return grad
-
-    @tf.function
-    def grad_log_likelihood_v3(self, Y_pred, X, alpha_amp=1., alpha_vis=None, alpha_bis=None, alpha_cp=1.):
-        """
-        :param Y_pred: reconstructed image
-        :param X: interferometric data from measurements (complex vector from forward method)
-        """
-        # low_pass_filter = tf.math.sqrt(self.baselines.UVC[:, 0]**2 + self.baselines.UVC[:, 1]**2)
-        # sigma_amp, sigma_bis, sigma_cp = self.get_std(X)
-        grad_amp = chisqgrad_amp(Y_pred, self.A, tf.math.abs(X[..., :self.p]), 1/self.SNR, self.pixels)
-        # grad = alpha_vis * chisqgrad_vis(Y_pred, self.A, X[..., :self.p], sigma_amp, self.pixels)
-        # if alpha_bis is not None:
-        #     grad = grad + alpha_bis * chisqgrad_bs(Y_pred, self.A1, self.A2, self.A3, X[..., self.p:], sigma_bis, self.pixels)
-        grad_cp = chisqgrad_cphase(Y_pred, self.A1, self.A2, self.A3, tf.math.angle(X[..., self.p:]), self.phase_std, self.pixels)
-        return tf.concat([grad_amp, grad_cp], axis=3)
-
-    @tf.function
-    def grad_log_likelihood_v1(self, Y_pred, X):
-        with tf.GradientTape() as tape:
-            tape.watch(Y_pred)
-            likelihood = self.log_likelihood_v1(Y_pred, X)
-        grad = tape.gradient(likelihood, Y_pred)
-        return grad
-
-    # def get_std(self, X):
-    #     sigma_vis = tf.math.abs(X[..., :self.p]) / self.SNR  # note that SNR should be large (say >~ 10 for gaussian approximation to hold)
-    #     V1 = tf.einsum("ij, ...j -> ...i", self.V1_projector, X[..., :self.p])
-    #     V2 = tf.einsum("ij, ...j -> ...i", self.V2_projector, X[..., :self.p])
-    #     V3 = tf.einsum("ij, ...j -> ...i", self.V3_projector, X[..., :self.p])
-    #     B_amp = tf.cast(tf.math.abs(V1 * tf.math.conj(V2) * V3), dtype)  # same hack from bispectrum
-    #     sigma_cp = tf.cast(tf.math.sqrt(3 / self.SNR**2), dtype)
-    #     sigma_bis = B_amp * sigma_cp
-    #     return sigma_vis, sigma_bis, sigma_cp
+    def get_std(self, X):
+        sigma_vis = tf.math.abs(X[..., :self.p]) / self.SNR  # note that SNR should be large (say >~ 10 for gaussian approximation to hold)
+        V1 = tf.einsum("ij, ...j -> ...i", self.V1_projector, X[..., :self.p])
+        V2 = tf.einsum("ij, ...j -> ...i", self.V2_projector, X[..., :self.p])
+        V3 = tf.einsum("ij, ...j -> ...i", self.V3_projector, X[..., :self.p])
+        B_amp = tf.cast(tf.math.abs(V1 * tf.math.conj(V2) * V3), dtype)  # same hack from bispectrum
+        sigma_cp = tf.cast(tf.math.sqrt(3 / self.SNR**2), dtype)
+        sigma_bis = B_amp * sigma_cp
+        return sigma_vis, sigma_bis, sigma_cp
 
     def simulate_noisy_data(self, images):
         """
@@ -161,6 +125,7 @@ class PhysicalModel:
         """
         batch = images.shape[0]
         X = self.forward(images)
+        # TODO this will be how we add noise in estimated likelihood
         # sigma_vis, sigma_bis, _ = self.get_std(X)
         # noise is picked from a complex normal distribution
         # vis_noise_real = tf.random.normal(shape=[batch, self.p], stddev=sigma_vis / 2, dtype=dtype)
@@ -219,3 +184,6 @@ class PhysicalModelv2:
         self.phase_std = vis_phase_std # TODO make a noise model for this
         self.pixels = pixels
         # TODO add an observation function to baseline to simulate rotation of the earth for mm/sub mm observations.
+
+
+PhysicalModel = PhysicalModelv1
