@@ -4,9 +4,8 @@ import tensorflow as tf
 from ExoRIM.physical_model import PhysicalModel
 import ExoRIM as exo
 from ExoRIM.operators import closure_phase_covariance_inverse, orthogonal_phase_closure_operator
-from ExoRIM.definitions import rad2mas, chisqgrad_cphase, chisqgrad_vis, chisqgrad_amp, \
-    mas2rad, chisqgrad_bs, rectangular_pulse_f, triangle_pulse_f, chisqgrad_cphase_v2_auto, TWOPI, \
-    chisq_bs, chisqgrad_bs_auto, chisqgrad_vis_auto
+from ExoRIM.definitions import rad2mas, mas2rad, rectangular_pulse_f, triangle_pulse_f
+from ExoRIM.log_likelihood import *
 import matplotlib.pyplot as plt
 import scipy.stats as st
 from scipy.signal import fftconvolve
@@ -20,7 +19,6 @@ def fft_filter_hf(image):
     max_f = np.unravel_index(np.argsort(np.abs(image_hat)**2)[-5:][::-1], image_hat.shape)
     image_hat[max_f] *=0.1
     return np.abs(np.fft.ifft2(image_hat))
-
 
 
 def gkern(kernlen=21, nsig=3):
@@ -156,13 +154,13 @@ def main():
         phstd = tf.constant(phase_std, dtype)
         snr = tf.constant(SNR, dtype)
 
-        grad_cp = chisqgrad_cphase(imvec, A1, A2, A2, tf.math.angle(Bisp), phstd)
-        grad_vis = chisqgrad_vis(imvec, A, V, 1/snr)
-        grad_vis_auto = chisqgrad_vis_auto(imvec, A, V, 1/snr)
-        grad_amp = chisqgrad_amp(imvec, A, tf.math.abs(V), 1/snr)
-        grad_bs = chisqgrad_bs(imvec, A1, A2, A3, Bisp, 1/snr)
-        grad_cp_v2 = chisqgrad_cphase_v2_auto(imvec, A, CPO, clphase=tf.math.angle(Bisp)%TWOPI, sigma=sigma)#phstd)
-        grad_bs_auto = chisqgrad_bs_auto(imvec, A1, A2, A3, Bisp, 1/snr)
+        grad_cp = chisq_gradient_closure_phasor_analytic(imvec, A1, A2, A2, tf.math.angle(Bisp), phstd)
+        grad_vis = chisq_gradient_complex_visibility_analytic(imvec, A, V, 1/snr)
+        grad_vis_auto = chisq_gradient_complex_visibility_auto(imvec, A, V, 1/snr)
+        grad_amp = chisq_gradient_amplitude_analytic(imvec, A, tf.math.abs(V), 1/snr)
+        grad_bs = chisq_gradient_bispectra_analytic(imvec, A1, A2, A3, Bisp, 1/snr)
+        grad_cp_v2 = chisq_gradient_closure_phase_auto(imvec, A, CPO, clphase=tf.math.angle(Bisp)%TWOPI, sigma=sigma)#phstd)
+        grad_bs_auto = chisq_gradient_bispectra_auto(imvec, A1, A2, A3, Bisp, 1/snr)
         # grad_cp_hat = np.fft.fftshift(np.fft.fft2(grad_cp.numpy().reshape((pixels, pixels))))
         fig, axs = plt.subplots(3, 3, figsize=(20, 10), dpi=80)
         axs[0, 0].set_title("Ground Truth")

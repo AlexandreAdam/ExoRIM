@@ -1,17 +1,16 @@
 from __future__ import division
-
 from ExoRIM.definitions import *
-from ExoRIM.operators import NDFTM, Baselines
 import numpy as np
 import tensorflow as tf
-import time
 
 
 def test_pixel_grid():
     pixels = 32
     xx, yy = pixel_grid(pixels, symmetric=True)
+
     # assert symmetry along x dimension
     assert np.all(xx == -xx[:, ::-1])
+
     # assert symmetry along y dimension
     assert np.all(yy == -yy[::-1])
     pixels = 33
