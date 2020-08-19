@@ -116,6 +116,14 @@ def closure_baselines_projectors(CPO):
     return V1, V2, V3
 
 
+def closure_fourier_matrices(A, CPO):
+    V1, V2, V3 = closure_baselines_projectors(CPO)
+    A1 = V1.dot(A)
+    A2 = V2.dot(A)
+    A3 = V3.dot(A)
+    return A1, A2, A3
+
+
 def closure_phase_covariance(CPO, sigma):
     if isinstance(sigma, np.ndarray):
         assert sigma.size == CPO.shape[1], f"Baseline error vector should be of length {CPO.shape[1]}"

@@ -38,7 +38,7 @@ def chi_squared_complex_visibility(image, A, vis, sigma):
     samples = tf.einsum("ij, ...j -> ...i", A, im)
     diff = vis - samples
     if len(sigma.shape) < 2:
-        chisq = 0.5 * tf.reduce_mean((tf.math.abs(diff) / sigma) ** 2, axis=1)
+        chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(diff) / sigma), axis=1)
     else:
         sigma = tf.cast(sigma, mycomplex)
         chisq = 0.5 * tf.einsum("...j, ...j -> ...", tf.einsum("...i, ij,  -> ...j", sigma, diff), tf.math.conj(diff))
@@ -121,8 +121,7 @@ def chisq_gradient_complex_visibility_analytic(image, A, vis, sigma):
     im = cast_to_complex_flatten(image)
     samples = tf.einsum("ij, ...j -> ...i", A, im)
     wdiff = (vis - samples)/(sig**2)
-    # out = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(A), wdiff))
-    out = -tf.math.real(tf.einsum("ji, ...j -> ...i", A, wdiff))
+    out = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(A), wdiff))
     out = tf.reshape(out, image.shape)
     return out / vis.shape[1]
 
@@ -191,25 +190,6 @@ def chisq_gradient_closure_phasor_analytic(image, A1, A2, A3, clphase, sigma):
 # ==========================================================================================
 
 
-def chisq_gradient_closure_phasor_auto(image, A1, A2, A3, clphase, sigma):
-    with tf.GradientTape() as tape:
-        tape.watch(image)
-        chisq = chi_squared_closure_phasor(image, A1, A2, A3, clphase, sigma)
-    gradient = tape.gradient(target=chisq, sources=image)
-    return gradient
-
-
-def chisq_gradient_closure_phase_auto(image, A, CPO, clphase, sigma):
-    """
-    CPO: Closure Phase Operator
-    """
-    with tf.GradientTape() as tape:
-        tape.watch(image)
-        chisq = chi_squared_closure_phase(image, A, CPO, clphase, sigma)
-    gradient = tape.gradient(target=chisq, sources=image)
-    return gradient
-
-
 def chisq_gradient_complex_visibility_auto(image, A, vis, sigma):
     """
     The gradient of the Chi squared of the complex visibilities relative to the image pixels. This is the
@@ -235,5 +215,24 @@ def chisq_gradient_bispectra_auto(image, A1, A2, A3, B, sigma):
     with tf.GradientTape() as tape:
         tape.watch(image)
         chisq = chi_squared_bispectra(image, A1, A2, A3, B, sigma)
+    gradient = tape.gradient(target=chisq, sources=image)
+    return gradient
+
+
+def chisq_gradient_closure_phasor_auto(image, A1, A2, A3, clphase, sigma):
+    with tf.GradientTape() as tape:
+        tape.watch(image)
+        chisq = chi_squared_closure_phasor(image, A1, A2, A3, clphase, sigma)
+    gradient = tape.gradient(target=chisq, sources=image)
+    return gradient
+
+
+def chisq_gradient_closure_phase_auto(image, A, CPO, clphase, sigma):
+    """
+    CPO: Closure Phase Operator
+    """
+    with tf.GradientTape() as tape:
+        tape.watch(image)
+        chisq = chi_squared_closure_phase(image, A, CPO, clphase, sigma)
     gradient = tape.gradient(target=chisq, sources=image)
     return gradient
