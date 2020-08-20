@@ -1,7 +1,6 @@
-from ExoRIM.definitions import dtype, softmax_scaler, default_hyperparameters, log_scaling, gradient_summary_log_scale
+from ExoRIM.definitions import dtype, default_hyperparameters
 from ExoRIM.utilities import save_output, save_gradient_and_weights, save_loglikelihood_grad, nullwriter
 from ExoRIM.model import Model
-from ExoRIM.physical_model import PhysicalModel
 import tensorflow as tf
 import numpy as np
 import time
