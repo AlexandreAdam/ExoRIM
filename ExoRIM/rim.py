@@ -9,8 +9,11 @@ import os
 
 
 class RIM:
-    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=dtype, weight_file=None):
+    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=dtype, weight_file=None,
+                 noise_floor=1e-8, scaling_factor=10**5):
         self._dtype = dtype
+        self.noise_floor = noise_floor
+        self.scaling_factor = scaling_factor
         self.hyperparameters = hyperparameters
         self.channels = hyperparameters["channels"]
         self.pixels = hyperparameters["pixels"]
@@ -25,19 +28,18 @@ class RIM:
             self.model.load_weights(weight_file)
         self.physical_model = physical_model
 
-    @staticmethod
     @tf.function
-    def link_function(y):
-        return tf.math.log(y + 1e-8)
+    def link_function(self, y):
+        return tf.math.log(y + self.noise_floor)
 
     @staticmethod
     @tf.function
     def inverse_link_function(eta):
         return tf.math.exp(eta)
 
-    @tf.function
+    # @tf.function
     def grad_scaling(self, grad):
-        return tf.clip_by_value(1/self.physical_model.SNR**2 * grad, -10, 10)
+        return tf.clip_by_value(1/self.physical_model.SNR**2/self.scaling_factor/self.pixels * grad, -10, 10)
 
     def __call__(self, X):
         return self.call(X)
@@ -212,8 +214,8 @@ class RIM:
 
             if test_dataset is not None:
                 with test_writer.as_default():
-                    for X, Y in test_dataset:  # this dataset should not be batched, so this for loop has 1 iteration
-                        test_eta_output, _ = self.call(X)  # investigate why predict returns NaN scores and output
+                    for batch, (X, Y) in test_dataset:  # this dataset should not be batched, so this for loop has 1 iteration
+                        test_eta_output, _ = self.call(X)
                         test_output = self.inverse_link_function(test_eta_output)
                         test_cost = cost_function(test_eta_output, self.link_function(Y))
                         test_cost += tf.reduce_sum(self.model.losses)

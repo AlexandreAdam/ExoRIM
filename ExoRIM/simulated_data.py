@@ -268,11 +268,13 @@ class CenteredImagesGenerator:
             self,
             physical_model: PhysicalModel,
             total_items_per_epoch,
+            scaling_factor,
             channels=1,
             highest_contrast=0.5,
             max_point_sources=5,
             fixed=False
     ):
+        self.scaling_factor = scaling_factor
         self.physical_model = physical_model
         self.total_items_per_epoch = total_items_per_epoch
         self.channels = channels
@@ -302,7 +304,7 @@ class CenteredImagesGenerator:
         xx, yy = np.meshgrid(image_coords, image_coords)
         image = np.zeros_like(xx)
         rho_squared = (xx - xp) ** 2/a**2 + (yy - yp) ** 2/b**2
-        image += intensity * np.exp(-0.5 * (rho_squared / sigma ** 2))
+        image += intensity * np.exp(-0.5 * (rho_squared**2 / sigma ** 2))
         return image
 
     def circular_psf(self, sigma, intensity, xp, yp, a=1, b=1):
@@ -333,14 +335,14 @@ class CenteredImagesGenerator:
         # images += 1e-5 * np.random.random(size=images.shape) + 1e-4  # background
         nps = self._nps()[0]
         width = self._width(nps)
-        intensity = 1 - self._contrasts(nps)
+        intensity = self.scaling_factor*(1 - self._contrasts(nps))
         coordinates = self._coordinates(nps)
         elongation = self._elongation(nps)
         for i in range(nps):
             # image += self.circular_psf(width[i], intensity[i], *coordinates[i], *elongation[i])
             image += self.gaussian_psf_convolution(width[i], intensity[i], *coordinates[i], *elongation[i])
         # image = self.recenter(image)
-        image = self.normalize(image, minimum=0, maximum=1)
+        # image = self.normalize(image, minimum=0, maximum=1)
         image = np.reshape(image, newshape=[self.pixels, self.pixels, 1])
         return image
 

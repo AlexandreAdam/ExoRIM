@@ -1,8 +1,7 @@
 from ExoRIM import RIM, MSE, PhysicalModel
-from ExoRIM.loss import KLDivergence, MAE
-from ExoRIM.simulated_data import CenteredImagesv1, OffCenteredBinaries, CenteredCircle
+from ExoRIM.loss import MAE
 from preprocessing.simulate_data import create_and_save_data
-from ExoRIM.definitions import mas2rad, dtype
+from ExoRIM.definitions import dtype
 from ExoRIM.utilities import create_dataset_from_generator, replay_dataset_from_generator
 from argparse import ArgumentParser
 from datetime import datetime
@@ -54,6 +53,8 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--max_epoch", type=int, default=10, help="Maximum number of epoch")
     parser.add_argument("--index_save_mod", type=int, default=20, help="Image index to be saved")
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
+    parser.add_argument("--scaling_factor", type=float, default=10**5, help="Maximum intensity, sets the log domain for the model input")
+    parser.add_argument("--noise_floor", type=float, default=1, help="Intensity noise floor")
     parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
     parser.add_argument("--fixed", action="store_true", help="Keeps the dataset fix for each epochs to monitor progress")
     args = parser.parse_args()
@@ -61,14 +62,7 @@ if __name__ == "__main__":
     print(f"id = {date}")
     with open("hyperparameters.json", "r") as f:
         hyperparameters = json.load(f)
-    # train_meta = CenteredImagesv1(
-    #     total_items=args.number_images,
-    #     pixels=hyperparameters["pixels"]
-    # )
-    test_meta = CenteredImagesv1(
-        total_items=int(args.number_images * (1 - args.split)),
-        pixels=hyperparameters["pixels"]
-    )
+
     hyperparameters["batch"] = args.batch
     hyperparameters["date"] = date
     # metrics only support grey scale images
@@ -121,15 +115,22 @@ if __name__ == "__main__":
         wavelength=args.wavelength,
         SNR=args.SNR
     )
-    rim = RIM(physical_model=phys, hyperparameters=hyperparameters)
-    # train_dataset = create_datasets(train_meta, rim, dirname=train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format=args.format)
+    rim = RIM(physical_model=phys, hyperparameters=hyperparameters, noise_floor=args.noise_floor, scaling_factor=args.scaling_factor)
     train_dataset = create_dataset_from_generator(
         physical_model=phys,
         item_per_epoch=args.number_images,
         batch_size=args.batch,
-        fixed=args.fixed
+        fixed=args.fixed,
+        scaling_factor=args.scaling_factor,
     )
-    test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod, format=args.format)
+    test_dataset = create_dataset_from_generator(
+        physical_model=phys,
+        item_per_epoch=int(args.number_images * (1 - args.split)),
+        batch_size=int(args.number_images * (1 - args.split)),
+        fixed=args.fixed,
+        scaling_factor=args.scaling_factor,
+        seed=31415926
+    )
     cost_function = MSE()
     learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         **hyperparameters["learning rate"],
@@ -173,4 +174,13 @@ if __name__ == "__main__":
         format="txt",
         index_mod=args.index_save_mod,
         epoch_mod=args.epoch_save_mod
+    )
+    replay_dataset_from_generator(
+        test_dataset,
+        epochs=rim.hyperparameters["epoch"],
+        dirname=test_dir,
+        fixed=args.fixed,
+        format="txt",
+        index_mod=1,
+        epoch_mod=1
     )

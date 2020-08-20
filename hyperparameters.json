@@ -1,6 +1,7 @@
 {
 		"steps": 8,
 		"pixels": 64,
+
 		"channels": 1,
 		"state_size": 32,
 		"state_depth": 128,
