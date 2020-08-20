@@ -42,8 +42,6 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--number_images", type=int, default=100)
     parser.add_argument("-w", "--wavelength", type=float, default=0.5e-6)
     parser.add_argument("--SNR", type=float, default=200, help="Signal to noise ratio")
-    # note that default param resolution is 5.24 mas
-    parser.add_argument("--plate_scale", type=float, default=3.2, help="plate scale in mas/pixel, that is 206265/(1000 * f[mm] * pixel_density[pixel/mm])")
     parser.add_argument("-s", "--split", type=float, default=0.8)
     parser.add_argument("-b", "--batch", type=int, default=10, help="Batch size")
     parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
@@ -53,7 +51,7 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--min_delta", type=float, default=0, help="Tolerance for early stopping")
     parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping")
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
-    parser.add_argument("-e", "--max_epoch", type=int, default=20, help="Maximum number of epoch")
+    parser.add_argument("-e", "--max_epoch", type=int, default=10, help="Maximum number of epoch")
     parser.add_argument("--index_save_mod", type=int, default=20, help="Image index to be saved")
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
     parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
@@ -96,7 +94,6 @@ if __name__ == "__main__":
     }
 
     basedir = os.getcwd()  # assumes script is run from base directory
-    projector_dir = os.path.join(basedir, "data", "projector_arrays")
     results_dir = os.path.join(basedir, "results", date)
     os.mkdir(results_dir)
     models_dir = os.path.join(basedir, "models", date)
@@ -122,7 +119,6 @@ if __name__ == "__main__":
         pixels=hyperparameters["pixels"],
         mask_coordinates=circle_mask,
         wavelength=args.wavelength,
-        plate_scale=args.plate_scale,
         SNR=args.SNR
     )
     rim = RIM(physical_model=phys, hyperparameters=hyperparameters)
@@ -130,17 +126,16 @@ if __name__ == "__main__":
     train_dataset = create_dataset_from_generator(
         physical_model=phys,
         item_per_epoch=args.number_images,
-        pixels=hyperparameters["pixels"],
-        dirname=train_dir,
         batch_size=args.batch,
         fixed=args.fixed
     )
     test_dataset = create_datasets(test_meta, rim, dirname=test_dir, index_save_mod=args.index_save_mod, format=args.format)
     cost_function = MSE()
     learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=1e-3,
-        decay_steps=10000,
-        decay_rate=0.90,
+        **hyperparameters["learning rate"],
+        # initial_learning_rate=1e-3,
+        # decay_steps=10000,
+        # decay_rate=0.90,
         staircase=True
     )
     history = rim.fit(

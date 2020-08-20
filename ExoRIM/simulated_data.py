@@ -11,7 +11,7 @@ class CenteredImagesv1:
             seed=42,
             channels=1,
             pixels=32,
-            highest_contrast=0.5,
+            highest_contrast=0.3,
             max_point_sources=10
     ):
         """
@@ -269,8 +269,8 @@ class CenteredImagesGenerator:
             physical_model: PhysicalModel,
             total_items_per_epoch,
             channels=1,
-            highest_contrast=0.6,
-            max_point_sources=10,
+            highest_contrast=0.5,
+            max_point_sources=5,
             fixed=False
     ):
         self.physical_model = physical_model
@@ -279,6 +279,8 @@ class CenteredImagesGenerator:
         self.pixels = physical_model.pixels
         self.highest_contrast = highest_contrast
         self.max_point_sources = max_point_sources
+        self.smallest_scale = physical_model.smallest_scale
+        self.largest_scale = self.pixels//4
         self.epoch = -1  # internal variable to reseed the random generator each epoch if fixed is false
         # fixed switch allows train on the same dataset each epoch and reproduce it if needed with the seed 42
         self.fixed = fixed
@@ -295,25 +297,24 @@ class CenteredImagesGenerator:
             X = tf.reshape(X, X.shape[1:])  # drop the batch dimension acquired in physical model
             yield X, Y
 
-    def gaussian_psf_convolution(self, image, sigma, intensity,  xp=0, yp=0):
-        image_coords = np.arange(image.shape[0]) - image.shape[0] / 2.
-        xx, yy = np.meshgrid(image_coords, image_coords)
-        image = np.zeros_like(xx)
-        rho_squared = (xx - xp) ** 2 + (yy - yp) ** 2
-        image += intensity * np.exp(-0.5 * (rho_squared / sigma ** 2))
-        return image
-
-    def circular_psf(self, sigma, intensity, xp, yp):
+    def gaussian_psf_convolution(self, sigma, intensity,  xp=0, yp=0, a=1, b=1):
         image_coords = np.arange(self.pixels) - self.pixels / 2.
         xx, yy = np.meshgrid(image_coords, image_coords)
         image = np.zeros_like(xx)
-        rho = np.sqrt((xx - xp) ** 2 + (yy - yp) ** 2)
+        rho_squared = (xx - xp) ** 2/a**2 + (yy - yp) ** 2/b**2
+        image += intensity * np.exp(-0.5 * (rho_squared / sigma ** 2))
+        return image
+
+    def circular_psf(self, sigma, intensity, xp, yp, a=1, b=1):
+        image_coords = np.arange(self.pixels) - self.pixels / 2.
+        xx, yy = np.meshgrid(image_coords, image_coords)
+        image = np.zeros_like(xx)
+        rho = np.sqrt((xx - xp) ** 2/a**2 + (yy - yp) ** 2/b**2)
         image += intensity * (rho < sigma)
         return image
 
     @staticmethod
     def normalize(X, minimum, maximum):
-        # return np.tanh(X)
         return minimum + (X - X.min()) * (maximum - minimum) / (X.max() - X.min() + 1e-8)
 
     def recenter(self, image):
@@ -334,9 +335,10 @@ class CenteredImagesGenerator:
         width = self._width(nps)
         intensity = 1 - self._contrasts(nps)
         coordinates = self._coordinates(nps)
+        elongation = self._elongation(nps)
         for i in range(nps):
-            # image += self.gaussian_psf_convolution(width[i], intensity[i], *coordinates[i])
-            image += self.gaussian_psf_convolution(image, width[i], intensity[i], *coordinates[i])
+            # image += self.circular_psf(width[i], intensity[i], *coordinates[i], *elongation[i])
+            image += self.gaussian_psf_convolution(width[i], intensity[i], *coordinates[i], *elongation[i])
         # image = self.recenter(image)
         image = self.normalize(image, minimum=0, maximum=1)
         image = np.reshape(image, newshape=[self.pixels, self.pixels, 1])
@@ -352,14 +354,17 @@ class CenteredImagesGenerator:
             raise NotImplementedError(f"p={p} but supported are uniform and poisson")
         return np.random.choice(pool, size=1, p=p)
 
-    @staticmethod
-    def _width(nps):
-        return np.random.uniform(1, 5, size=nps)
+    def _width(self, nps):
+        # use the smallest scale method of physical model
+        return np.random.uniform(self.smallest_scale, self.largest_scale, size=nps)
 
     def _contrasts(self, nps):
         return np.random.uniform(0.1, self.highest_contrast, size=nps)
 
     def _coordinates(self, nps):
-        # coordinate in central square (5 pixels from the edge) to avoid objects at the edge.
-        pool = np.arange(-self.pixels // 2 + 5, self.pixels // 2 - 5)
+        # coordinate should be at least a largest scale away from the edge
+        pool = np.arange(-self.pixels // 2 + self.largest_scale//2, self.pixels // 2 - self.largest_scale//2)
         return np.random.choice(pool, size=(nps, 2))
+
+    def _elongation(self, nps):
+        return np.random.uniform(1, 4, size=(nps, 2))

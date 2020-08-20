@@ -1,6 +1,7 @@
 from ExoRIM.definitions import dtype, softmax_scaler, default_hyperparameters, log_scaling, gradient_summary_log_scale
 from ExoRIM.utilities import save_output, save_gradient_and_weights, save_loglikelihood_grad, nullwriter
 from ExoRIM.model import Model
+from ExoRIM.physical_model import PhysicalModel
 import tensorflow as tf
 import numpy as np
 import time
@@ -27,27 +28,16 @@ class RIM:
     @staticmethod
     @tf.function
     def link_function(y):
-        return tf.math.log(y) #softmax_scaler(y, minimum=-1, maximum=1)
+        return tf.math.log(y + 1e-8)
 
     @staticmethod
     @tf.function
     def inverse_link_function(eta):
-        return tf.math.exp(eta) #softmax_scaler(eta, minimum=0, maximum=1)
+        return tf.math.exp(eta)
 
     @tf.function
     def grad_scaling(self, grad):
-        return tf.clip_by_value(1/self.physical_model.SNR**2 * grad, -100, 100) # softmax_scaler(grad, minimum=-1, maximum=1) #log_scaling(grad)  #grad #
-
-# filter idea does not work
-    # @staticmethod
-    # def gradient_filters(grad, cutoffs):
-    #     channel_shape = len(cutoffs)
-    #     grads = softmax_scaler(grad, minimum=-1., maximum=1.)
-    #     for i in range(channel_shape):
-    #         filter = tf.cast(tf.math.log(tf.math.square(grad))/2./np.log(10) < cutoffs[i], dtype)
-    #         filtered_grad = softmax_scaler(filter * grad, minimum=-1., maximum=1.)
-    #         grads = tf.concat([grads, filtered_grad], axis=-1)
-    #     return grads
+        return tf.clip_by_value(1/self.physical_model.SNR**2 * grad, -10, 10)
 
     def __call__(self, X):
         return self.call(X)
@@ -62,7 +52,7 @@ class RIM:
         batch_size = X.shape[0]
         y0 = self.initial_guess(X)
         h0 = self.init_hidden_states(batch_size)
-        grad = self.physical_model.grad_log_likelihood_v2(y0, X)
+        grad = self.physical_model.grad_log_likelihood(y0, X)
         eta_0 = self.link_function(y0)
         grad = self.grad_scaling(grad)
         stacked_input = tf.concat([eta_0, grad], axis=3)
@@ -74,8 +64,8 @@ class RIM:
         outputs = tf.reshape(eta_t, eta_t.shape + [1])  # Plus one dimension for step stack
         grads = grad
         for current_step in range(self.steps - 1):
-            grad = self.physical_model.grad_log_likelihood_v2(self.inverse_link_function(eta_t), X)
-            grad = self.grad_scaling(grad)  #self.gradient_filters(grad, self.cutoffs)
+            grad = self.physical_model.grad_log_likelihood(self.inverse_link_function(eta_t), X)
+            grad = self.grad_scaling(grad)
             gt, ht = self.model(stacked_input, ht)
             eta_t = eta_t + gt
             outputs = tf.concat([outputs, tf.reshape(eta_t, eta_t.shape + [1])], axis=4)
@@ -181,15 +171,16 @@ class RIM:
                     batch = batch.numpy()
                     with tf.GradientTape() as tape:
                         tape.watch(self.model.trainable_weights)
-                        eta_output, grads = self.call(X)
-                        output = tf.math.exp(eta_output)
-                        cost_value = cost_function(eta_output, tf.math.log(Y + 1e-8))
+                        output, grads = self.call(X)
+                        cost_value = cost_function(output, self.link_function(Y))
                         cost_value += tf.reduce_sum(self.model.losses)  # Add layer specific regularizer losses (L2 in definitions)
                     epoch_loss.update_state([cost_value])
                     gradient = tape.gradient(cost_value, self.model.trainable_weights)
                     clipped_gradient = [tf.clip_by_value(grad, -10, 10) for grad in gradient]
                     optimizer.apply_gradients(zip(clipped_gradient, self.model.trainable_weights))  # backpropagation
 
+                    # back to image space for analysis
+                    output = self.inverse_link_function(output)
                     # ========= Summaries and logs =================
                     tf.summary.scalar("loss", cost_value, step=step)
                     for key, item in metrics_train.items():
@@ -223,8 +214,8 @@ class RIM:
                 with test_writer.as_default():
                     for X, Y in test_dataset:  # this dataset should not be batched, so this for loop has 1 iteration
                         test_eta_output, _ = self.call(X)  # investigate why predict returns NaN scores and output
-                        test_output = tf.math.exp(test_eta_output)
-                        test_cost = cost_function(test_eta_output, tf.math.log(Y + 1e-8))
+                        test_output = self.inverse_link_function(test_eta_output)
+                        test_cost = cost_function(test_eta_output, self.link_function(Y))
                         test_cost += tf.reduce_sum(self.model.losses)
                         history["test_loss"].append(test_cost.numpy())
                         tf.summary.scalar("loss", test_cost, step=step)

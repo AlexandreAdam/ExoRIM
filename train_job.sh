@@ -14,4 +14,4 @@ pip install --no-index -r cc_requirements.txt
 pip install /home/aadam/scratch/ExoRIM/dist/ExoRim-0.1-py3-none-any.whl
 module load cuda cudnn 
 python -W ignore::DeprecationWarning
-python main.py -n 1000 -s 0.8 -t 4 --holes 9 -p 50 -e 1000 -b 16 --index_save_mod 500 --SNR 100 --format "txt" --longest_baseline 6 --mask_variance 1 --plate_scale 3.2
+python main.py -n 1000 -s 0.8 -t 4 --holes 9 -p 50 -e 1000 -b 16 --index_save_mod 500 --SNR 100 --format "txt" --longest_baseline 6 --mask_variance 1

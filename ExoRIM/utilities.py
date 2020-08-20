@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from ExoRIM.simulated_data import CenteredImagesGenerator
+from ExoRIM.physical_model import PhysicalModel
 from ExoRIM.definitions import dtype, mycomplex
 from PIL import Image
 import os, glob
@@ -129,10 +130,8 @@ def save_loglikelihood_grad(grad, dirname, epoch, batch, index_mod, epoch_mod, t
 
 # Uses the simulated_data/CenteredImagesGenerator class
 def create_dataset_from_generator(
-        physical_model,
+        physical_model: PhysicalModel, #TODO make an abstract class to avoid circular import
         item_per_epoch=1000,
-        pixels=32,
-        dirname=None,
         batch_size=50,
         highest_contrast=0.5,
         max_point_source=10,
@@ -142,11 +141,11 @@ def create_dataset_from_generator(
         physical_model=physical_model,
         total_items_per_epoch=item_per_epoch,
         channels=1,
-        pixels=pixels,
         highest_contrast=highest_contrast,
         max_point_sources=max_point_source,
         fixed=fixed
     )
+    pixels = physical_model.pixels
     shapes = (tf.TensorShape([None]), tf.TensorShape([pixels, pixels, 1]))
     dataset = tf.data.Dataset.from_generator(gen.generator, output_types=(mycomplex, dtype), output_shapes=shapes)
     dataset = dataset.cache()              # accelerate the second and subsequent iterations over the dataset

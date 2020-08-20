@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from ExoRIM.definitions import dtype, mycomplex, rad2mas, triangle_pulse_f, mas2rad
-from ExoRIM.operators import Baselines, closure_phase_operator, NDFTM, redundant_phase_closure_operator, closure_phase_covariance_inverse
+from ExoRIM.operators import Baselines, closure_phase_operator, NDFTM, closure_phase_covariance_inverse, closure_fourier_matrices
 import ExoRIM.log_likelihood as chisq
 
 
@@ -9,55 +9,55 @@ class PhysicalModelv1:
     """
     This model create discrete Fourier matrices and scales poorly on large number of pixels and baselines.
     """
-    def __init__(self, pixels, mask_coordinates, wavelength, plate_scale, SNR, vis_phase_std=1e-5):
+    def __init__(self, pixels, mask_coordinates, wavelength, SNR, vis_phase_std=1e-5):
         """
 
         :param pixels: Number of pixels on the side of the reconstructed image
         :param SNR: Signal to noise ratio for a measurement
         """
         self.version = "v1"
+        # self.intensity_log_scale = intensity_log_scale  # number that fix the order of magnitudes for the variations of an image
         self.pixels = pixels
         self.baselines = Baselines(mask_coordinates=mask_coordinates)
-        self.resolution = rad2mas(wavelength / 2 / np.max(np.sqrt(self.baselines.UVC[:, 0]**2 + self.baselines.UVC[:, 1]**2)))
-        if plate_scale >= self.resolution:
-            print(f"Plate scale should smaller than theoretical resolution ~ {self.resolution} mas. "
-                  f"Ideal plate scale = {self.resolution/10} mas, to avoid aliasing due to pixelated image.")
+        self.resolution = rad2mas(wavelength / np.max(np.sqrt(self.baselines.UVC[:, 0]**2 + self.baselines.UVC[:, 1]**2)))
+
+        self.plate_scale = self.compute_plate_scale(self.baselines, pixels, wavelength)
+        self.smallest_scale = self.minimum_scale(self.baselines, self.plate_scale, wavelength)
 
         self.pulse = triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 0] / wavelength, mas2rad(self.resolution))
         self.pulse *= triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 1] / wavelength, mas2rad(self.resolution))
 
         self.CPO = closure_phase_operator(self.baselines)
 
-        # This operator scales like N^3 where N is the number of non-redundant apertures
-        # self.CPO = redundant_phase_closure_operator(self.baselines)
-        self.A = NDFTM(self.baselines.UVC, wavelength, pixels, plate_scale) #* self.pulse[:, np.newaxis]
-        self.A_adjoint = NDFTM(self.baselines.UVC, wavelength, pixels, plate_scale, inv=True)
+        self.A = NDFTM(self.baselines.UVC, wavelength, pixels, self.plate_scale)
         self.p = self.A.shape[0]  # number of visibility samples
         self.q = self.CPO.shape[0]  # number of closure phases
         self.SNR = SNR
         self.phase_std = vis_phase_std
         self.SIGMA = tf.constant(closure_phase_covariance_inverse(self.CPO, 1/SNR), dtype)
-        # create matrices that project visibilities to bispectra (V1 = V_{ij}, V_2 = V_{jk} and V_3 = V_{ki})
-        bisp_i = np.where(self.CPO != 0)
-        V1_i = (bisp_i[0][0::3], bisp_i[1][0::3])
-        V2_i = (bisp_i[0][1::3], bisp_i[1][1::3])
-        V3_i = (bisp_i[0][2::3], bisp_i[1][2::3])
-        self.V1_projector = np.zeros(shape=(self.q, self.p))
-        self.V1_projector[V1_i] += 1.0
-        self.V1_projector = tf.constant(self.V1_projector, dtype=mycomplex)
-        self.V2_projector = np.zeros(shape=(self.q, self.p))
-        self.V2_projector[V2_i] += 1.0
-        self.V2_projector = tf.constant(self.V2_projector, dtype=mycomplex)
-        self.V3_projector = np.zeros(shape=(self.q, self.p))
-        self.V3_projector[V3_i] += 1.0
-        self.V3_projector = tf.constant(self.V3_projector, dtype=mycomplex)
-        self.CPO = tf.constant(self.CPO, dtype=dtype)
-        self.A = tf.constant(self.A, dtype=mycomplex)
-        self.A_adjoint = tf.constant(self.A_adjoint, dtype=mycomplex)
-        # Discrete Fourier Transform Matrices
-        self.A1 = tf.tensordot(self.V1_projector, self.A, axes=1)
-        self.A2 = tf.tensordot(self.V2_projector, self.A, axes=1)
-        self.A3 = tf.tensordot(self.V3_projector, self.A, axes=1)
+        A1, A2, A3 = closure_fourier_matrices(self.A, self.CPO)
+        self.CPO = tf.constant(self.CPO, dtype)
+        self.A = tf.constant(self.A, mycomplex)
+        self.A1 = tf.constant(A1, mycomplex)
+        self.A2 = tf.constant(A2, mycomplex)
+        self.A3 = tf.constant(A3, mycomplex)
+
+        self.flatten = tf.keras.layers.Flatten(data_format="channels_last")
+
+
+    @tf.function
+    def log_likelihood(self, image, X):
+        """
+        Compute the negative of the log likelihood of the image given interferometric data X.
+        """
+        return chisq.chi_squared_complex_visibility(image, self.A, X, 1/self.SNR)
+
+    @tf.function
+    def grad_log_likelihood(self, image, X):
+        """
+        Compute the gradient relative to image pixels relative to interferometric data
+        """
+        return chisq.chisq_gradient_complex_visibility_analytic(image, self.A, X, 1/self.SNR)
 
     @tf.function
     def forward(self, image):
@@ -67,83 +67,39 @@ class PhysicalModelv1:
         :param flux: Flux vector of size (Batch size)
         :return: A concatenation of complex visibilities and bispectra (dtype: tf.complex128)
         """
-        visibilities = self.fourier_transform(image)
-        bispectra = self.bispectrum(visibilities)
-        y = tf.concat([visibilities, bispectra], axis=1)  # p + q length vectors of type complex128
-        return y
+        return self.fourier_transform(image)
 
     @tf.function
     def fourier_transform(self, image):
         im = tf.cast(image, mycomplex)
-        flat = tf.keras.layers.Flatten(data_format="channels_last")(im)
-        return tf.einsum("...ij, ...j->...i", self.A, flat)  # tensordot broadcasted on batch_size
+        flat = self.flatten(im)
+        return tf.einsum("ij, ...j->...i", self.A, flat)  # tensordot broadcasted on batch_size
 
     @tf.function
     def inverse_fourier_transform(self, X):
-        amp = tf.cast(X[..., :self.p], mycomplex)
-        flat = tf.einsum("...ij, ...j->...i", self.A_adjoint, amp)
+        flat = tf.einsum("ji, ...j->...i", tf.math.conj(self.A), X)
         flat = tf.square(tf.math.abs(flat))  # intensity is square of amplitude
         flat = tf.cast(flat, dtype)
         return tf.reshape(flat, [-1, self.pixels, self.pixels, 1])
 
     @tf.function
-    def bispectrum(self, V):
-        V1 = tf.einsum("ij, ...j -> ...i", self.V1_projector, V)
-        V2 = tf.einsum("ij, ...j -> ...i", self.V2_projector, V)
-        V3 = tf.einsum("ij, ...j -> ...i", self.V3_projector, V)
+    def bispectrum(self, image):
+        im = tf.cast(image, mycomplex)
+        flat = self.flatten(im)
+        V1 = tf.einsum("ij, ...j -> ...i", self.A1, flat)
+        V2 = tf.einsum("ij, ...j -> ...i", self.A2, flat)
+        V3 = tf.einsum("ij, ...j -> ...i", self.A3, flat)
         return V1 * tf.math.conj(V2) * V3  # hack that works with baseline class! Be careful using other methods
 
-    @tf.function
-    def log_likelihood_v1(self, Y_pred, X):
-        """
-        :param Y_pred: reconstructed image
-        :param X: interferometric data from measurements
-        """
-        sigma_amp = tf.math.abs(X[..., :self.p]) / self.SNR
-        sigma_cp = tf.cast(tf.math.sqrt(3 / self.SNR ** 2), dtype)
-        X_pred = self.forward(Y_pred)
-        chi2_amp = tf.reduce_mean(tf.square(tf.math.abs(X_pred[..., :self.p] - X[..., :self.p])/(sigma_amp + 1e-6)), axis=1)
-        cp_pred = tf.math.angle(X_pred[..., self.p:])
-        cp_true = tf.math.angle(X[..., self.p:])
-        chi2_cp = tf.reduce_mean(tf.square((cp_pred - cp_true)/(sigma_cp + 1e-6)), axis=1)
-        return chi2_amp + chi2_cp
-
-    def get_std(self, X):
-        sigma_vis = tf.math.abs(X[..., :self.p]) / self.SNR  # note that SNR should be large (say >~ 10 for gaussian approximation to hold)
-        V1 = tf.einsum("ij, ...j -> ...i", self.V1_projector, X[..., :self.p])
-        V2 = tf.einsum("ij, ...j -> ...i", self.V2_projector, X[..., :self.p])
-        V3 = tf.einsum("ij, ...j -> ...i", self.V3_projector, X[..., :self.p])
-        B_amp = tf.cast(tf.math.abs(V1 * tf.math.conj(V2) * V3), dtype)  # same hack from bispectrum
-        sigma_cp = tf.cast(tf.math.sqrt(3 / self.SNR**2), dtype)
-        sigma_bis = B_amp * sigma_cp
-        return sigma_vis, sigma_bis, sigma_cp
-
     def simulate_noisy_data(self, images):
-        """
-        Noise is added in the form of a amplitude gain sampled from a normal distribution centered at 1.
-        with
-        """
         batch = images.shape[0]
         X = self.forward(images)
-        # TODO this will be how we add noise in estimated likelihood
-        # sigma_vis, sigma_bis, _ = self.get_std(X)
-        # noise is picked from a complex normal distribution
-        # vis_noise_real = tf.random.normal(shape=[batch, self.p], stddev=sigma_vis / 2, dtype=dtype)
-        # vis_noise_imag = tf.random.normal(shape=[batch, self.p], stddev=sigma_vis / 2, dtype=dtype)
-        # bis_noise_real = tf.random.normal(shape=[batch, self.q], stddev=sigma_bis / 2, dtype=dtype)
-        # bis_noise_imag = tf.random.normal(shape=[batch, self.q], stddev=sigma_bis / 2, dtype=dtype)
-        # vis_noise = tf.complex(vis_noise_real, vis_noise_imag)
-        # bis_noise = tf.complex(bis_noise_real, bis_noise_imag)
-        # noise = tf.concat([vis_noise, bis_noise], axis=1)
         gain = self._aperture_gain(batch)
         phase_error = self._visibility_phase_noise(batch)
-        # add noise in polar form
-        amp = tf.cast(gain * tf.math.abs(X[..., :self.p]), mycomplex)
-        phase = 1j * tf.cast(tf.math.angle(X[..., :self.p]) + phase_error, mycomplex)
+        amp = tf.cast(gain * tf.math.abs(X), mycomplex)
+        phase = 1j * tf.cast(tf.math.angle(X) + phase_error, mycomplex)
         noisy_vis = amp * tf.math.exp(phase)
-        noisy_bis = self.bispectrum(noisy_vis)
-        out = tf.concat([noisy_vis, noisy_bis], axis=1)
-        return out
+        return noisy_vis
 
     def _visibility_phase_noise(self, batch):
         """
@@ -161,6 +117,35 @@ class PhysicalModelv1:
         Gain is a normal distributed variable around 1. with standard deviation 1/sqrt(SNR)
         """
         return tf.constant(np.random.normal(1, 1/self.SNR, size=[batch, self.p]), dtype=dtype)
+
+    @staticmethod
+    def compute_plate_scale(B: Baselines, pixels, wavel) -> float:
+        """
+        Given a mask (with coordinate in meters) and a square image with *pixels* side coordinates, we evaluate the
+        resolution of the virtual telescope and estimate a plate scale that will produce an image where object have
+        frequency of the order that can be interpolated by the uv coverage.
+        """
+        rho = np.sqrt(B.UVC[:, 0]**2 + B.UVC[:, 1]**2) / wavel  # frequency in 1/RAD
+        theta = rad2mas(1/rho)  # angular scale covered in mas
+        # this picks out the bulk of the baseline frequencies, leaving out poorly constrained lower frequencies
+        plate_scale = (np.median(theta) + 2*np.std(theta))/pixels
+        return plate_scale
+
+    @staticmethod
+    def minimum_scale(B: Baselines, plate_scale, wavel) -> float:
+        """
+        Return the minimum scale that can be put into an image. Will constrained the lower bound
+        of the pixel frequency.
+
+        plate_scale: in mas/pixel
+
+        return smallest scale in pixels
+        """
+        highest_frequency = np.max(np.sqrt(B.UVC[:, 0]**2 + B.UVC[:, 1]**2))/wavel  #1/RAD
+        smallest_scale = rad2mas(1/highest_frequency) / plate_scale
+        return smallest_scale
+
+
 
 
 

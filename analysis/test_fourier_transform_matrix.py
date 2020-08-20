@@ -2,17 +2,17 @@
 import numpy as np
 from scipy.special import j1
 from scipy.interpolate import interp1d
+from scipy.stats import mode
 import matplotlib.pyplot as plt
 from ExoRIM.operators import NDFTM, Baselines
 from ExoRIM.definitions import mas2rad, rad2mas
 from matplotlib.ticker import FuncFormatter
-from scipy.special import gamma
-from scipy.stats import binned_statistic
 import os
 
 results_dir = "../results/experiment5"
 if not os.path.isdir(results_dir):
     os.mkdir(results_dir)
+
 
 def main():
     # Defines physical variables
@@ -23,7 +23,6 @@ def main():
     lam_circle = 4*radius
     pixels = 64
     wavel = 0.5e-6
-    plate_scale = 0.6  # 2.2 * 1000 / 2048 * 3 # James Webb plate scale, #exo.definitions.rad2mas(1.22 * wavel / 4 / L)/10 # mas / pixel at the diffraction limit
     var = 5
 
     # mask
@@ -34,10 +33,22 @@ def main():
     # selected_mask = circle_mask
     selected_mask = mask
 
-    d_theta = mas2rad(plate_scale)
     B = Baselines(selected_mask)
     rho = np.sqrt(B.UVC[:, 0]**2 + B.UVC[:, 1]**2)/wavel
-    sampled_scales = rad2mas(1/2/rho)/plate_scale
+
+    theta = rad2mas(1/rho)
+    print(mode(theta)[0][0])
+    print(np.std(theta))
+    # this favors high frequencies over large ones.
+    # plate_scale = (mode(theta)[0][0] + 2*np.std(theta))/pixels
+    plate_scale = (np.median(theta) + 1*np.std(theta))/pixels
+    # plate_scale = np.max(theta)/pixels
+    # plate_scale = 5*np.std(theta)/pixels
+    # plate_scale = np.min(theta)/10
+    print(plate_scale)
+    d_theta = mas2rad(plate_scale)
+
+    sampled_scales = rad2mas(1/rho) #/plate_scale
     print(f"Largest structure: {sampled_scales.max():.0f}")
     print(f"Smallest structure: {sampled_scales.min():.0f}")
     print(f"xi = {(rad2mas(1/2/rho.min())/pixels)}")
@@ -63,17 +74,17 @@ def main():
     V_th_f = interp1d(rho_th, np.abs(V_th))
 
     def freq2scale(x):
-        return rad2mas(1 /2/ x)#/plate_scale
+        return rad2mas(1/ x)#/plate_scale
 
     def scale2freq(x):
-        return 1/2/mas2rad(x)
+        return 1/mas2rad(x)
 
     fig = plt.figure(figsize=(10, 8))
     fig.suptitle(r"Comparison between analytic and discrete FT of circ($2\rho/a$)")
     frame1 = fig.add_axes((.1, .3, .8, .6))
     _frame1 = frame1.twiny()
-    _frame1.set_xlabel(r"$\theta$ [mas]")
-    _frame1.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{freq2scale(x):.1f}"))
+    _frame1.set_xlabel(r"$\theta$ [pixels]")
+    _frame1.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{freq2scale(x)/plate_scale:.1f}"))
     frame1.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x/0.5/a**2/2/np.pi:.1f}"))
     plt.plot(rho, np.abs(V), "ko", label=r"$\mathcal{F} X$")
     plt.plot(rho_th, np.abs(V_th), "r-", label=r"$a J_1(2\pi a \rho) / \rho$")
@@ -97,7 +108,7 @@ def main():
     # plt.xlabel(r"Baseline (m)")
 
     plt.xlim(rho.min(), rho.max())
-    plt.savefig(os.path.join(results_dir, "test_fourier_transform_circle.png"), bbox_inches="tight")
+    # plt.savefig(os.path.join(results_dir, "test_fourier_transform_circle.png"), bbox_inches="tight")
 
     # it is the baselines that are distributed with this pdf, so we change scale
     def rho_pdf(rho):
@@ -105,23 +116,23 @@ def main():
         return x/L * np.exp(-x**2/L**2/4) / 2
 
     plt.figure()
-    theta = sampled_scales/plate_scale
-    plt.hist(np.sort(sampled_scales)[:-3]/plate_scale, bins=50, density=True)
+    # theta = sampled_scales #/plate_scale
+    plt.hist(np.sort(sampled_scales)[:-3], bins=50, density=True)
     # print(f"mean theta = {freq2scale(2*gamma(3/2)/wavel)/plate_scale:.2f}")
     # print(f"var theta = {freq2scale((4 - 4*gamma(3/2)**2)/wavel)/plate_scale:.2f}")
     # print(f"skewness theta = {freq2scale(8*gamma(5/2)/wavel)/plate_scale:.2f}")
     # plt.plot(theta, rho_pdf(rho/2), "ko")
-    plt.axvline(rad2mas(2*a)/plate_scale, color="r")
-    plt.axvline(pixels, color="g")
-    plt.axvline(1, color="g")
-    plt.xlabel(r"$\Delta \theta$ sampled [pixels]")
+    plt.axvline(rad2mas(2*a), color="r")
+    plt.axvline(pixels*plate_scale, color="g")
+    plt.axvline(plate_scale, color="g")
+    plt.xlabel(r"$\Delta \theta$ sampled [mas]")
     plt.annotate(f"Circle diameter = {rad2mas(2*a):.2f} mas", xy=(0.65, 0.9), xycoords="axes fraction", color="r")
     plt.annotate(f"Image size = {pixels} pixels", xy=(0.65, 0.5), xycoords="axes fraction", color="g")
-    plt.annotate(f"Median = {np.median(theta):.2f} pixels", xy=(0.65, 0.8), xycoords="axes fraction", color="k")
-    plt.annotate(f"Mean = {np.mean(theta):.2f} pixels", xy=(0.65, 0.7), xycoords="axes fraction", color="k")
-    plt.annotate(f"std = {np.std(theta):.2f} pixels", xy=(0.65, 0.6), xycoords="axes fraction", color="k")
+    plt.annotate(f"Median = {np.median(theta):.2f} mas", xy=(0.65, 0.8), xycoords="axes fraction", color="k")
+    plt.annotate(f"Mean = {np.mean(theta):.2f} mas", xy=(0.65, 0.7), xycoords="axes fraction", color="k")
+    plt.annotate(f"std = {np.std(theta):.2f} mas", xy=(0.65, 0.6), xycoords="axes fraction", color="k")
     plt.title("Baseline sampling of image dimensions in pixels")
-    plt.savefig(os.path.join(results_dir, "image_pixels_sampling.png"))
+    # plt.savefig(os.path.join(results_dir, "image_pixels_sampling.png"))
 
     plt.show()
 

@@ -203,6 +203,14 @@ def chisq_gradient_complex_visibility_auto(image, A, vis, sigma):
     return gradient
 
 
+def chisq_gradient_amplitude_auto(image, A, amp, sigma):
+    with tf.GradientTape() as tape:
+        tape.watch(image)
+        chisq = chi_squared_amplitude(image, A, amp, sigma)
+    gradient = tape.gradient(target=chisq, sources=image)
+    return gradient
+
+
 def chisq_gradient_visibility_phases_auto(image, A, vis, sigma):
     with tf.GradientTape() as tape:
         tape.watch(image)
@@ -236,3 +244,26 @@ def chisq_gradient_closure_phase_auto(image, A, CPO, clphase, sigma):
         chisq = chi_squared_closure_phase(image, A, CPO, clphase, sigma)
     gradient = tape.gradient(target=chisq, sources=image)
     return gradient
+
+
+chi_squared = {
+    "visibility": chi_squared_complex_visibility,
+    "visibility_phase": chi_squared_visibility_phases,
+    "visibility_amplitude": chi_squared_amplitude,
+    "closure_phasor": chi_squared_closure_phasor,
+    "closure_phase": chi_squared_closure_phase,
+    "bispectra": chi_squared_bispectra
+}
+
+chisq_gradients = {
+    "analytical_visibility": chisq_gradient_complex_visibility_analytic,
+    "auto_visibility": chisq_gradient_complex_visibility_auto,
+    "visibility_phase": chisq_gradient_visibility_phases_auto,
+    "analytical_visibility_amplitude": chisq_gradient_amplitude_analytic,
+    "auto_visibility_ampltiude": chisq_gradient_amplitude_auto,
+    "analytical_closure_phasor": chisq_gradient_closure_phasor_analytic,
+    "auto_closure_phasor": chisq_gradient_closure_phasor_auto,
+    "closure_phase": chisq_gradient_closure_phase_auto,
+    "analytical_bispectra": chisq_gradient_bispectra_analytic,
+    "auto_bispectra": chisq_gradient_bispectra_analytic
+}
