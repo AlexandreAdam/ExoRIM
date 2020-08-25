@@ -14,7 +14,7 @@ def main(id):
         os.mkdir(profiledir)
     except FileExistsError:
         pass
-    with open("hyperparameters.json", "r") as f:
+    with open("hyperparameters_vis.json", "r") as f:
         hyperparameters = json.load(f)
     image = tf.constant(np.random.uniform(0, 1, (1, 32, 32, 1)), dtype)  # tf.TensorShape((None, 32, 32, 1))
     mask = np.random.normal(0, 1, (7, 2))

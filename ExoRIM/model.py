@@ -1,6 +1,5 @@
 import tensorflow as tf
 from ExoRIM.definitions import initializer, default_hyperparameters, dtype
-from ExoRIM.utilities import nullwriter
 
 
 class ConvGRU(tf.keras.Model):
@@ -79,8 +78,12 @@ class ResidualBlock(tf.keras.Model):
 
 
 class Model(tf.keras.Model):
-    def __init__(self, hyperparameters=default_hyperparameters, dtype=dtype):
-        super(Model, self).__init__(dtype=dtype)
+    def __init__(self, hyperparameters=default_hyperparameters, dtype=dtype, **kwargs):
+        try:
+            name = hyperparameters["name"]
+        except KeyError:
+            name = "RIM"
+        super(Model, self).__init__(dtype=dtype, name=name, **kwargs)
         self._timestep_mod = 30  # silent instance attribute to be modified if needed in the RIM fit method
         self.downsampling_block = []
         self.convolution_block = []
@@ -171,6 +174,8 @@ class Model(tf.keras.Model):
         else:
             self.hidden_conv = None
 
+        self.max_pool = tf.keras.layers.UpSampling2D(size=(2, 2))
+
     def call(self, yt, ht):
         """
         :param yt: Image tensor of shape [batch, pixel, pixel, channel], correspond to the step t of the reconstruction.
@@ -178,16 +183,17 @@ class Model(tf.keras.Model):
         """
         # TODO remove summary or reduce number printed since this slows down enormously the training time
         input = yt
+        input = self.batch_norm[0](input)
         for layer in self.downsampling_block:
             input = layer(input)
             if tf.summary.experimental.get_step() % self._timestep_mod == 0:
                 summary_histograms(layer, input)
-        input = self.batch_norm[0](input)
+        input = self.batch_norm[1](input)
         for layer in self.convolution_block:
             input = layer(input)
             if tf.summary.experimental.get_step() % self._timestep_mod == 0:
                 summary_histograms(layer, input)
-        input = self.batch_norm[1](input)
+        input = self.batch_norm[2](input)
         # ===== Recurrent Block =====
         ht_1, ht_2 = tf.split(ht, 2, axis=3)
         ht_1 = self.gru1(input, ht_1)  # to be recombined in new state
@@ -203,6 +209,7 @@ class Model(tf.keras.Model):
             summary_histograms(self.gru2, ht_2)
         # ===========================
         delta_xt = self.batch_norm[3](ht_2)
+        # delta_xt = self.upsample2d(delta_xt)
         for layer in self.upsampling_block:
             delta_xt = layer(delta_xt)
             if tf.summary.experimental.get_step() % self._timestep_mod == 0:
@@ -220,8 +227,8 @@ class Modelv2(tf.keras.Model):
     """
     A different version of the model, with a single GRU cell and a residual block after downsampling.
     """
-    def __init__(self, hyperparameters, dtype=dtype):
-        super(Modelv2, self).__init__(dtype=dtype)
+    def __init__(self, hyperparameters, dtype=dtype, **kwargs):
+        super(Modelv2, self).__init__(dtype, **kwargs)
         self._timestep_mod = 30  # silent instance attribute to be modified if needed in the RIM fit method
         kernel_reg_amp = hyperparameters["Regularizer Amplitude"]["kernel"]
         bias_reg_amp = hyperparameters["Regularizer Amplitude"]["bias"]

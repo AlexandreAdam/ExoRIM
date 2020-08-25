@@ -2,6 +2,7 @@ from ExoRIM.definitions import mas2rad, pixel_grid
 import numpy as np
 from scipy.linalg import inv as inverse
 from scipy.sparse.linalg import svds as svd
+from ExoRIM.base import BaselinesBase
 
 
 class Baselines:
@@ -18,9 +19,9 @@ class Baselines:
         self.nbap = mask_coordinates.shape[0]
         self.VAC = mask_coordinates
         self.precision = precision  # precision when rounding
-        self._build_uv_and_model()
+        self.build_uv_and_model()
 
-    def _build_uv_and_model(self):
+    def build_uv_and_model(self):
         N = self.nbap
         mask = self.VAC
         p = N * (N-1) // 2
@@ -104,9 +105,14 @@ def NDFTM(coords, wavelength, pixels, plate_scale, inv=False, dprec=True):
 def closure_baselines_projectors(CPO):
     (q, p) = CPO.shape
     bisp_i = np.where(CPO != 0)
+
+    # selects the first non-zero entry (column wise -- baseline wise) for each closure triangle (row)
     V1_i = (bisp_i[0][0::3], bisp_i[1][0::3])
+    # second non-zero entry
     V2_i = (bisp_i[0][1::3], bisp_i[1][1::3])
     V3_i = (bisp_i[0][2::3], bisp_i[1][2::3])
+
+    # Projector matrices
     V1 = np.zeros(shape=(q, p))
     V1[V1_i] += 1.0
     V2 = np.zeros(shape=(q, p))

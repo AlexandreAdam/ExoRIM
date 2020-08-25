@@ -136,7 +136,6 @@ def create_dataset_from_generator(
         highest_contrast=0.5,
         max_point_source=10,
         fixed=False,
-        scaling_factor=10**5,
         seed=None
 ):
     gen = CenteredImagesGenerator(
@@ -145,8 +144,7 @@ def create_dataset_from_generator(
         channels=1,
         highest_contrast=highest_contrast,
         max_point_sources=max_point_source,
-        fixed=fixed,
-        scaling_factor=scaling_factor
+        fixed=fixed
     )
     if fixed and seed is not None:
         gen.epoch = seed

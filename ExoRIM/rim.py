@@ -9,10 +9,9 @@ import os
 
 class RIM:
     def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=dtype, weight_file=None,
-                 noise_floor=1e-8, scaling_factor=10**5):
+                 noise_floor=1e-8):
         self._dtype = dtype
         self.noise_floor = noise_floor
-        self.scaling_factor = scaling_factor
         self.hyperparameters = hyperparameters
         self.channels = hyperparameters["channels"]
         self.pixels = hyperparameters["pixels"]
@@ -26,19 +25,23 @@ class RIM:
             self.model.call(y, h)
             self.model.load_weights(weight_file)
         self.physical_model = physical_model
+        # self.grad_scaling_factor = 1/(self.pixels * (self.physical_model.SNR**2 + 1/self.physical_model.sigma**2))
+        self.grad_scaling_factor = tf.constant(1/100, dtype)
 
     @tf.function
     def link_function(self, y):
-        return tf.math.log(y + self.noise_floor)
+        return tf.math.log(self.pixels**2 * y + self.noise_floor)
 
-    @staticmethod
     @tf.function
-    def inverse_link_function(eta):
-        return tf.math.exp(eta)
+    def inverse_link_function(self, eta):
+        # return a probability distribution --> enforces flux normalisation!
+        if len(eta.shape) == 5:
+            return tf.keras.activations.softmax(eta, axis=(1, 2, 3, 4))
+        return tf.keras.activations.softmax(eta, axis=(1, 2, 3))
 
     # @tf.function
     def grad_scaling(self, grad):
-        return tf.clip_by_value(1/self.physical_model.SNR**2/self.scaling_factor/self.pixels * grad, -10, 10)
+        return grad #tf.clip_by_value(self.grad_scaling_factor * grad, -100, 100)
 
     def __call__(self, X):
         return self.call(X)
@@ -62,7 +65,7 @@ class RIM:
         # update image
         eta_t = eta_0 + gt
         # save output and log likelihood gradient (latter for analysis)
-        outputs = tf.reshape(eta_t, eta_t.shape + [1])  # Plus one dimension for step stack
+        outputs = tf.expand_dims(eta_t, -1)  # Plus one dimension for step stack
         grads = grad
         for current_step in range(self.steps - 1):
             grad = self.physical_model.grad_log_likelihood(self.inverse_link_function(eta_t), X)
@@ -79,7 +82,7 @@ class RIM:
     def initial_guess(self, X):
         # y0 = self.physical_model.inverse_fourier_transform(X)
         # y0 = softmax_scaler(y0, minimum=0, maximum=1.)
-        y0 = tf.ones(shape=[X.shape[0], self.pixels, self.pixels, 1]) / 100
+        y0 = tf.ones(shape=[X.shape[0], self.pixels, self.pixels, 1]) / self.pixels**2
         return y0
 
     def fit(
@@ -183,18 +186,17 @@ class RIM:
                     # back to image space for analysis
                     output = self.inverse_link_function(output)
                     # ========= Summaries and logs =================
-                    tf.summary.scalar("loss", cost_value, step=step)
+                    tf.summary.scalar("Loss", cost_value, step=step)
+                    tf.summary.scalar("Learning rate", optimizer.lr(step).numpy(), step=step)
                     for key, item in metrics_train.items():
                         score = metrics[key](output[..., -1], Y)
                         metrics_train[key] += score.numpy()
                         tf.summary.scalar(key, score, step=step)
                     # dramatically slows down the training if enabled and step_mod too low
                     if record and step % output_save_mod["step_mod"] == 0:
-                        tf.summary.image(f"Output_{epoch:04}_{batch:04}", output[..., -1], max_outputs=1, description="Model prediction (last timestep reconstruction")
-                        tf.summary.image(f"Ground_truth_{epoch:04}_{batch:04}", Y, max_outputs=1, description="Ground Truth Image")
-                        # This one is badly rendered by a 8 bit conversion, 
+                        tf.summary.histogram(f"Residual_{epoch:04}_{batch:04}", tf.math.log(tf.math.abs(output[..., -1] - Y)), description="Logarithm of the absolute difference between Y_pred and Y")
                         tf.summary.histogram(name=f"Log_Likelihood_Gradient_log_{batch:04}", data=tf.math.log(tf.math.abs(grads[0]))/tf.math.log(10.), description="Log Likelihood gradient for each time steps")
-                        tf.summary.histogram(name=f"Log_Likelihood_Gradient_sign_{batch:04}", data=tf.math.sign(grads[0]), description="Log Likelihood gradient for each time steps")
+                        tf.summary.histogram(name=f"Log_Likelihood_Gradient{batch:04}", data=grads[0], description="Log Likelihood gradient for each time steps")
 
                         for i, grad in enumerate(gradient):
                             tf.summary.histogram(name=self.model.trainable_weights[i].name + "_gradient", data=grad, step=step)
@@ -226,9 +228,10 @@ class RIM:
                             tf.summary.scalar(key, score, step=step)
                         test_writer.flush()
             try:
-                print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e} | val_loss={history['test_loss'][-1]:.2e}")
+                print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e} | val_loss={history['test_loss'][-1]:.2e} | "
+                      f"learning rate={optimizer.lr(step).numpy():.2e}")
             except IndexError:
-                print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e}")
+                print(f"{epoch}: train_loss={history['train_loss'][-1]:.2e} | learning rate={optimizer.lr(step).numpy():.2e}")
             if history[track][-1] < min_score - min_delta:
                 _patience = patience
                 min_score = history[track][-1]

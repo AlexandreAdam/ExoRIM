@@ -2,6 +2,28 @@ import numpy as np
 import tensorflow as tf
 from ExoRIM.definitions import k_truncated_poisson, centroid, dtype
 from ExoRIM.physical_model import PhysicalModel
+from numpy.fft import fft2, ifft2
+
+
+def gaussian_filter(pixel_scale, resolution, pixels):
+    #     size = min(int(3 * resolution / pixel), pixels)
+    sigma = resolution / 2
+    size = pixels
+    #     print(f"kernel size = {size}")
+    x = (np.arange(size) - size // 2) * pixel_scale
+    xx, yy = np.meshgrid(x, x)
+    rho = np.sqrt(xx ** 2 + yy ** 2)
+    out = np.zeros((size, size))
+    out += np.exp(-rho ** 2 / sigma ** 2) / np.sqrt(2 * np.pi) / sigma
+    return out
+
+
+def fft_convolve2d(x, y):
+    N = x.shape[0]
+    n = N // 2
+    pad = int(2 * N)
+    pads = (pad, pad)
+    return np.abs(ifft2(fft2(x, pads) * fft2(y, pads)))[n:-n, n:-n]
 
 
 class CenteredImagesv1:
@@ -256,7 +278,7 @@ class CenteredCircle:
         for i in range(self.total_items):
             images[i, :, :, 0] += rho < self.widths[i]
         # normalize by flux
-        images = images #/ np.reshape(np.sum(images, axis=(1, 2, 3)), [images.shape[0], 1, 1, 1])
+        images = images / np.sum(images, axis=(1, 2, 3))
         return images
 
     def _widths(self):
@@ -268,13 +290,11 @@ class CenteredImagesGenerator:
             self,
             physical_model: PhysicalModel,
             total_items_per_epoch,
-            scaling_factor,
             channels=1,
             highest_contrast=0.5,
             max_point_sources=5,
             fixed=False
     ):
-        self.scaling_factor = scaling_factor
         self.physical_model = physical_model
         self.total_items_per_epoch = total_items_per_epoch
         self.channels = channels
@@ -294,12 +314,13 @@ class CenteredImagesGenerator:
         else:
             np.random.seed(42)
         for i in range(self.total_items_per_epoch):
-            Y = tf.constant(self.generate_image(), dtype=dtype)
+            # image are blurred to nominal resolution
+            Y = tf.constant(self.generate_blurred_image(), dtype=dtype)
             X = self.physical_model.simulate_noisy_data(tf.reshape(Y, [1, *Y.shape]))
             X = tf.reshape(X, X.shape[1:])  # drop the batch dimension acquired in physical model
             yield X, Y
 
-    def gaussian_psf_convolution(self, sigma, intensity,  xp=0, yp=0, a=1, b=1):
+    def gaussian_ellipse(self, sigma, intensity,  xp=0, yp=0, a=1, b=1):
         image_coords = np.arange(self.pixels) - self.pixels / 2.
         xx, yy = np.meshgrid(image_coords, image_coords)
         image = np.zeros_like(xx)
@@ -307,7 +328,7 @@ class CenteredImagesGenerator:
         image += intensity * np.exp(-0.5 * (rho_squared**2 / sigma ** 2))
         return image
 
-    def circular_psf(self, sigma, intensity, xp, yp, a=1, b=1):
+    def ellipse(self, sigma, intensity, xp, yp, a=1, b=1):
         image_coords = np.arange(self.pixels) - self.pixels / 2.
         xx, yy = np.meshgrid(image_coords, image_coords)
         image = np.zeros_like(xx)
@@ -335,16 +356,25 @@ class CenteredImagesGenerator:
         # images += 1e-5 * np.random.random(size=images.shape) + 1e-4  # background
         nps = self._nps()[0]
         width = self._width(nps)
-        intensity = self.scaling_factor*(1 - self._contrasts(nps))
+        intensity = (1 - self._contrasts(nps))
         coordinates = self._coordinates(nps)
         elongation = self._elongation(nps)
         for i in range(nps):
-            # image += self.circular_psf(width[i], intensity[i], *coordinates[i], *elongation[i])
-            image += self.gaussian_psf_convolution(width[i], intensity[i], *coordinates[i], *elongation[i])
-        # image = self.recenter(image)
-        # image = self.normalize(image, minimum=0, maximum=1)
+            # image += self.ellipse(width[i], intensity[i], *coordinates[i], *elongation[i])
+            image += self.gaussian_ellipse(width[i], intensity[i], *coordinates[i], *elongation[i])
         image = np.reshape(image, newshape=[self.pixels, self.pixels, 1])
-        return image
+        # normalize by flux
+        return image / np.sum(image)
+
+    def generate_blurred_image(self):
+        # blur image to nominal resolution
+        image = self.generate_image()[..., 0]
+        plate_scale = self.physical_model.plate_scale
+        resolution = self.physical_model.resolution
+        blurred_image = fft_convolve2d(image, gaussian_filter(plate_scale, resolution, self.pixels))
+        blurred_image = blurred_image.reshape((self.pixels, self.pixels, 1))
+        # renormalize to have unit flux
+        return blurred_image / np.sum(blurred_image)
 
     def _nps(self, p="uniform", mu=2):
         pool = np.arange(2, self.max_point_sources + 1)
@@ -370,3 +400,6 @@ class CenteredImagesGenerator:
 
     def _elongation(self, nps):
         return np.random.uniform(1, 4, size=(nps, 2))
+
+
+#TODO make sure images are normalized properly

@@ -89,8 +89,8 @@ def test_closure_phase_covariance_operator():
     assert np.all(np.equal(pc_cov, expected_result))
 
 
-def test_closure_baseline_operator():
-    N = 4
+def test_closure_baseline_projectors():
+    N = 5
     mask = np.random.normal(0, 2, (N, 2))
     B = Baselines(mask)
     CPO = closure_phase_operator(B)
@@ -99,7 +99,7 @@ def test_closure_baseline_operator():
     print(V2)
     print(V3)
     """
-    In general, each row of Vi contains a single non-zero entry = 1, which select a baseline a closure triangle. We can 
+    In general, each row of Vi contains a single non-zero entry = 1, which select a baseline of a closure triangle. We can 
     test that the columns of the non-zero entry of the 3 projectors (V1, V2 and V3) correspond to a closure triangle by 
     asking the BLM which 2 apertures a baseline was constructed from (that is the column indices of non-zero entries
      in the BLM). We then ask that these index cancel each other in the closure relation. 
@@ -142,5 +142,4 @@ def test_closure_baseline_operator():
     assert np.array_equal(i1,  i2)
     assert np.array_equal(j1, j2)
     assert np.array_equal(k1, k2)
-
 

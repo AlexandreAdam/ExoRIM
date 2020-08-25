@@ -1,8 +1,9 @@
 from ExoRIM import RIM, MSE, PhysicalModel
-from ExoRIM.loss import MAE
+from ExoRIM.loss import MAE, Loss
 from preprocessing.simulate_data import create_and_save_data
 from ExoRIM.definitions import dtype
 from ExoRIM.utilities import create_dataset_from_generator, replay_dataset_from_generator
+import ExoRIM.log_likelihood as chisq
 from argparse import ArgumentParser
 from datetime import datetime
 import tensorflow as tf
@@ -10,8 +11,8 @@ import numpy as np
 import json
 import os
 # try:
-    # import wandb
-    # wandb.init(project="exorim", sync_tensorboard=True)
+#     import wandb
+#     wandb.init(project="exorim", sync_tensorboard=True)
 # except ImportError:
 #     print("wandb not installed, package ignored")
 
@@ -38,7 +39,10 @@ def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("-n", "--number_images", type=int, default=100)
+    parser.add_argument("--hyperparameters", type=str, default="hyperparameters_small",
+                        help="Name of the hyperparameter file (without the file extension)")
+    parser.add_argument("--tv", type=float, default=0., help="Total variation coefficient for the loss function")
+    parser.add_argument("-n", "--number_images", type=int, default=50)
     parser.add_argument("-w", "--wavelength", type=float, default=0.5e-6)
     parser.add_argument("--SNR", type=float, default=200, help="Signal to noise ratio")
     parser.add_argument("-s", "--split", type=float, default=0.8)
@@ -47,10 +51,10 @@ if __name__ == "__main__":
     parser.add_argument("--holes", type=int, default=21, help="Number of holes in the mask")
     parser.add_argument("--longest_baseline", type=float, default=6., help="Longest baseline (meters) in the mask, up to noise added")
     parser.add_argument("--mask_variance", type=float, default=1., help="Variance of the noise added to rho coordinate of aperture (in meter)")
-    parser.add_argument("-m", "--min_delta", type=float, default=0, help="Tolerance for early stopping")
-    parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping")
+    parser.add_argument("-m", "--min_delta", type=float, default=0.05, help="Tolerance for early stopping")
+    parser.add_argument("-p", "--patience", type=int, default=3, help="Patience for early stopping")
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
-    parser.add_argument("-e", "--max_epoch", type=int, default=10, help="Maximum number of epoch")
+    parser.add_argument("-e", "--max_epoch", type=int, default=50, help="Maximum number of epoch")
     parser.add_argument("--index_save_mod", type=int, default=20, help="Image index to be saved")
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
     parser.add_argument("--scaling_factor", type=float, default=10**5, help="Maximum intensity, sets the log domain for the model input")
@@ -59,10 +63,16 @@ if __name__ == "__main__":
     parser.add_argument("--fixed", action="store_true", help="Keeps the dataset fix for each epochs to monitor progress")
     args = parser.parse_args()
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
-    print(f"id = {date}")
-    with open("hyperparameters.json", "r") as f:
+    h_file = args.hyperparameters + ".json"
+    with open(h_file, "r") as f:
         hyperparameters = json.load(f)
+    try:
+        name = hyperparameters["name"]
+        id = date + "_" + name
+    except KeyError:
+        id = date
 
+    print(f"id = {id}")
     hyperparameters["batch"] = args.batch
     hyperparameters["date"] = date
     # metrics only support grey scale images
@@ -88,11 +98,11 @@ if __name__ == "__main__":
     }
 
     basedir = os.getcwd()  # assumes script is run from base directory
-    results_dir = os.path.join(basedir, "results", date)
+    results_dir = os.path.join(basedir, "results", id)
     os.mkdir(results_dir)
-    models_dir = os.path.join(basedir, "models", date)
+    models_dir = os.path.join(basedir, "models", id)
     os.mkdir(models_dir)
-    data_dir = os.path.join(basedir, "data", date)
+    data_dir = os.path.join(basedir, "data", id)
     os.mkdir(data_dir)
     train_dir = os.path.join(data_dir, "train")
     os.mkdir(train_dir)
@@ -100,7 +110,7 @@ if __name__ == "__main__":
     os.mkdir(test_dir)
 
     # another approach to save results using tensorboard and wandb
-    logdir = os.path.join(basedir, "logs", date)
+    logdir = os.path.join(basedir, "logs", id)
     os.mkdir(logdir)
     os.mkdir(os.path.join(logdir, "train"))
     os.mkdir(os.path.join(logdir, "test"))
@@ -109,29 +119,42 @@ if __name__ == "__main__":
     for i in range(args.holes):
         circle_mask[i, 0] = (args.longest_baseline + np.random.normal(0, args.mask_variance)) * np.cos(2 * np.pi * i / args.holes)
         circle_mask[i, 1] = (args.longest_baseline + np.random.normal(0, args.mask_variance)) * np.sin(2 * np.pi * i / args.holes)
+    mask = np.random.normal(0, args.longest_baseline/2, (args.holes, 2))
     phys = PhysicalModel(
         pixels=hyperparameters["pixels"],
-        mask_coordinates=circle_mask,
+        # mask_coordinates=circle_mask,
+        mask_coordinates=mask,
+        chisq_term=hyperparameters["log_likelihood_term"],
         wavelength=args.wavelength,
         SNR=args.SNR
     )
-    rim = RIM(physical_model=phys, hyperparameters=hyperparameters, noise_floor=args.noise_floor, scaling_factor=args.scaling_factor)
+    metrics.update({
+        "Chi_squared_visibilities": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_complex_visibility(
+            Y_pred, phys.forward(Y_true), phys
+        )),
+        "Chi_squared_closure_phases": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_closure_phasor(
+            Y_pred, tf.math.angle(phys.bispectrum(Y_true)), phys
+        )),
+        "Chi_squared_amplitude": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_amplitude(
+            Y_pred, tf.math.abs(phys.forward(Y_true)), phys
+        ))
+    })
+
+    rim = RIM(physical_model=phys, hyperparameters=hyperparameters, noise_floor=args.noise_floor)
     train_dataset = create_dataset_from_generator(
         physical_model=phys,
         item_per_epoch=args.number_images,
         batch_size=args.batch,
-        fixed=args.fixed,
-        scaling_factor=args.scaling_factor,
+        fixed=args.fixed
     )
     test_dataset = create_dataset_from_generator(
         physical_model=phys,
         item_per_epoch=int(args.number_images * (1 - args.split)),
         batch_size=int(args.number_images * (1 - args.split)),
         fixed=args.fixed,
-        scaling_factor=args.scaling_factor,
         seed=31415926
     )
-    cost_function = MSE()
+    cost_function = Loss(tv_beta=args.tv)
     learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         **hyperparameters["learning rate"],
         # initial_learning_rate=1e-3,
@@ -163,7 +186,7 @@ if __name__ == "__main__":
     )
     for key, item in history.items():
         np.savetxt(os.path.join(results_dir, key + ".txt"), item)
-    with open(os.path.join(models_dir, "hyperparameters.json"), "w") as f:
+    with open(os.path.join(models_dir, h_file), "w") as f:
         json.dump(rim.hyperparameters, f)
     # saves the ground truth images
     replay_dataset_from_generator(
@@ -181,6 +204,6 @@ if __name__ == "__main__":
         dirname=test_dir,
         fixed=args.fixed,
         format="txt",
-        index_mod=1,
+        index_mod=int(args.number_images * (1 - args.split) / 4),
         epoch_mod=1
     )

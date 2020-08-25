@@ -1,17 +1,12 @@
-from ExoRIM.operators import closure_phase_operator, redundant_phase_closure_operator, Baselines
+from ExoRIM.operators import Baselines
 import numpy as np
-import tensorflow as tf
-from ExoRIM.physical_model import PhysicalModel
 import ExoRIM as exo
-from ExoRIM.operators import closure_phase_covariance_inverse, orthogonal_phase_closure_operator
-from ExoRIM.definitions import rad2mas, mas2rad, rectangular_pulse_f, triangle_pulse_f
+from ExoRIM.operators import closure_phase_covariance_inverse
+from ExoRIM.definitions import rad2mas, mas2rad, triangle_pulse_f
 from ExoRIM.log_likelihood import *
 import matplotlib.pyplot as plt
 import scipy.stats as st
-from scipy.signal import fftconvolve
 import os
-from ExoRIM.kpi import KPI
-from matplotlib.ticker import FuncFormatter
 
 
 def fft_filter_hf(image):
@@ -169,35 +164,35 @@ def main():
         axs[0, 1].imshow(noise, cmap="gray")
 
         axs[0, 2].set_title(r"$\nabla_x \chi^2_{cp}$")
-        im = axs[0, 2].imshow(fft_filter_hf(phase_std**2*grad_cp.numpy().reshape((pixels, pixels))))
+        im = axs[0, 2].imshow(noise*phase_std**2*grad_cp.numpy().reshape((pixels, pixels)))
         plt.colorbar(im, ax=axs[0, 2])
 
         axs[1, 0].set_title(r"$\nabla_x \chi^2_{vis}$")
-        im = axs[1, 0].imshow(1/SNR**2*grad_vis.numpy().reshape((pixels, pixels)))
+        im = axs[1, 0].imshow(noise*1/SNR**2*grad_vis.numpy().reshape((pixels, pixels)))
         plt.colorbar(im, ax=axs[1, 0])
 
         axs[1, 1].set_title(r"$\nabla_x \chi^2_{visAuto}$")
-        im = axs[1, 1].imshow(tf.image.rot90(1/SNR**2*grad_vis_auto, k=2).numpy().reshape((pixels, pixels)))
+        im = axs[1, 1].imshow(noise*1/SNR**2*grad_vis_auto.numpy().reshape((pixels, pixels)))
         plt.colorbar(im, ax=axs[1, 1])
 
         axs[1, 2].set_title(r"$\nabla_x \chi^2_{cpv2Auto}$")
-        im = axs[1, 2].imshow(fft_filter_hf(phase_std**2*grad_cp_v2.numpy().reshape((pixels, pixels))))
+        im = axs[1, 2].imshow(noise*phase_std**2*grad_cp_v2.numpy().reshape((pixels, pixels)))
         plt.colorbar(im, ax=axs[1, 2])
 
         axs[2, 0].set_title(r"$\nabla_x \chi^2_{bis}$")
-        im = axs[2, 0].imshow(fft_filter_hf(phase_std**2*grad_bs.numpy().reshape((pixels, pixels))))
+        im = axs[2, 0].imshow(noise*phase_std**2*grad_bs.numpy().reshape((pixels, pixels)))
         plt.colorbar(im, ax=axs[2, 0])
 
         axs[2, 1].set_title(r"$\nabla_x \chi^2_{amp}$")
-        im = axs[2, 1].imshow(fft_filter_hf(1/SNR**2*grad_amp.numpy().reshape((pixels, pixels))))
+        im = axs[2, 1].imshow(noise*1/SNR**2*grad_amp.numpy().reshape((pixels, pixels)))
         plt.colorbar(im, ax=axs[2, 1])
 
         axs[2, 2].set_title(r"$\nabla_x \chi^2_{bisAuto}$")
-        im = axs[2, 2].imshow(fft_filter_hf(phase_std**2*grad_bs_auto.numpy().reshape((pixels, pixels))))
+        im = axs[2, 2].imshow(noise*phase_std**2*grad_bs_auto.numpy().reshape((pixels, pixels)))
         plt.colorbar(im, ax=axs[2, 2])
 
         plt.suptitle(f"plate_scale = {pl:.3f} mas, theoretical resolution = {theoretical_pl:.3f} mas")
-        plt.savefig(os.path.join(results, f"non_redundant_set_with_pulse_{pl:.3f}.png"))
+        # plt.savefig(os.path.join(results, f"non_redundant_set_with_pulse_{pl:.3f}.png"))
 
         # fig, ax = plt.subplots()
         # ax.hist(np.abs(pulse))

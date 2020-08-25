@@ -1,9 +1,31 @@
 import tensorflow as tf
 
 
+class Loss(tf.keras.losses.Loss):
+    def __init__(self, tv_beta=0., *args, **kwargs):
+        super(Loss, self).__init__(*args, **kwargs)
+        self.mse = lambda Y_pred, Y_true: tf.reduce_mean(
+            tf.square(tf.expand_dims(Y_true, -1) - Y_pred), axis=(1, 2, 3, 4))
+        self.tv = lambda Y_pred: tf.image.total_variation(Y_pred[..., -1])
+        self.tv_beta = tv_beta
+
+    def __call__(self, Y_pred, Y_true, *args, **kwargs):
+        return self.call(Y_pred, Y_true)
+
+    def call(self, Y_pred, Y_true):
+        cost = self.mse(Y_pred, Y_true)
+        if self.tv_beta:
+            y_p = tf.math.exp(Y_pred) # brightness distributions
+            cost = cost + self.tv_beta * self.tv(y_p)
+        return tf.reduce_sum(cost)
+
+
 class MSE(tf.keras.losses.Loss):
     def __init__(self):
         super(MSE, self).__init__()
+
+    def __call__(self, Y_pred, Y_true, *args, **kwargs):
+        return self.call(Y_pred, Y_true)
 
     def call(self, Y_pred, Y_true):
         """
@@ -12,7 +34,6 @@ class MSE(tf.keras.losses.Loss):
         :return: Score
         """
         Y_ = tf.reshape(Y_true, (Y_true.shape + [1]))
-        # Y_ = tf.math.log(Y_ / (1. - Y_))
         cost = tf.reduce_mean(tf.square(Y_pred - Y_))
         return cost
 

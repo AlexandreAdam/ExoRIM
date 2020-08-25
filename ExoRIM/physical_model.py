@@ -1,22 +1,34 @@
 import tensorflow as tf
 import numpy as np
-from ExoRIM.definitions import dtype, mycomplex, rad2mas, triangle_pulse_f, mas2rad
+from ExoRIM.definitions import dtype, mycomplex, rad2mas, triangle_pulse_f, mas2rad, TWOPI
+from ExoRIM.base import PhysicalModelBase, BaselinesBase
 from ExoRIM.operators import Baselines, closure_phase_operator, NDFTM, closure_phase_covariance_inverse, closure_fourier_matrices
 import ExoRIM.log_likelihood as chisq
+from scipy.linalg import pinv as pseudo_inverse
 
 
 class PhysicalModelv1:
     """
     This model create discrete Fourier matrices and scales poorly on large number of pixels and baselines.
     """
-    def __init__(self, pixels, mask_coordinates, wavelength, SNR, vis_phase_std=1e-5):
+
+    def __init__(self, pixels, mask_coordinates, chisq_term,
+                 wavelength=0.5e-6, SNR=100, vis_phase_std=1e-5, logim=True, auto=False,
+                 *args, **kwargs):
         """
 
         :param pixels: Number of pixels on the side of the reconstructed image
         :param SNR: Signal to noise ratio for a measurement
         """
-        self.version = "v1"
-        # self.intensity_log_scale = intensity_log_scale  # number that fix the order of magnitudes for the variations of an image
+        super(PhysicalModelv1, self).__init__(*args, **kwargs)
+        assert chisq_term in chisq.chi_squared.keys(), f"Available terms are {chisq.chi_squared.keys()}"
+        self.chisq_term = chisq.chi_squared[chisq_term]
+        self._chisq_term = chisq_term
+        if auto:
+            self.chisq_grad_term = chisq.chisq_gradients[chisq.chi_map[chisq_term]["Auto"]]
+        else:
+            self.chisq_grad_term = chisq.chisq_gradients[chisq.chi_map[chisq_term]["Analytical"]]
+
         self.pixels = pixels
         self.baselines = Baselines(mask_coordinates=mask_coordinates)
         self.resolution = rad2mas(wavelength / np.max(np.sqrt(self.baselines.UVC[:, 0]**2 + self.baselines.UVC[:, 1]**2)))
@@ -33,7 +45,8 @@ class PhysicalModelv1:
         self.p = self.A.shape[0]  # number of visibility samples
         self.q = self.CPO.shape[0]  # number of closure phases
         self.SNR = SNR
-        self.phase_std = vis_phase_std
+        self.sigma = tf.constant(1/self.SNR, dtype)
+        self.phase_std = tf.constant(vis_phase_std, dtype)
         self.SIGMA = tf.constant(closure_phase_covariance_inverse(self.CPO, 1/SNR), dtype)
         A1, A2, A3 = closure_fourier_matrices(self.A, self.CPO)
         self.CPO = tf.constant(self.CPO, dtype)
@@ -41,23 +54,22 @@ class PhysicalModelv1:
         self.A1 = tf.constant(A1, mycomplex)
         self.A2 = tf.constant(A2, mycomplex)
         self.A3 = tf.constant(A3, mycomplex)
-
         self.flatten = tf.keras.layers.Flatten(data_format="channels_last")
-
+        self.logim = logim # whether we reconstruct in tje log space or brightness space
 
     @tf.function
     def log_likelihood(self, image, X):
         """
         Compute the negative of the log likelihood of the image given interferometric data X.
         """
-        return chisq.chi_squared_complex_visibility(image, self.A, X, 1/self.SNR)
+        return self.chisq_term(image, X, self)
 
     @tf.function
     def grad_log_likelihood(self, image, X):
         """
-        Compute the gradient relative to image pixels relative to interferometric data
+        Compute the chi squared gradient relative to image pixels given interferometric data X
         """
-        return chisq.chisq_gradient_complex_visibility_analytic(image, self.A, X, 1/self.SNR)
+        return self.chisq_grad_term(image, X, self)
 
     @tf.function
     def forward(self, image):
@@ -67,20 +79,15 @@ class PhysicalModelv1:
         :param flux: Flux vector of size (Batch size)
         :return: A concatenation of complex visibilities and bispectra (dtype: tf.complex128)
         """
-        return self.fourier_transform(image)
+        X = self.fourier_transform(image)
+        X = chisq.chisq_x_transformation[self._chisq_term](X, self)
+        return X
 
     @tf.function
     def fourier_transform(self, image):
         im = tf.cast(image, mycomplex)
         flat = self.flatten(im)
         return tf.einsum("ij, ...j->...i", self.A, flat)  # tensordot broadcasted on batch_size
-
-    @tf.function
-    def inverse_fourier_transform(self, X):
-        flat = tf.einsum("ji, ...j->...i", tf.math.conj(self.A), X)
-        flat = tf.square(tf.math.abs(flat))  # intensity is square of amplitude
-        flat = tf.cast(flat, dtype)
-        return tf.reshape(flat, [-1, self.pixels, self.pixels, 1])
 
     @tf.function
     def bispectrum(self, image):
@@ -93,13 +100,14 @@ class PhysicalModelv1:
 
     def simulate_noisy_data(self, images):
         batch = images.shape[0]
-        X = self.forward(images)
+        X = self.fourier_transform(images)
         gain = self._aperture_gain(batch)
         phase_error = self._visibility_phase_noise(batch)
         amp = tf.cast(gain * tf.math.abs(X), mycomplex)
         phase = 1j * tf.cast(tf.math.angle(X) + phase_error, mycomplex)
         noisy_vis = amp * tf.math.exp(phase)
-        return noisy_vis
+        noisy_X = chisq.chisq_x_transformation[self._chisq_term](noisy_vis, self)  # TODO make a better noise model
+        return noisy_X
 
     def _visibility_phase_noise(self, batch):
         """
@@ -145,6 +153,54 @@ class PhysicalModelv1:
         smallest_scale = rad2mas(1/highest_frequency) / plate_scale
         return smallest_scale
 
+
+
+
+#TODO decide on convention for constructing bispectrum (either A2 is taken to be conjugate always or conjugate is
+# explicit in every chi squared terms)
+
+class MyopicPhysicalModel(PhysicalModelBase):
+    """
+    Physical Model with a pseudo amplitude and phase data model.
+    """
+
+    def __init__(self, pixels, mask_coordinates, wavelength, SNR=100, vis_phase_std=1e-5, logim=True):
+        """
+
+        :param pixels: Number of pixels on the side of the reconstructed image
+        :param SNR: Signal to noise ratio for a measurement
+        """
+        super(MyopicPhysicalModel, self).__init__()
+        self.pixels = pixels
+        self.baselines = Baselines(mask_coordinates=mask_coordinates)
+        self.resolution = rad2mas(
+            wavelength / np.max(np.sqrt(self.baselines.UVC[:, 0] ** 2 + self.baselines.UVC[:, 1] ** 2)))
+
+        self.plate_scale = self.compute_plate_scale(self.baselines, pixels, wavelength)
+        self.smallest_scale = self.minimum_scale(self.baselines, self.plate_scale, wavelength)
+
+        self.pulse = triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 0] / wavelength, mas2rad(self.plate_scale))
+        self.pulse *= triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 1] / wavelength, mas2rad(self.plate_scale))
+
+        self.CPO = closure_phase_operator(self.baselines)
+        self.CPO_right_pseudo_inverse = pseudo_inverse(self.CPO)  # right inverse of C!
+
+        self.A = NDFTM(self.baselines.UVC, wavelength, pixels, self.plate_scale)
+        self.p = self.A.shape[0]  # number of visibility samples
+        self.q = self.CPO.shape[0]  # number of closure phases
+        self.SNR = SNR
+        self.sigma = tf.constant(1 / self.SNR, dtype)
+        self.phase_std = tf.constant(vis_phase_std, dtype)
+        self.SIGMA = tf.constant(closure_phase_covariance_inverse(self.CPO, 1 / SNR), dtype)
+        A1, A2, A3 = closure_fourier_matrices(self.A, self.CPO)
+        self.CPO = tf.constant(self.CPO, dtype)
+        self.CPO_right_pseudo_inverse = tf.constant(self.CPO_right_pseudo_inverse, dtype)
+        self.A = tf.constant(self.A, mycomplex)
+        self.A1 = tf.constant(A1, mycomplex)
+        self.A2 = tf.constant(A2, mycomplex)
+        self.A3 = tf.constant(A3, mycomplex)
+        self.flatten = tf.keras.layers.Flatten(data_format="channels_last")
+        self.logim = logim  # whether we reconstruct in tje log space or brightness space
 
 
 
