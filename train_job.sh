@@ -7,7 +7,7 @@
 #SBATCH --job-name=Train_ExoRIM
 #SBATCH --output=%x-%j.out
 module load python/3.6
-virtualenv $SLURM_TMPDIR/env
+virtualenv $SLURM_TMPDIR/envc
 source $SLURM_TMPDIR/env/bin/activate
 pip install --no-index --upgrade pip
 pip install --no-index -r compute_canada_requirements.txt

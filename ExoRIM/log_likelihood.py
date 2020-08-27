@@ -149,10 +149,24 @@ def chisq_gradient_complex_visibility_analytic(image, vis, phys):
     sig = tf.cast(phys.sigma, mycomplex)  # prevent dividing by zero
     im = cast_to_complex_flatten(image)
     samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
-    wdiff = (vis - samples)/(sig**2)
+    wdiff = (vis - samples)/sig**2
     out = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), wdiff))
     out = tf.reshape(out, image.shape)
     return out / vis.shape[1]
+
+
+def chisq_gradient_complex_visibility_with_self_calibration_analytic(image, amp, psi, alpha, phys):
+    im = cast_to_complex_flatten(image)
+    sig = tf.cast(phys.sigma, mycomplex)
+    vis_samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
+    phi = tf.einsum("ij, ...j -> ...i", phys.CPO_right_pseudo_inverse, psi)
+    phi_kernel = tf.einsum("ij, ...j -> ...i", phys.Bbar, alpha)
+    vis_samples = vis_samples * tf.complex(tf.math.cos(phi_kernel), tf.math.sin(phi_kernel))
+    vis = tf.cast(tf.complex(amp * tf.math.cos(phi), amp * tf.math.sin(phi)), mycomplex)
+    diff = (vis - vis_samples)/sig**2
+    grad = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), diff))
+    grad = tf.reshape(grad, image.shape)
+    return grad / amp.shape[1]
 
 
 def chisq_gradient_amplitude_analytic(image, amp, phys):
@@ -230,6 +244,14 @@ def chisq_gradient_complex_visibility_auto(image, vis, phys):
     with tf.GradientTape() as tape:
         tape.watch(image)
         chisq = chi_squared_complex_visibility(image, vis, phys)
+    gradient = tape.gradient(target=chisq, sources=image)
+    return gradient
+
+
+def chisq_gradient_complex_visibility_with_self_calibration_auto(image, amp, psi, alpha, phys):
+    with tf.GradientTape() as tape:
+        tape.watch(image)
+        chisq = chi_squared_complex_visibility_with_self_calibration(image, amp, psi, alpha, phys)
     gradient = tape.gradient(target=chisq, sources=image)
     return gradient
 

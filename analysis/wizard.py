@@ -2,7 +2,10 @@ import numpy as np
 import tensorflow as tf
 from ExoRIM.definitions import TWOPI
 from ExoRIM.physical_model import MyopicPhysicalModel as PhysicalModel
-from ExoRIM.log_likelihood import chi_squared_complex_visibility_with_self_calibration, chi_squared_complex_visibility
+from ExoRIM.log_likelihood import chi_squared_complex_visibility_with_self_calibration, chi_squared_complex_visibility, \
+    cast_to_complex_flatten, chisq_gradient_complex_visibility_with_self_calibration_analytic,\
+    chisq_gradient_complex_visibility_with_self_calibration_auto,\
+    chisq_gradient_complex_visibility_analytic, chisq_gradient_complex_visibility_auto
 import matplotlib.pyplot as plt
 import time
 import os
@@ -12,20 +15,9 @@ mycomplex = tf.complex64
 results_dir = "../results/wizard/"
 
 
-def plot_i(noise, phi_ker, phi_prime, phys):
-    plt.ion()
-    plt.pause(1.e-6)
-    plt.clf()
-    im = cast_to_complex_flatten(noise)
-    vis_samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
-    vis_samples = vis_samples * tf.complex(tf.math.cos(phi_ker), tf.math.sin(phi_ker))
-    amp_samples = tf.math.abs(vis_samples).numpy()
-    plt.plot()
-
-
 def minimize(alpha, noise_tf, amp, psi, phys, phi, phi_prime):
     step = 0
-    lr = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=10., decay_steps=300, power=3,
+    lr = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=1., decay_steps=300, power=3,
                                                        end_learning_rate=1e-5)
     opt = tf.keras.optimizers.Adam(learning_rate=lr)
     vars = [tf.Variable(alpha, constraint=lambda alpha: alpha % TWOPI)]
@@ -37,7 +29,7 @@ def minimize(alpha, noise_tf, amp, psi, phys, phi, phi_prime):
     while step < 500 and delta > 1e-6:
         with tf.GradientTape() as tape:
             loss = chi_squared_complex_visibility_with_self_calibration(noise_tf, amp, psi, vars[0], phys)
-            delta = tf.math.abs(previous_loss2 - loss)/loss * 100
+            delta = tf.math.abs(previous_loss2 - loss)/previous_loss2* 100
             previous_loss2 = previous_loss1
             previous_loss1 = loss
         grads = tape.gradient(target=loss, sources=vars)
@@ -45,7 +37,7 @@ def minimize(alpha, noise_tf, amp, psi, phys, phi, phi_prime):
         # print(grads[0])
         opt.apply_gradients(zip(grads, vars))
         step += 1
-        # print(f"step={step} | loss = {loss:.4e} | lr = {opt.lr(step).numpy():.2e} ")
+        print(f"step={step} | loss = {loss:.4e} | lr = {opt.lr(step).numpy():.2e} ")
               # f"| diff ={np.mean(np.abs(phi - phi_prime - tf.einsum('ij, ...j -> ...i', phys.Bbar, vars[0]))) :.2e}")
         # if step % 20 == 0:
         #     print(1 - tf.math.cos(phi_prime - phi - tf.einsum('ij, ...j -> ...i', phys.Bbar, vars[0])).numpy())
@@ -55,7 +47,7 @@ def minimize(alpha, noise_tf, amp, psi, phys, phi, phi_prime):
 
 
 def main():
-    N = 21
+    N = 50
     pixels = 64
     mask = np.random.normal(0, 6, (N, 2))
     phys = PhysicalModel(pixels, mask, "visibility")
@@ -73,7 +65,10 @@ def main():
     losses = []
     ideal_loss = []
     step = 0
-    x_list = list(range(-30, 30))
+    x_list = np.linspace(-20, 20, 20)
+    fig, axs = plt.subplots(3, 2, figsize=(15, 10))
+    plt.ion()
+
     for x in x_list:
         noise = np.zeros_like(xx)
         noise += np.exp(-rho(x, 0)**2/ 5**2)
@@ -94,6 +89,29 @@ def main():
         ideal_loss.append(chi_squared_complex_visibility(noise_tf, phys.forward(image_tf), phys).numpy())
         print(step)
         step += 1
+
+        plt.pause(1.e-6)
+        axs[0, 0].clear()
+        axs[0, 1].clear()
+        axs[1, 0].clear()
+        axs[1, 1].clear()
+        noise = noise_tf.numpy()[0, ..., 0]
+        axs[0, 0].imshow(image, cmap="gray")
+        axs[0, 0].set_title("Ground Truth")
+        axs[0, 1].imshow(noise, cmap="gray")
+        axs[0, 1].set_title("Prediction")
+        grad_analytic = chisq_gradient_complex_visibility_with_self_calibration_analytic(noise_tf, amp, psi, alpha, phys).numpy()[0, ..., 0]
+        axs[1, 0].imshow(grad_analytic)
+        axs[1, 0].set_title("Self cal analytic")
+        grad_auto = chisq_gradient_complex_visibility_with_self_calibration_auto(noise_tf, amp, psi, alpha, phys).numpy()[0, ..., 0]
+        axs[1, 1].imshow(grad_auto)
+        axs[1, 1].set_title("Self cal auto")
+        grad_ideal_analytic = chisq_gradient_complex_visibility_analytic(noise_tf, phys.forward(image_tf), phys)[0, ..., 0]
+        grad_ideal_auto = chisq_gradient_complex_visibility_auto(noise_tf, phys.forward(image_tf), phys)[0, ..., 0]
+        axs[2, 0].imshow(grad_ideal_analytic)
+        axs[2, 0].set_title("Ideal analytic")
+        axs[2, 1].imshow(grad_ideal_auto)
+        axs[2, 1].set_title("Ideal auto")
     print(ideal_loss)
     losses = np.array(losses)
     ideal_loss = np.array(ideal_loss)
@@ -104,7 +122,7 @@ def main():
     plt.xlabel("x")
     plt.ylabel("Loss")
     plt.yscale("log")
-    plt.show()
+    plt.savefig(os.path.join(results_dir, "calibrated_loss.png"))
     # alpha = tf.Variable(tf.random.normal(shape=(1, N - 1)), trainable=True, constraint=lambda alpha: alpha % TWOPI)
     # loss = lambda: chi_squared_complex_visibility_with_self_calibration(noise_tf, amp, psi, alpha, phys)
     # optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
@@ -113,6 +131,8 @@ def main():
     # opt = optimizer.minimize(loss, var_list=[alpha])
     # print(f"Lopt = {chi_squared_complex_visibility_with_self_calibration(noise_tf, amp, psi, alpha, phys).numpy():.2e}")
     # print(alpha.numpy())
+    plt.pause(60)
+    plt.show()
 
 
 if __name__ == '__main__':
