@@ -157,10 +157,6 @@ if __name__ == "__main__":
     cost_function = Loss(tv_beta=args.tv)
     learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         **hyperparameters["learning rate"],
-        # initial_learning_rate=1e-3,
-        # decay_steps=10000,
-        # decay_rate=0.90,
-        staircase=True
     )
     history = rim.fit(
         train_dataset=train_dataset,
