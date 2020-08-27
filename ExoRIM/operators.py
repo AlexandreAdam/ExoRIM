@@ -1,6 +1,6 @@
 from ExoRIM.definitions import mas2rad, pixel_grid
 import numpy as np
-from scipy.linalg import inv as inverse
+from scipy.linalg import inv as inverse, pinv as pseudo_inverse
 from scipy.sparse.linalg import svds as svd
 from ExoRIM.base import BaselinesBase
 
@@ -142,6 +142,10 @@ def closure_phase_covariance_inverse(CPO, sigma):
     cp_operator = closure_phase_covariance(CPO, sigma)
     inv = inverse(cp_operator)
     return inv
+
+
+def closure_phase_operator_pseudo_inverse(CPO):
+    return pseudo_inverse(CPO)
 
 
 def closure_phase_operator(B: Baselines, fixed_aperture=0):

@@ -49,6 +49,26 @@ def chi_squared_complex_visibility(image, vis, phys):
     return chisq
 
 
+def chi_squared_complex_visibility_with_self_calibration(image, amp, psi, alpha, phys):
+    """
+    Chi squared of the complex visibilities.
+        image: batch of square matrix (3-tensor)
+        A: 2-tensor of phasor for the Fourier Transform (NDFTM operator)
+        vis: data product of visibilties (dtype must be mycomplex)
+        sigma: (0,1,2)-tensor. Inverse of the covariance matrix of the visibilities.
+    """
+    sigma = phys.sigma
+    im = cast_to_complex_flatten(image)
+    vis_samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
+    phi = tf.einsum("ij, ...j -> ...i", phys.CPO_right_pseudo_inverse, psi)
+    phi_kernel = tf.einsum("ij, ...j -> ...i", phys.Bbar, alpha)
+    vis_samples = vis_samples * tf.complex(tf.math.cos(phi_kernel), tf.math.sin(phi_kernel))
+    vis = tf.cast(tf.complex(amp * tf.math.cos(phi), amp * tf.math.sin(phi)), mycomplex)
+    diff = vis - vis_samples
+    chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(diff) / sigma))
+    return chisq
+
+
 def chi_squared_visibility_phases(image, vphases, phys):
     A = phys.A
     sigma = phys.SIGMA
@@ -148,7 +168,7 @@ def chisq_gradient_amplitude_analytic(image, amp, phys):
     amp_samples = tf.math.abs(V_samples)
     product = (amp - amp_samples) / sigma**2 / amp_samples
     product = tf.cast(product, mycomplex)
-    out = - 2.0 * tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(A), V_samples * product))
+    out = - 2.0 * tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), V_samples * product))
     out = tf.reshape(out, shape=image.shape)
     return out / amp.shape[1]
 

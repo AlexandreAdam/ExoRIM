@@ -39,7 +39,7 @@ def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--hyperparameters", type=str, default="hyperparameters_small",
+    parser.add_argument("--hyperparameters", type=str, default="hyperparameters_vis",
                         help="Name of the hyperparameter file (without the file extension)")
     parser.add_argument("--tv", type=float, default=0., help="Total variation coefficient for the loss function")
     parser.add_argument("-n", "--number_images", type=int, default=50)
