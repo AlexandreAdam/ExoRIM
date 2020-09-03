@@ -14,7 +14,7 @@ class PhysicalModelv1:
 
     def __init__(self, pixels, mask_coordinates, chisq_term,
                  wavelength=0.5e-6, SNR=100, vis_phase_std=1e-5, logim=True, auto=False,
-                 *args, **kwargs):
+                 x_transform=None,*args, **kwargs):
         """
 
         :param pixels: Number of pixels on the side of the reconstructed image
@@ -24,6 +24,10 @@ class PhysicalModelv1:
         assert chisq_term in chisq.chi_squared.keys(), f"Available terms are {chisq.chi_squared.keys()}"
         self.chisq_term = chisq.chi_squared[chisq_term]
         self._chisq_term = chisq_term
+        if x_transform is None:
+            self.x_transform = chisq.chisq_x_transformation[self._chisq_term]
+        else:
+            self.x_transform = chisq.chisq_x_transformation[x_transform]
         if auto:
             self.chisq_grad_term = chisq.chisq_gradients[chisq.chi_map[chisq_term]["Auto"]]
         else:
@@ -42,6 +46,7 @@ class PhysicalModelv1:
         self.CPO = closure_phase_operator(self.baselines)
 
         self.A = NDFTM(self.baselines.UVC, wavelength, pixels, self.plate_scale)
+        self.N = mask_coordinates.shape[0]  # number of apertures
         self.p = self.A.shape[0]  # number of visibility samples
         self.q = self.CPO.shape[0]  # number of closure phases
         self.SNR = SNR
@@ -79,7 +84,7 @@ class PhysicalModelv1:
         :return: A concatenation of complex visibilities and bispectra (dtype: tf.complex128)
         """
         X = self.fourier_transform(image)
-        X = chisq.chisq_x_transformation[self._chisq_term](X, self)
+        X = self.x_transform(X, self)
         return X
 
     @tf.function
@@ -105,7 +110,7 @@ class PhysicalModelv1:
         amp = tf.cast(gain * tf.math.abs(X), mycomplex)
         phase = 1j * tf.cast(tf.math.angle(X) + phase_error, mycomplex)
         noisy_vis = amp * tf.math.exp(phase)
-        noisy_X = chisq.chisq_x_transformation[self._chisq_term](noisy_vis, self)  # TODO make a better noise model
+        noisy_X = self.x_transform(noisy_vis, self)  # TODO make a better noise model
         return noisy_X
 
     def _visibility_phase_noise(self, batch):
@@ -165,7 +170,7 @@ class MyopicPhysicalModel(PhysicalModelBase):
 
     def __init__(self, pixels, mask_coordinates, chisq_term,
                  wavelength=0.5e-6, SNR=100, vis_phase_std=1e-5, logim=True, auto=False,
-                 *args, **kwargs):
+                 x_transform=None, *args, **kwargs):
         """
 
         :param pixels: Number of pixels on the side of the reconstructed image
@@ -175,6 +180,10 @@ class MyopicPhysicalModel(PhysicalModelBase):
         assert chisq_term in chisq.chi_squared.keys(), f"Available terms are {chisq.chi_squared.keys()}"
         self.chisq_term = chisq.chi_squared[chisq_term]
         self._chisq_term = chisq_term
+        if x_transform is None:
+            self.x_transform = chisq.chisq_x_transformation[self._chisq_term]
+        else:
+            self.x_transform = chisq.chisq_x_transformation[x_transform]
         if auto:
             self.chisq_grad_term = chisq.chisq_gradients[chisq.chi_map[chisq_term]["Auto"]]
         else:
@@ -236,7 +245,7 @@ class MyopicPhysicalModel(PhysicalModelBase):
         :return: A concatenation of complex visibilities and bispectra (dtype: tf.complex128)
         """
         X = self.fourier_transform(image)
-        X = chisq.chisq_x_transformation[self._chisq_term](X, self)
+        X = self.x_transform(X, self)
         return X
 
     @tf.function
@@ -262,7 +271,7 @@ class MyopicPhysicalModel(PhysicalModelBase):
         amp = tf.cast(gain * tf.math.abs(X), mycomplex)
         phase = 1j * tf.cast(tf.math.angle(X) + phase_error, mycomplex)
         noisy_vis = amp * tf.math.exp(phase)
-        noisy_X = chisq.chisq_x_transformation[self._chisq_term](noisy_vis, self)  # TODO make a better noise model
+        noisy_X = self.x_transform(noisy_vis, self)  # TODO make a better noise model
         return noisy_X
 
     def _visibility_phase_noise(self, batch):

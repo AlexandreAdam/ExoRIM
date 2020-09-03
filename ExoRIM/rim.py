@@ -22,7 +22,7 @@ class RIM:
         if weight_file is not None:
             y = self.initial_guess(1)
             h = self.init_hidden_states(1)
-            self.model.call(y, h)
+            self.model(y, h)
             self.model.load_weights(weight_file)
         self.physical_model = physical_model
         # self.grad_scaling_factor = 1/(self.pixels * (self.physical_model.SNR**2 + 1/self.physical_model.sigma**2))
@@ -54,7 +54,7 @@ class RIM:
         :return: 5D Tensor of shape (batch_size, [image_size, channels], steps)
         """
         batch_size = X.shape[0]
-        y0 = self.initial_guess(X)
+        y0 = self.initial_guess(batch_size)
         h0 = self.init_hidden_states(batch_size)
         grad = self.physical_model.grad_log_likelihood(y0, X)
         eta_0 = self.link_function(y0)
@@ -79,10 +79,10 @@ class RIM:
     def init_hidden_states(self, batch_size):
         return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype)
 
-    def initial_guess(self, X):
+    def initial_guess(self, batch_size):
         # y0 = self.physical_model.inverse_fourier_transform(X)
         # y0 = softmax_scaler(y0, minimum=0, maximum=1.)
-        y0 = tf.ones(shape=[X.shape[0], self.pixels, self.pixels, 1]) / self.pixels**2
+        y0 = tf.ones(shape=[batch_size, self.pixels, self.pixels, 1]) / self.pixels**2
         return y0
 
     def fit(
@@ -239,7 +239,7 @@ class RIM:
                 _patience -= 1
             if checkpoint_dir is not None:
                 if epoch % checkpoints == 0 or _patience == 0 or epoch == max_epochs - 1:
-                    self.model.save_weights(os.path.join(checkpoint_dir, f"{name}_{epoch + _epoch_start:03}_{cost_value:.5f}.h5"))
+                    self.model.save(os.path.join(checkpoint_dir, f"{name}_{epoch + _epoch_start:03}_{cost_value:.5f}"), save_format="tf")
             epoch += 1
         self.hyperparameters["epoch"] = epoch + _epoch_start
         return history

@@ -153,7 +153,7 @@ def create_dataset_from_generator(
     dataset = tf.data.Dataset.from_generator(gen.generator, output_types=(mycomplex, dtype), output_shapes=shapes)
     dataset = dataset.cache()              # accelerate the second and subsequent iterations over the dataset
     dataset = dataset.batch(batch_size, drop_remainder=True)
-    dataset = dataset.enumerate(start=0)
+    # dataset = dataset.enumerate(start=0)
     dataset = dataset.prefetch(AUTOTUNE)  # Batch is prefetched by CPU while training on the previous batch occurs
     return dataset
 

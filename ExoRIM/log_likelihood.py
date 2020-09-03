@@ -1,5 +1,6 @@
 import tensorflow as tf
 from ExoRIM.definitions import mycomplex, dtype, TWOPI
+from ExoRIM.operators import closure_baselines_projectors
 
 # ==========================================================================================
 # Helper functions
@@ -20,6 +21,39 @@ def bispectrum(image, A1, A2, A3):
     V3 = tf.einsum(einsum, A3, im)
     B = V1 * tf.math.conj(V2) * V3
     return B
+
+
+def bispectrum_x(X, phys):
+    V1, V2, V3 = closure_baselines_projectors(phys.CPO.numpy())  #TODO find a better way in tensorflow
+    V1 = tf.einsum("ij, ...j -> ...i", V1, X)
+    V2 = tf.einsum("ij, ...j -> ...i", V2, X)
+    V3 = tf.einsum("ij, ...j -> ...i", V3, X)
+    return V1 * tf.math.conj(V2) * V3
+
+
+def minimize_alpha(image, X, phys):
+    step = 0
+    lr = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=1., decay_steps=300, power=3,
+                                                       end_learning_rate=1e-5)
+    opt = tf.keras.optimizers.Adam(learning_rate=lr)
+    loss = chi_squared_complex_visibility_with_self_calibration(image, X, phys)
+    previous_loss1 = 2*loss
+    previous_loss2 = 2*loss
+    delta = 100  # a percentage
+    while step < 500 and delta > 1e-6:
+        with tf.GradientTape() as tape:
+            tape.watch(phys.alpha)
+            loss = chi_squared_complex_visibility_with_self_calibration(image, X, phys)
+            delta = tf.math.abs(previous_loss2 - loss)/previous_loss2 * 100
+            previous_loss2 = previous_loss1
+            previous_loss1 = loss
+        grads = tape.gradient(target=loss, sources=phys.alpha)
+        grads = [tf.clip_by_norm(grads, 1)]
+        # print(grads[0])
+        opt.apply_gradients(zip(grads, [phys.alpha]))
+        step += 1
+    return X[-1]
+
 
 # ==========================================================================================
 # Chi squared functions
@@ -49,7 +83,7 @@ def chi_squared_complex_visibility(image, vis, phys):
     return chisq
 
 
-def chi_squared_complex_visibility_with_self_calibration(image, amp, psi, alpha, phys):
+def chi_squared_complex_visibility_with_self_calibration(image, X, phys):
     """
     Chi squared of the complex visibilities.
         image: batch of square matrix (3-tensor)
@@ -57,6 +91,9 @@ def chi_squared_complex_visibility_with_self_calibration(image, amp, psi, alpha,
         vis: data product of visibilties (dtype must be mycomplex)
         sigma: (0,1,2)-tensor. Inverse of the covariance matrix of the visibilities.
     """
+    amp = X
+    alpha = phys.alpha
+    psi = phys.psi
     sigma = phys.sigma
     im = cast_to_complex_flatten(image)
     vis_samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
@@ -155,7 +192,11 @@ def chisq_gradient_complex_visibility_analytic(image, vis, phys):
     return out / vis.shape[1]
 
 
-def chisq_gradient_complex_visibility_with_self_calibration_analytic(image, amp, psi, alpha, phys):
+def chisq_gradient_complex_visibility_with_self_calibration_analytic(image, X, phys):
+    minimize_alpha(image, X, phys)
+    amp = X
+    alpha = phys.alpha
+    psi = phys.psi
     im = cast_to_complex_flatten(image)
     sig = tf.cast(phys.sigma, mycomplex)
     vis_samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
@@ -248,10 +289,10 @@ def chisq_gradient_complex_visibility_auto(image, vis, phys):
     return gradient
 
 
-def chisq_gradient_complex_visibility_with_self_calibration_auto(image, amp, psi, alpha, phys):
+def chisq_gradient_complex_visibility_with_self_calibration_auto(image, X, phys):
     with tf.GradientTape() as tape:
         tape.watch(image)
-        chisq = chi_squared_complex_visibility_with_self_calibration(image, amp, psi, alpha, phys)
+        chisq = chi_squared_complex_visibility_with_self_calibration(image, X, phys)
     gradient = tape.gradient(target=chisq, sources=image)
     return gradient
 
@@ -305,15 +346,32 @@ def chisq_gradient_closure_phase_auto(image, clphase, phys):
 
 
 def x_transform_closure_phasor(X, phys):
-    return tf.math.angle(phys.bispectrum(X))
+    return tf.math.angle(bispectrum_x(X, phys))
 
 
 def x_transform_closure_phase(X, phys):
     return tf.einsum("ij, ...j -> ...i", phys.CPO, tf.math.angle(X) % TWOPI) % TWOPI
 
 
+def x_transform_vis_with_self_cal(X, phys):
+    amp = tf.math.abs(X)
+    phys.psi = tf.einsum("ij, ...j -> ...i", phys.CPO, tf.math.angle(X)%TWOPI) % TWOPI
+    phys.alpha = tf.Variable(tf.random.normal(shape=[X.shape[0], phys.N - 1]), constraint=lambda x: x%TWOPI)
+    return amp
+
+
 def x_transform_bispectra(X, phys):
-    return phys.bispectrum(X)
+    return phys.bispectrum_X(X, phys)
+
+
+def append_amp_closure_phases(X, phys):
+    amp = tf.math.abs(X)
+    closure_phase = x_transform_closure_phase(X, phys)
+    return tf.concat([amp, closure_phase], axis=1)
+
+
+def append_real_imag_visibility(X, phys):
+    return tf.concat([tf.math.real(X), tf.math.imag(X)], axis=1)
 
 
 chi_map = {
@@ -322,6 +380,11 @@ chi_map = {
             "Auto": "auto_visibility",
             "Analytical": "analytical_visibility"
          },
+    "visibility_with_self_cal":
+        {
+            "Auto": "auto_visibility_with_self_cal",
+            "Analytical": "analytical_visibility_with_self_cal",
+        },
     "visibility_phase":
         {
             "Auto": "visibility_phase",
@@ -351,6 +414,7 @@ chi_map = {
 
 chi_squared = {
     "visibility": chi_squared_complex_visibility,
+    "visibility_with_self_cal": chi_squared_complex_visibility_with_self_calibration,
     "visibility_phase": chi_squared_visibility_phases,
     "visibility_amplitude": chi_squared_amplitude,
     "closure_phasor": chi_squared_closure_phasor,
@@ -361,6 +425,8 @@ chi_squared = {
 chisq_gradients = {
     "analytical_visibility": chisq_gradient_complex_visibility_analytic,
     "auto_visibility": chisq_gradient_complex_visibility_auto,
+    "analytical_visibility_with_self_cal": chisq_gradient_complex_visibility_with_self_calibration_analytic,
+    "auto_visibility_with_self_cal": chisq_gradient_complex_visibility_with_self_calibration_auto,
     "visibility_phase": chisq_gradient_visibility_phases_auto,
     "analytical_visibility_amplitude": chisq_gradient_amplitude_analytic,
     "auto_visibility_ampltiude": chisq_gradient_amplitude_auto,
@@ -374,9 +440,12 @@ chisq_gradients = {
 
 chisq_x_transformation = {
     "visibility": lambda X, phys: X,  # by default we assume the transformation is the direct Fourier Transform
+    "visibility_with_self_cal": x_transform_vis_with_self_cal,
     "visibility_phase": lambda X, phys: tf.math.angle(X),
     "visibility_amplitude": lambda X, phys: tf.math.abs(X),
     "closure_phasor": x_transform_closure_phasor,
     "closure_phase": x_transform_closure_phase,
-    "bispectra": x_transform_bispectra
+    "bispectra": x_transform_bispectra,
+    "append_amp_closure_phase": append_amp_closure_phases,
+    "append_real_imag_visibility": append_real_imag_visibility
 }

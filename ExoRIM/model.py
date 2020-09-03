@@ -2,7 +2,7 @@ import tensorflow as tf
 from ExoRIM.definitions import initializer, default_hyperparameters, dtype
 
 
-class ConvGRU(tf.keras.Model):
+class ConvGRU(tf.keras.layers.Layer):
     def __init__(self, filters, kernel_size, **kwargs):
         super(ConvGRU, self).__init__(dtype=dtype, **kwargs)
         self.update_gate = tf.keras.layers.Conv2D(
@@ -30,7 +30,6 @@ class ConvGRU(tf.keras.Model):
             kernel_initializer=initializer
         )
 
-
     def call(self, features, ht):
         """
         Compute the new state tensor h_{t+1}.
@@ -45,7 +44,7 @@ class ConvGRU(tf.keras.Model):
         return new_state  # h_{t+1}
 
 
-class ResidualBlock(tf.keras.Model):
+class ResidualBlock(tf.keras.models.Model):
     def __init__(self, filters, kernel_size, alpha, kernel_reg_amp, bias_reg_amp, **kwargs):
         super(ResidualBlock, self).__init__(dtype, **kwargs)
         self.conv1 = tf.keras.layers.Conv2D(
@@ -77,7 +76,7 @@ class ResidualBlock(tf.keras.Model):
         return tf.add(X, features)
 
 
-class Model(tf.keras.Model):
+class Model(tf.keras.models.Model):
     def __init__(self, hyperparameters=default_hyperparameters, dtype=dtype, **kwargs):
         try:
             name = hyperparameters["name"]
@@ -145,7 +144,6 @@ class Model(tf.keras.Model):
             name = list(layer.keys())[0]
             params = layer[name]
             self.upsampling_block.append(tf.keras.layers.Conv2DTranspose(
-                # stride=(2, 2),  # stride of 1/4, pixel*4
                 **params,
                 name=name,
                 activation=tf.keras.layers.LeakyReLU(),
@@ -186,12 +184,12 @@ class Model(tf.keras.Model):
         input = self.batch_norm[0](input)
         for layer in self.downsampling_block:
             input = layer(input)
-            if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            if global_step() % self._timestep_mod == 0:
                 summary_histograms(layer, input)
         input = self.batch_norm[1](input)
         for layer in self.convolution_block:
             input = layer(input)
-            if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            if global_step() % self._timestep_mod == 0:
                 summary_histograms(layer, input)
         input = self.batch_norm[2](input)
         # ===== Recurrent Block =====
@@ -200,30 +198,30 @@ class Model(tf.keras.Model):
         summary_histograms(self.gru1, ht_1)
         if self.hidden_conv is not None:
             ht_1_features = self.hidden_conv(ht_1)
-            if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            if global_step() % self._timestep_mod == 0:
                 summary_histograms(self.hidden_conv, ht_1_features)
         else:
             ht_1_features = ht_1
         ht_2 = self.gru2(ht_1_features, ht_2)
-        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+        if global_step() % self._timestep_mod == 0:
             summary_histograms(self.gru2, ht_2)
         # ===========================
         delta_xt = self.batch_norm[3](ht_2)
         # delta_xt = self.upsample2d(delta_xt)
         for layer in self.upsampling_block:
             delta_xt = layer(delta_xt)
-            if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            if global_step() % self._timestep_mod == 0:
                 summary_histograms(layer, delta_xt)
         delta_xt = self.batch_norm[4](delta_xt)
         for layer in self.transposed_convolution_block:
             delta_xt = layer(delta_xt)
-            if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+            if global_step() % self._timestep_mod == 0:
                 summary_histograms(layer, delta_xt)
         new_state = tf.concat([ht_1, ht_2], axis=3)
         return delta_xt, new_state
 
 
-class Modelv2(tf.keras.Model):
+class Modelv2(tf.keras.models.Model):
     """
     A different version of the model, with a single GRU cell and a residual block after downsampling.
     """
@@ -285,28 +283,121 @@ class Modelv2(tf.keras.Model):
     # TODO remove summaries when analysis are completed
     def call(self, xt, ht):
         features = self.conv1(xt)
-        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+        if global_step() % self._timestep_mod == 0:
             summary_histograms(self.conv1, features)
 
         features = self.res1(features)
-        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+        if global_step() % self._timestep_mod == 0:
             summary_histograms(self.res1, features)
 
         ht_2 = self.gru(features, ht)
-        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+        if global_step() % self._timestep_mod == 0:
             summary_histograms(self.gru, ht_2)
 
         delta_xt = self.tconv1(ht_2)
-        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+        if global_step() % self._timestep_mod == 0:
             summary_histograms(self.tconv1, delta_xt)
 
         delta_xt = self.fraction_tconv(delta_xt)
-        if tf.summary.experimental.get_step() % self._timestep_mod == 0:
+        if global_step() % self._timestep_mod == 0:
             summary_histograms(self.fraction_tconv, delta_xt)
         return delta_xt, ht_2
+
+
+class FeedForwardModel(tf.keras.models.Model):
+    """
+    Take as input the amplitude and closure phase data, and tries to decode them into an image.
+    """
+    def __init__(self, hparams, *args, **kwargs):
+        super(FeedForwardModel, self).__init__(dtype=dtype, *args, **kwargs)
+        self.dense_block = []
+        self.conv_block = []
+        self.upsampling_block = []
+        self.batch_norm = []
+        self._timestep_mod = 30  # silent instance attribute to be modified if needed in the RIM fit method
+        kernel_reg_amp = hparams["Regularizer Amplitude"]["kernel"]
+        bias_reg_amp = hparams["Regularizer Amplitude"]["bias"]
+        try:
+            batch_norm_params = hparams["Batch Norm"]
+        except KeyError:
+            batch_norm_params = {}
+        for i in range(3):
+            self.batch_norm.append(tf.keras.layers.BatchNormalization(axis=-1, **batch_norm_params))
+
+        for layer in hparams["Dense Block"]:
+            name = list(layer.keys())[0]
+            self.dense_block.append(tf.keras.layers.Dense(
+                name=name,
+                **layer[name],
+                activation=tf.keras.layers.LeakyReLU(alpha=hparams["alpha"]),
+                kernel_initializer=tf.keras.initializers.GlorotUniform(),
+                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+            ))
+        for layer in hparams["Conv Block"][:-1]:
+            name = list(layer.keys())[0]
+            self.conv_block.append(tf.keras.layers.Conv2DTranspose(
+                name=name,
+                **layer[name],
+                padding="same",
+                data_format="channels_last",
+                activation=tf.keras.layers.LeakyReLU(alpha=hparams["alpha"]),
+                kernel_initializer=initializer,
+                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+            ))
+        for layer in hparams["Upsampling Block"]:
+            name = list(layer.keys())[0]
+            self.upsampling_block.append(tf.keras.layers.Conv2DTranspose(
+                name=name,
+                **layer[name],
+                padding="same",
+                data_format="channels_last",
+                activation=tf.keras.layers.LeakyReLU(alpha=hparams["alpha"]),
+                kernel_initializer=initializer,
+                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
+            ))
+        self.last_layer = tf.keras.layers.Conv2D(
+            filters="1",
+            kernel_size=3,
+            padding="same",
+            data_format="channels_last",
+            kernel_initializer=initializer
+        )
+
+    def call(self, X):
+        X = self.batch_norm[0](X)
+        for layer in self.dense_block:
+            X = layer(X)
+            if global_step() % self._timestep_mod == 0:
+                summary_histograms(layer, X)
+        X = self.batch_norm[1](X)
+        pix = int(X.shape[1]**(1/2))
+        X = tf.reshape(X, shape=[X.shape[0], pix, pix, 1])
+        for layer in self.upsampling_block:
+            X = layer(X)
+            if global_step() % self._timestep_mod == 0:
+                summary_histograms(layer, X)
+        for layer in self.conv_block:
+            X = layer(X)
+            if global_step() % self._timestep_mod == 0:
+                summary_histograms(layer, X)
+        X = self.batch_norm[2](X)
+        X = self.last_layer(X)
+        X = tf.keras.activations.softmax(X, axis=[1, 2])
+        return X
 
 
 def summary_histograms(layer, activation):
     tf.summary.histogram(layer.name + "_activation", data=activation, step=tf.summary.experimental.get_step())
     for weights in layer.trainable_weights:
         tf.summary.histogram(weights.name, data=weights, step=tf.summary.experimental.get_step())
+
+
+def global_step():
+    step = tf.summary.experimental.get_step()
+    if step is not None:
+        return step
+    else:
+        return -1

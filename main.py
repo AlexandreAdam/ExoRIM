@@ -42,7 +42,7 @@ if __name__ == "__main__":
     parser.add_argument("--hyperparameters", type=str, default="hyperparameters_vis",
                         help="Name of the hyperparameter file (without the file extension)")
     parser.add_argument("--tv", type=float, default=0., help="Total variation coefficient for the loss function")
-    parser.add_argument("-n", "--number_images", type=int, default=50)
+    parser.add_argument("-n", "--number_images", type=int, default=100)
     parser.add_argument("-w", "--wavelength", type=float, default=0.5e-6)
     parser.add_argument("--SNR", type=float, default=200, help="Signal to noise ratio")
     parser.add_argument("-s", "--split", type=float, default=0.8)
@@ -57,7 +57,6 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--max_epoch", type=int, default=50, help="Maximum number of epoch")
     parser.add_argument("--index_save_mod", type=int, default=20, help="Image index to be saved")
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
-    parser.add_argument("--scaling_factor", type=float, default=10**5, help="Maximum intensity, sets the log domain for the model input")
     parser.add_argument("--noise_floor", type=float, default=1, help="Intensity noise floor")
     parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
     parser.add_argument("--fixed", action="store_true", help="Keeps the dataset fix for each epochs to monitor progress")
@@ -182,7 +181,7 @@ if __name__ == "__main__":
     )
     for key, item in history.items():
         np.savetxt(os.path.join(results_dir, key + ".txt"), item)
-    with open(os.path.join(models_dir, h_file), "w") as f:
+    with open(os.path.join(models_dir, "hyperparametres.json"), "w") as f:
         json.dump(rim.hyperparameters, f)
     # saves the ground truth images
     replay_dataset_from_generator(
