@@ -2,7 +2,8 @@ import tensorflow as tf
 import numpy as np
 from ExoRIM.definitions import dtype, mycomplex, rad2mas, triangle_pulse_f, mas2rad, TWOPI
 from ExoRIM.base import PhysicalModelBase, BaselinesBase
-from ExoRIM.operators import Baselines, closure_phase_operator, NDFTM, closure_phase_covariance_inverse, closure_fourier_matrices
+from ExoRIM.operators import Baselines, closure_phase_operator, NDFTM, closure_phase_covariance_inverse, closure_fourier_matrices, \
+    closure_baselines_projectors
 import ExoRIM.log_likelihood as chisq
 from scipy.linalg import pinv as pseudo_inverse, null_space
 
@@ -12,27 +13,14 @@ class PhysicalModelv1:
     This model create discrete Fourier matrices and scales poorly on large number of pixels and baselines.
     """
 
-    def __init__(self, pixels, mask_coordinates, chisq_term,
-                 wavelength=0.5e-6, SNR=100, vis_phase_std=1e-5, logim=True, auto=False,
-                 x_transform=None,*args, **kwargs):
+    def __init__(self, pixels, mask_coordinates,
+                 wavelength=0.5e-6, SNR=100, vis_phase_std=1e-5, logim=True):
         """
 
         :param pixels: Number of pixels on the side of the reconstructed image
         :param SNR: Signal to noise ratio for a measurement
         """
-        # super(PhysicalModelv1, self).__init__(*args, **kwargs)
-        assert chisq_term in chisq.chi_squared.keys(), f"Available terms are {chisq.chi_squared.keys()}"
-        self.chisq_term = chisq.chi_squared[chisq_term]
-        self._chisq_term = chisq_term
-        if x_transform is None:
-            self.x_transform = chisq.chisq_x_transformation[self._chisq_term]
-        else:
-            self.x_transform = chisq.chisq_x_transformation[x_transform]
-        if auto:
-            self.chisq_grad_term = chisq.chisq_gradients[chisq.chi_map[chisq_term]["Auto"]]
-        else:
-            self.chisq_grad_term = chisq.chisq_gradients[chisq.chi_map[chisq_term]["Analytical"]]
-
+        self.version = "v1"
         self.pixels = pixels
         self.baselines = Baselines(mask_coordinates=mask_coordinates)
         self.resolution = rad2mas(wavelength / np.max(np.sqrt(self.baselines.UVC[:, 0]**2 + self.baselines.UVC[:, 1]**2)))
@@ -63,18 +51,13 @@ class PhysicalModelv1:
         self.logim = logim # whether we reconstruct in tje log space or brightness space
 
     @tf.function
-    def log_likelihood(self, image, X):
-        """
-        Compute the negative of the log likelihood of the image given interferometric data X.
-        """
-        return self.chisq_term(image, X, self)
-
-    @tf.function
     def grad_log_likelihood(self, image, X):
         """
         Compute the chi squared gradient relative to image pixels given interferometric data X
         """
-        return self.chisq_grad_term(image, X, self)
+        grad1 = chisq.chisq_gradient_amplitude_analytic(image, tf.math.abs(X[:, :self.p]), self)
+        grad2 = chisq.chisq_gradient_closure_phase_auto(image, tf.math.angle(X[:, self.p:]), self)
+        return tf.concat([grad1, grad2], axis=-1)
 
     def forward(self, image):
         """
@@ -83,17 +66,16 @@ class PhysicalModelv1:
         :param flux: Flux vector of size (Batch size)
         :return: A concatenation of complex visibilities and bispectra (dtype: tf.complex128)
         """
-        X = self.fourier_transform(image)
-        X = self.x_transform(X, self)
-        return X
+        visibilities = self.fourier_transform(image)
+        bispectra = self.bispectrum(image)
+        y = tf.concat([visibilities, bispectra], axis=1)  # p + q length vectors of type complex128
+        return y
 
-    @tf.function
     def fourier_transform(self, image):
         im = tf.cast(image, mycomplex)
         flat = self.flatten(im)
         return tf.einsum("ij, ...j->...i", self.A, flat)  # tensordot broadcasted on batch_size
 
-    @tf.function
     def bispectrum(self, image):
         im = tf.cast(image, mycomplex)
         flat = self.flatten(im)
@@ -110,8 +92,12 @@ class PhysicalModelv1:
         amp = tf.cast(gain * tf.math.abs(X), mycomplex)
         phase = 1j * tf.cast(tf.math.angle(X) + phase_error, mycomplex)
         noisy_vis = amp * tf.math.exp(phase)
-        noisy_X = self.x_transform(noisy_vis, self)  # TODO make a better noise model
-        return noisy_X
+        V1, V2, V3 = closure_baselines_projectors(self.CPO.numpy())  # TODO find a better way in tensorflow
+        V1 = tf.einsum("ij, ...j -> ...i", V1, X)
+        V2 = tf.einsum("ij, ...j -> ...i", V2, X)
+        V3 = tf.einsum("ij, ...j -> ...i", V3, X)
+        noisy_bis = V1 * tf.math.conj(V2) * V3
+        return tf.concat([noisy_vis, noisy_bis], axis=1)
 
     def _visibility_phase_noise(self, batch):
         """
@@ -160,9 +146,9 @@ class PhysicalModelv1:
 
 
 
+
 #TODO decide on convention for constructing bispectrum (either A2 is taken to be conjugate always or conjugate is
 # explicit in every chi squared terms)
-
 class MyopicPhysicalModel(PhysicalModelBase):
     """
     Physical Model with a pseudo amplitude and phase data model.

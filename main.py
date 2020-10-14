@@ -39,7 +39,7 @@ def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--hyperparameters", type=str, default="hyperparameters_vis",
+    parser.add_argument("--hyperparameters", type=str, default="hyperparameters_small",
                         help="Name of the hyperparameter file (without the file extension)")
     parser.add_argument("--tv", type=float, default=0., help="Total variation coefficient for the loss function")
     parser.add_argument("-n", "--number_images", type=int, default=100)
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--min_delta", type=float, default=0.05, help="Tolerance for early stopping")
     parser.add_argument("-p", "--patience", type=int, default=3, help="Patience for early stopping")
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
-    parser.add_argument("-e", "--max_epoch", type=int, default=50, help="Maximum number of epoch")
+    parser.add_argument("-e", "--max_epoch", type=int, default=20, help="Maximum number of epoch")
     parser.add_argument("--index_save_mod", type=int, default=20, help="Image index to be saved")
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
     parser.add_argument("--noise_floor", type=float, default=1, help="Intensity noise floor")
@@ -76,25 +76,6 @@ if __name__ == "__main__":
     hyperparameters["date"] = date
     # metrics only support grey scale images
     mae = MAE()
-    metrics = {
-        "ssim": lambda Y_pred, Y_true: tf.reduce_mean(tf.image.ssim(Y_pred, Y_true, max_val=1.0)),
-        # Bug is tf 2.0.0, make sure filter size is small enough such that H/2**4 and W/2**4 >= filter size
-        # alternatively (since H/2**4 is = 1 in our case), it is possible to lower the power factors such that
-        # H/(2**(len(power factor)-1)) > filter size
-        # Hence, using 3 power factors with filter size=2 works, and so does 2 power factors with filter_size <= 8
-        # paper power factors are [0.0448, 0.2856, 0.3001, 0.2363, 0.1333]
-        # After test, it seems filter_size=11 also works with 2 power factors and 32 pixel image
-        # "ssim_multiscale_01": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
-        #                                                                       filter_size=11,
-        #                                                                       power_factors=[0.0448, 0.2856]),
-        # "ssim_multiscale_23": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
-        #                                                                       filter_size=11,
-        #                                                                       power_factors=[0.3001, 0.2363]),
-        # "ssim_multiscale_34": lambda Y_pred, Y_true: tf.image.ssim_multiscale(Y_pred, Y_true, max_val=1.0,
-        #                                                                       filter_size=11,
-        #                                                                       power_factors=[0.2363, 0.1333])
-        "mae": lambda Y_pred, Y_true: mae.test(Y_pred, Y_true)
-    }
 
     basedir = os.getcwd()  # assumes script is run from base directory
     results_dir = os.path.join(basedir, "results", id)
@@ -121,23 +102,22 @@ if __name__ == "__main__":
     mask = np.random.normal(0, args.longest_baseline/2, (args.holes, 2))
     phys = PhysicalModel(
         pixels=hyperparameters["pixels"],
-        # mask_coordinates=circle_mask,
-        mask_coordinates=mask,
-        chisq_term=hyperparameters["log_likelihood_term"],
+        mask_coordinates=circle_mask,
+        # mask_coordinates=mask,
         wavelength=args.wavelength,
         SNR=args.SNR
     )
-    metrics.update({
-        "Chi_squared_visibilities": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_complex_visibility(
-            Y_pred, phys.forward(Y_true), phys
-        )),
-        "Chi_squared_closure_phases": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_closure_phasor(
-            Y_pred, tf.math.angle(phys.bispectrum(Y_true)), phys
-        )),
-        "Chi_squared_amplitude": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_amplitude(
-            Y_pred, tf.math.abs(phys.forward(Y_true)), phys
-        ))
-    })
+    # metrics.update({
+    #     "Chi_squared_visibilities": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_complex_visibility(
+    #         Y_pred, phys.forward(Y_true), phys
+    #     )),
+    #     "Chi_squared_closure_phases": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_closure_phasor(
+    #         Y_pred, tf.math.angle(phys.bispectrum(Y_true)), phys
+    #     )),
+    #     "Chi_squared_amplitude": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_amplitude(
+    #         Y_pred, tf.math.abs(phys.forward(Y_true)), phys
+    #     ))
+    # })
 
     rim = RIM(physical_model=phys, hyperparameters=hyperparameters, noise_floor=args.noise_floor)
     train_dataset = create_dataset_from_generator(
@@ -165,7 +145,7 @@ if __name__ == "__main__":
         cost_function=cost_function,
         min_delta=args.min_delta,
         patience=args.patience,
-        metrics=metrics,
+        metrics=None,#metrics,
         track="train_loss",
         checkpoints=args.checkpoint,
         output_dir=results_dir,

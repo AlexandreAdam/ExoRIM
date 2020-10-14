@@ -5,7 +5,7 @@
 		"channels": 1,
 		"state_size": 32,
 		"state_depth": 128,
-		"log_likelihood_term": "amplitude",
+		"log_likelihood_term": ["amplitude"],
 		"learning rate": {
             "initial_learning_rate": 1e-3,
             "decay_steps": 1000,

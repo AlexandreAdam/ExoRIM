@@ -4,7 +4,7 @@
 		"channels": 1,
 		"state_size": 16,
 		"state_depth": 64,
-		"log_likelihood_term": "visibility",
+		"log_likelihood_term": ["visibility"],
 		"learning rate": {
             "initial_learning_rate": 1e-3,
             "decay_steps": 10,

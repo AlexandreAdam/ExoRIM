@@ -72,7 +72,7 @@ class RIM:
             grad = self.grad_scaling(grad)
             gt, ht = self.model(stacked_input, ht)
             eta_t = eta_t + gt
-            outputs = tf.concat([outputs, tf.reshape(eta_t, eta_t.shape + [1])], axis=4)
+            outputs = tf.concat([outputs, tf.reshape(eta_t, eta_t.shape + [1])], axis=4)  #TODO use tf.stack
             grads = tf.concat([grads, grad], axis=3)
         return outputs, grads
 
@@ -170,9 +170,10 @@ class RIM:
         while _patience > 0 and epoch < max_epochs and (time.time() - start) < max_time*3600:
             epoch_loss.reset_states()
             metrics_train = {key: 0 for key in metrics.keys()}
+            batch = -1
             with train_writer.as_default():
-                for batch, (X, Y) in train_dataset:  # X and Y by ML convention, batch is an index
-                    batch = batch.numpy()
+                for (X, Y) in train_dataset:  # X and Y by ML convention, batch is an index
+                    batch += 1
                     with tf.GradientTape() as tape:
                         tape.watch(self.model.trainable_weights)
                         output, grads = self.call(X)
@@ -215,7 +216,7 @@ class RIM:
 
             if test_dataset is not None:
                 with test_writer.as_default():
-                    for batch, (X, Y) in test_dataset:  # this dataset should not be batched, so this for loop has 1 iteration
+                    for (X, Y) in test_dataset:  # this dataset should not be batched, so this for loop has 1 iteration
                         test_eta_output, _ = self.call(X)
                         test_output = self.inverse_link_function(test_eta_output)
                         test_cost = cost_function(test_eta_output, self.link_function(Y))
@@ -239,7 +240,7 @@ class RIM:
                 _patience -= 1
             if checkpoint_dir is not None:
                 if epoch % checkpoints == 0 or _patience == 0 or epoch == max_epochs - 1:
-                    self.model.save(os.path.join(checkpoint_dir, f"{name}_{epoch + _epoch_start:03}_{cost_value:.5f}"), save_format="tf")
+                    self.model.save_weights(os.path.join(checkpoint_dir, f"{name}_{epoch + _epoch_start:03}_{cost_value:.5f}.h5"))
             epoch += 1
         self.hyperparameters["epoch"] = epoch + _epoch_start
         return history

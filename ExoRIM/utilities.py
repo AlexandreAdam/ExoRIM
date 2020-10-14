@@ -166,7 +166,9 @@ def replay_dataset_from_generator(dataset:tf.data.Dataset, epochs, dirname, form
     for epoch in range(max_epoch):
         image_index = 0
         if epoch % epoch_mod == 0:
-            for batch_index, (vis, image) in dataset:
+            batch = -1
+            for (vis, image) in dataset:
+                batch += 1
                 for im in image.numpy():  # iterate over batch
                     if image_index % index_mod != 0:
                         image_index += 1
