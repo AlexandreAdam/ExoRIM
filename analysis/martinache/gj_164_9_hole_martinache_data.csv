@@ -1,6 +1,9 @@
 # closure triangle index, closure phase (degree)
 # This is the full non-redundant set of closure phases from
 # https://iopscience.iop.org/article/10.1088/0004-637X/695/2/1183/pdf
+# params: separation = 86 mas
+# params: PA = 102 degrees
+# params: contrast = 5:1
 0, 8.784850388753625
 1, 4.555252984558564
 2, 3.5850950557050325

@@ -168,15 +168,15 @@ def centroid(image, threshold=0, binarize=False):
 
 def triangle_pulse_f(omega, pdim):
     out = np.ones_like(omega)
-    mask = np.where(omega != 0)[0]
-    out[mask] *= (4.0/(pdim**2 * omega**2)) * (np.sin((pdim * omega)/2.0))**2
+    mask = omega != 0
+    out[mask] *= 4.0 / pdim**2 / omega[mask]**2 * np.sin((pdim * omega[mask])/2.0)**2
     return out
 
 
 def rectangular_pulse_f(omega, pdim):
     out = np.ones_like(omega)
     mask = np.where(omega != 0)[0]
-    out[mask] *= (2.0/(pdim * omega)) * (np.sin((pdim * omega)/2.0))
+    out[mask] *= 2.0/pdim / omega[mask] * np.sin((pdim * omega[mask])/2.0)
     return out
 
 

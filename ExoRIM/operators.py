@@ -39,7 +39,8 @@ class Baselines:
         _, ui = np.unique(np.round(UVC[:, 0], self.precision), return_index=True)
         _, vi = np.unique(np.round(UVC[:, 1], self.precision), return_index=True)
         # We keep only the rows of the operators corresponding to the union of u_index and v_index
-        distinct_baselines = np.sort(np.array(list(set(ui).union(set(vi)))))  # sort to keep row order
+        # distinct_baselines = np.sort(np.array(list(set(ui).union(set(vi)))))  # sort to keep row order
+        distinct_baselines = np.ones_like(BLM[:, 0], dtype=bool)
         self.BLM = BLM[distinct_baselines]
         self.UVC = UVC[distinct_baselines]
         self.nbuv = distinct_baselines.size
@@ -148,6 +149,7 @@ def closure_phase_operator_pseudo_inverse(CPO):
     return pseudo_inverse(CPO)
 
 
+#TODO this bugs if baselines had to cut redundant
 def closure_phase_operator(B: Baselines, fixed_aperture=0):
     """
     The phase closure operator (CPO) can act on visibilities phase vector and map them to bispectra phases. Its shape
