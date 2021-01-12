@@ -3,8 +3,9 @@ from ExoRIM.operators import Baselines, redundant_phase_closure_operator, NDFTM,
 from ExoRIM.log_likelihood import bispectrum
 from ExoRIM.definitions import rad2mas
 import matplotlib.pyplot as plt
+from xara.core import phase_binary
 
-pixels = 64
+pixels = 128
 sep = 86  # mas
 PA = 102  # degrees
 contrast = 5
@@ -42,7 +43,8 @@ def main():
     rho = np.sqrt(B.UVC[:, 0] ** 2 + B.UVC[:, 1] ** 2) / wavel  # frequency in 1/RAD
     theta = rad2mas(1 / rho)  # angular scale covered in mas
     # this picks out the bulk of the baseline frequencies, leaving out poorly constrained lower frequencies
-    plate_scale = (np.median(theta) + 5 * np.std(theta)) / pixels
+    plate_scale = (np.median(theta) + 6 * np.std(theta)) / pixels
+    print(plate_scale * pixels)
 
     A = NDFTM(B.UVC, wavel, pixels, plate_scale)
     A1, A2, A3 = closure_fourier_matrices(A, CPO)
@@ -56,11 +58,14 @@ def main():
     print(np.deg2rad(PA) / np.pi)
     print(theta)
 
-    image += super_gauss0(pixels, ps, sep/2, PA, 3) / contrast
-    image += super_gauss0(pixels, ps, -sep/2, PA, 3)
+    image += super_gauss0(pixels, ps, sep/2, PA, 5) / contrast
+    image += super_gauss0(pixels, ps, -sep/2, PA, 5)
 
     bis = bispectrum(image.reshape((1, -1)), A1, A2, A3).numpy().reshape((-1))
     cp = np.angle(bis)
+
+    phase_xara = phase_binary(B.UVC[:, 1], B.UVC[:, 0], wavel, [sep, PA, contrast], deg=False)
+    cl_xara = np.rad2deg(CPO @ phase_xara)
 
     extent = [coord[0] - ps, coord[-1] + ps, coord[0] - ps, coord[-1] + ps]
     fig, ax1 = plt.subplots()
@@ -73,8 +78,9 @@ def main():
     np.savetxt("martinache/image.txt", image)
 
     plt.figure()
-    plt.plot(np.arange(cp.size), np.rad2deg(cp), "k-", label="exorim")
-    plt.plot(data[:, 0], data[:, 1], "r-", label="Martinache2009")
+    plt.plot(np.arange(cp.size), np.rad2deg(cp), "k-", label="exorim", lw=1)
+    # plt.plot(data[:, 0], data[:, 1], "r-", label="Martinache2009", lw=1)
+    plt.plot(np.arange(cl_xara.size), cl_xara, "b-", label="Xara", lw=1)
     plt.xlabel("Closure triangle")
     plt.ylabel("Closure phase (degrees)")
     plt.legend()

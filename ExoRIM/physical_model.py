@@ -126,7 +126,7 @@ class PhysicalModelv1:
         rho = np.sqrt(B.UVC[:, 0]**2 + B.UVC[:, 1]**2) / wavel  # frequency in 1/RAD
         theta = rad2mas(1/rho)  # angular scale covered in mas
         # this picks out the bulk of the baseline frequencies, leaving out poorly constrained lower frequencies
-        plate_scale = (np.median(theta) + 2*np.std(theta))/pixels
+        plate_scale = (np.median(theta) + 5*np.std(theta))/pixels/20
         return plate_scale
 
     @staticmethod

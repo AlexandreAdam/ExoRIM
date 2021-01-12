@@ -3,7 +3,8 @@ import numpy as np
 from ExoRIM.definitions import dtype
 from ExoRIM.model import FeedForwardModel
 from ExoRIM.physical_model import PhysicalModel
-from ExoRIM.utilities import create_dataset_from_generator, replay_dataset_from_generator
+# from ExoRIM.operators import Baselines, closure_fourier_matrices, redundant_phase_closure_operator
+# from ExoRIM.utilities import create_dataset_from_generator, replay_dataset_from_generator
 from ExoRIM.loss import Loss, MAE
 import ExoRIM.log_likelihood as chisq
 import json, os
@@ -70,8 +71,8 @@ def main():
     pq = N * (N - 1) // 2 + (N - 1) * (N - 2) // 2
     batch = 10
     mask = np.random.normal(0, 6, (N, 2))
-    phys = PhysicalModel(pixels=hparams["pixels"], mask_coordinates=mask,
-                         chisq_term="visibility", x_transform="append_real_imag_visibility")#append_amp_closure_phase")
+    phys = PhysicalModel(pixels=hparams["pixels"], mask_coordinates=mask)
+                         # chisq_term="visibility", x_transform="append_real_imag_visibility")#append_amp_closure_phase")
     # dataset = create_dataset_from_generator(phys, item_per_epoch=1000, batch_size=batch)
     # valid_data = create_dataset_from_generator(phys, item_per_epoch=100, batch_size=10, fixed=True, seed=31415)
     dataset = simple_dataset(number_images=1000, pixels=hparams["pixels"], batch_size=50, phys=phys)
@@ -90,7 +91,7 @@ def main():
     }
     metrics.update({
         "Chi_squared_visibilities": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_complex_visibility(
-            Y_pred, phys.forward(Y_true), phys
+            Y_pred, phys.forward(Y_true)[:, :phys.p], phys
         )),
         "Chi_squared_closure_phases": lambda Y_pred, Y_true: tf.reduce_mean(chisq.chi_squared_closure_phasor(
             Y_pred, tf.math.angle(phys.bispectrum(Y_true)), phys
