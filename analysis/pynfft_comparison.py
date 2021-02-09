@@ -51,5 +51,7 @@ plan.trafo()
 vis = plan.f.copy() * phase
 end = time.time() - start
 print(f"Took {end:.4f} seconds to compute NFFT") # usually at least 5x faster, scales better with large number of pixels
+# print(np.abs(vis))
+# print(np.abs(vis1))
 assert np.allclose(np.abs(vis), np.abs(vis1), rtol=1e-5)
 assert np.allclose(np.sin(np.angle(vis) - np.angle(vis1)), np.zeros_like(vis), atol=1e-5)
