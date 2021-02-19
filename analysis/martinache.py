@@ -9,7 +9,10 @@ pixels = 248
 sep = 86  # mas
 PA = 102  # degrees
 contrast = 5
-wavel = 0.5e-6
+wavel = 1.7e-6 # hband, see Keck, Palomar
+
+# Splodges -- overlay fft of mask and 
+
 mask = np.loadtxt("martinache/golay9.txt")
 data = np.loadtxt("martinache/gj_164_9_hole_martinache_data.csv", delimiter=",")
 print(mask)
@@ -117,10 +120,10 @@ def main():
     np.savetxt("martinache/image.txt", image)
 
     plt.figure()
-    plt.plot(np.rad2deg(cp), "k-", label="exorim", lw=1)
-    plt.plot(data[:, 0], data[:, 1], "r-", label="Martinache2009", lw=1)
-    plt.plot(np.rad2deg(cp_xara), "b-", label="Xara", lw=1)
-    plt.plot(cp_model, "g-", label="expected", lw=1)
+    plt.plot(np.sort(np.rad2deg(cp)), "k-", label="exorim", lw=1)
+    plt.plot(np.sort(data[:, 1]), "r-", label="Martinache2009", lw=1)
+    plt.plot(np.sort(np.rad2deg(cp_xara)), "b-", label="Xara", lw=1)
+    plt.plot(np.sort(cp_model), "g-", label="expected", lw=1)
     plt.xlabel("Closure triangle")
     plt.ylabel("Closure phase (degrees)")
     plt.legend()
