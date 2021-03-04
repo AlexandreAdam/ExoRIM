@@ -26,10 +26,9 @@ class PhysicalModelv1:
         self.resolution = rad2mas(wavelength / np.max(np.sqrt(self.baselines.UVC[:, 0]**2 + self.baselines.UVC[:, 1]**2)))
 
         self.plate_scale = self.compute_plate_scale(self.baselines, pixels, wavelength)
-        self.smallest_scale = self.minimum_scale(self.baselines, self.plate_scale, wavelength)
 
-        self.pulse = triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 0] / wavelength, mas2rad(self.resolution))
-        self.pulse *= triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 1] / wavelength, mas2rad(self.resolution))
+        # self.pulse = triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 0] / wavelength, mas2rad(self.resolution))
+        # self.pulse *= triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 1] / wavelength, mas2rad(self.resolution))
 
         self.CPO = closure_phase_operator(self.baselines)
 
@@ -116,32 +115,15 @@ class PhysicalModelv1:
         """
         return tf.constant(np.random.normal(1, 1/self.SNR, size=[batch, self.p]), dtype=dtype)
 
-    @staticmethod
-    def compute_plate_scale(B: Baselines, pixels, wavel) -> float:
-        """
-        Given a mask (with coordinate in meters) and a square image with *pixels* side coordinates, we evaluate the
-        resolution of the virtual telescope and estimate a plate scale that will produce an image where object have
-        frequency of the order that can be interpolated by the uv coverage.
-        """
+    def compute_plate_scale(self, B: Baselines, pixels, wavel) -> float:
+        # by default, use FOV/pixels and hope this satisfy Nyquist sampling criterion
         rho = np.sqrt(B.UVC[:, 0]**2 + B.UVC[:, 1]**2) / wavel  # frequency in 1/RAD
-        theta = rad2mas(1/rho)  # angular scale covered in mas
-        # this picks out the bulk of the baseline frequencies, leaving out poorly constrained lower frequencies
-        plate_scale = (np.median(theta) + 5*np.std(theta))/pixels/20
+        fov = rad2mas(1/rho.min())
+        B = 1/rad2mas(1/rho.max()) # highest frequeny in the signal in mas^{-1}
+        plate_scale = fov / self.pixels
+        if 1/plate_scale <= 2 * B:
+            print("Nyquist sampling criterion is not satisfied")
         return plate_scale
-
-    @staticmethod
-    def minimum_scale(B: Baselines, plate_scale, wavel) -> float:
-        """
-        Return the minimum scale that can be put into an image. Will constrained the lower bound
-        of the pixel frequency.
-
-        plate_scale: in mas/pixel
-
-        return smallest scale in pixels
-        """
-        highest_frequency = np.max(np.sqrt(B.UVC[:, 0]**2 + B.UVC[:, 1]**2))/wavel  #1/RAD
-        smallest_scale = rad2mas(1/highest_frequency) / plate_scale
-        return smallest_scale
 
 
 

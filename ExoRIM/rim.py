@@ -8,8 +8,8 @@ import os
 
 
 class RIM:
-    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=dtype, weight_file=None,
-                 noise_floor=1e-8):
+    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=dtype,
+                 noise_floor=1e-16):
         self._dtype = dtype
         self.noise_floor = noise_floor
         self.hyperparameters = hyperparameters
@@ -19,25 +19,17 @@ class RIM:
         self.state_size = hyperparameters["state_size"]
         self.state_depth = hyperparameters["state_depth"]
         self.model = Model(hyperparameters, dtype=self._dtype)
-        if weight_file is not None:
-            y = self.initial_guess(1)
-            h = self.init_hidden_states(1)
-            self.model(y, h)
-            self.model.load_weights(weight_file)
         self.physical_model = physical_model
         # self.grad_scaling_factor = 1/(self.pixels * (self.physical_model.SNR**2 + 1/self.physical_model.sigma**2))
         self.grad_scaling_factor = tf.constant(1/100, dtype)
 
     @tf.function
     def link_function(self, y):
-        return tf.math.log(self.pixels**2 * y + self.noise_floor)
+        return tf.math.log(y + self.noise_floor)
 
     @tf.function
     def inverse_link_function(self, eta):
-        # return a probability distribution --> enforces flux normalisation!
-        if len(eta.shape) == 5:
-            return tf.keras.activations.softmax(eta, axis=(1, 2, 3, 4))
-        return tf.keras.activations.softmax(eta, axis=(1, 2, 3))
+        return tf.math.exp(y)
 
     # @tf.function
     def grad_scaling(self, grad):

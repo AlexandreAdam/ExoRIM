@@ -168,7 +168,7 @@ class CenteredImagesv1:
         return coords
 
 
-class OffCenteredBinaries:
+class CenteredBinaries:
     """
     This class create the meta data for a dataset composed of randomly placed binary objects (gaussian blob).
     """
@@ -176,72 +176,40 @@ class OffCenteredBinaries:
             self,
             total_items=1000,
             seed=42,
-            channels=1,
             pixels=32,
-            highest_contrast=0.3,
-            max_distance=8  # in pixels
+            width=5 # sigma paramater of super gaussian
     ):
-        np.random.seed(seed)
         self.total_items = total_items
         self.pixels = pixels
-        self.highest_contrast = highest_contrast
-        self.max_distance = max_distance
+        self.width = width
+        self.max_sep = pixels/2
 
-        self.distance = self._distance()
-        self.angle = self._angle()
-        self.intensities = self._intensities()
+        # make coordinate system
+        x = np.arange(pixels) - pixels//2 + 0.5 # works when #pixels is even
+        xx, yy = np.meshgrid(x, x)
+        self.x = xx
+        self.y = yy
 
-    def gaussian_psf_convolution(self, sigma, intensity, xp=0, yp=0):
-        """
-        #TODO make the unit conversion between pixel, arcsec and meters in image plane explicit in this function
-        :param xp: x coordinates of the points sources in meter (should be list of numpy array)
-        :param yp: y coordinates of the points sources in meter ("")
-        :param intensities: intensity of the point source, should be in watt per meter squared
-        :param sigma: radius of the point source image
-        :return: Image plane field, normalized
-        """
-        image_coords = np.arange(self.pixels) - self.pixels / 2.
-        xx, yy = np.meshgrid(image_coords, image_coords)
-        image = np.zeros_like(xx)
-        rho_squared = (xx - xp) ** 2 + (yy - yp) ** 2
-        image += intensity / (sigma * np.sqrt(2. * np.pi)) * np.exp(-0.5 * (rho_squared / sigma ** 2))
-        image = self.normalize(image)
-        return image
-
-    def generate_epoch_images(self):
-        """
-
-        :return: image tensor of size (total_items, pixels, pixels)
-        """
-        images = np.zeros(shape=(self.total_items, self.pixels, self.pixels, 1))  # one channel
-        images += 1e-4 * np.random.random(size=images.shape) + 1e-5 # background
+    def generate_epoch(self):
+        separation = np.random.uniform(size=[self.total_items], low=2, high=self.max_sep)
+        angle = np.random.uniform(size=[self.total_items], low=0, high=2 * np.pi)
+        images = np.zeros(shape=[self.total_items, self.pixels, self.pixels])
         for i in range(self.total_items):
-            for j in range(2):
-                sign = 1 if j == 0 else -1
-                x = int(np.ceil(sign * self.distance[i]/2 * np.cos(self.angle[i]))) + self.pixels//2
-                y = int(np.ceil(sign * self.distance[i]/2 * np.sin(self.angle[i]))) + self.pixels//2
-                images[i, x, y, 0] += self.intensities[i][j]
+            for j in range(2): # make a 180 rotation for j=1
+                x0 = separation[i] * np.cos(angle[i] + j * np.pi)/2
+                y0 = separation[i] * np.sin(angle[i] + j * np.pi)/2
+                images[i] += self.super_gaussian(x0, y0)
+
+        images = images / images.sum(axis=(1,2), keepdims=True)
         return images
 
-    @staticmethod
-    def normalize(image):
-        return (image - image.min()) / (image.max() - image.min())
+    def super_gaussian(self, x0, y0):
+        rho = np.hypot(self.x - x0, self.y - y0)
+        return np.exp(-0.5 * (rho/self.width)**4)
 
-    def _angle(self):
-        pool = np.linspace(-np.pi, np.pi, 1000)
-        return np.random.choice(pool, size=self.total_items)
 
-    def _distance(self):
-        pool = np.arange(2, self.max_distance)
-        return np.random.choice(pool, size=self.total_items)
 
-    def _intensities(self):
-        """
 
-        :return: list of intensity of the center point [[1, 1 - contrast]]
-        """
-        contrast = np.random.random(size=self.total_items) * self.highest_contrast
-        return [[1, 1 - c] for c in contrast]
 
 
 class CenteredCircle:
