@@ -29,7 +29,7 @@ class RIM:
 
     @tf.function
     def inverse_link_function(self, eta):
-        return tf.math.exp(y)
+        return tf.math.exp(eta)
 
     # @tf.function
     def grad_scaling(self, grad):

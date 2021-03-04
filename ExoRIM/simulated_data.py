@@ -175,9 +175,8 @@ class CenteredBinaries:
     def __init__(
             self,
             total_items=1000,
-            seed=42,
             pixels=32,
-            width=5 # sigma paramater of super gaussian
+            width=5 # sigma parameter of super gaussian
     ):
         self.total_items = total_items
         self.pixels = pixels
@@ -190,17 +189,17 @@ class CenteredBinaries:
         self.x = xx
         self.y = yy
 
-    def generate_epoch(self):
+    def generate_epoch_images(self):
         separation = np.random.uniform(size=[self.total_items], low=2, high=self.max_sep)
-        angle = np.random.uniform(size=[self.total_items], low=0, high=2 * np.pi)
-        images = np.zeros(shape=[self.total_items, self.pixels, self.pixels])
+        angle = np.random.uniform(size=[self.total_items], low=0, high=np.pi)
+        images = np.zeros(shape=[self.total_items, self.pixels, self.pixels, 1])
         for i in range(self.total_items):
             for j in range(2): # make a 180 rotation for j=1
                 x0 = separation[i] * np.cos(angle[i] + j * np.pi)/2
                 y0 = separation[i] * np.sin(angle[i] + j * np.pi)/2
-                images[i] += self.super_gaussian(x0, y0)
+                images[i, ..., 0] += self.super_gaussian(x0, y0)
 
-        images = images / images.sum(axis=(1,2), keepdims=True)
+        images = images / images.sum(axis=(1, 2), keepdims=True)
         return images
 
     def super_gaussian(self, x0, y0):

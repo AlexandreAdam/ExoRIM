@@ -1,9 +1,9 @@
 from ExoRIM import RIM, MSE, PhysicalModel
 from ExoRIM.loss import MAE, Loss
 from preprocessing.simulate_data import create_and_save_data
+from ExoRIM.simulated_data import CenteredBinaries 
 from ExoRIM.definitions import dtype
 from ExoRIM.utilities import create_dataset_from_generator, replay_dataset_from_generator
-import ExoRIM.log_likelihood as chisq
 from argparse import ArgumentParser
 from datetime import datetime
 import tensorflow as tf
@@ -19,15 +19,15 @@ import os
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
-def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, format="png"):
+def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, format="txt"):
     images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data, index_save_mod, format), dtype=dtype)
-    noisy_data = rim.physical_model.simulate_noisy_data(images)
+    noisy_data = rim.physical_model.forward(images) # TODO make this noisy forward
     X = tf.data.Dataset.from_tensor_slices(noisy_data)  # split along batch dimension
     Y = tf.data.Dataset.from_tensor_slices(images)
     dataset = tf.data.Dataset.zip((X, Y))
     if batch_size is not None: # for train set
         dataset = dataset.batch(batch_size, drop_remainder=True)
-        dataset = dataset.enumerate(start=0)
+        # dataset = dataset.enumerate(start=0)
         dataset = dataset.cache()  # accelerate the second and subsequent iterations over the dataset
         dataset = dataset.prefetch(AUTOTUNE)  # Batch is prefetched by CPU while training on the previous batch occurs
     else:
@@ -44,11 +44,11 @@ if __name__ == "__main__":
     parser.add_argument("--tv", type=float, default=0., help="Total variation coefficient for the loss function")
     parser.add_argument("-n", "--number_images", type=int, default=100)
     parser.add_argument("-w", "--wavelength", type=float, default=0.5e-6)
-    parser.add_argument("--SNR", type=float, default=200, help="Signal to noise ratio")
+    parser.add_argument("--SNR", type=float, default=10, help="Signal to noise ratio")
     parser.add_argument("-s", "--split", type=float, default=0.8)
-    parser.add_argument("-b", "--batch", type=int, default=10, help="Batch size")
+    parser.add_argument("-b", "--batch", type=int, default=1, help="Batch size")
     parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
-    parser.add_argument("--holes", type=int, default=21, help="Number of holes in the mask")
+    parser.add_argument("--holes", type=int, default=12, help="Number of holes in the mask")
     parser.add_argument("--longest_baseline", type=float, default=6., help="Longest baseline (meters) in the mask, up to noise added")
     parser.add_argument("--mask_variance", type=float, default=1., help="Variance of the noise added to rho coordinate of aperture (in meter)")
     parser.add_argument("-m", "--min_delta", type=float, default=0.05, help="Tolerance for early stopping")
@@ -102,8 +102,7 @@ if __name__ == "__main__":
     mask = np.random.normal(0, args.longest_baseline/2, (args.holes, 2))
     phys = PhysicalModel(
         pixels=hyperparameters["pixels"],
-        mask_coordinates=circle_mask,
-        # mask_coordinates=mask,
+        mask_coordinates=mask,
         wavelength=args.wavelength,
         SNR=args.SNR
     )
@@ -120,20 +119,26 @@ if __name__ == "__main__":
     # })
 
     rim = RIM(physical_model=phys, hyperparameters=hyperparameters, noise_floor=args.noise_floor)
-    train_dataset = create_dataset_from_generator(
-        physical_model=phys,
-        item_per_epoch=args.number_images,
-        batch_size=args.batch,
-        fixed=args.fixed
-    )
-    test_dataset = create_dataset_from_generator(
-        physical_model=phys,
-        item_per_epoch=int(args.number_images * (1 - args.split)),
-        batch_size=int(args.number_images * (1 - args.split)),
-        fixed=args.fixed,
-        seed=31415926
-    )
-    cost_function = Loss(tv_beta=args.tv)
+    # train_dataset = create_dataset_from_generator(
+    #     physical_model=phys,
+    #     item_per_epoch=args.number_images,
+    #     batch_size=args.batch,
+    #     fixed=args.fixed
+    # )
+    # test_dataset = create_dataset_from_generator(
+    #     physical_model=phys,
+    #     item_per_epoch=int(args.number_images * (1 - args.split)),
+    #     batch_size=int(args.number_images * (1 - args.split)),
+    #     fixed=args.fixed,
+    #     seed=31415926
+    # )
+    train_meta = CenteredBinaries(total_items=int(args.split * args.number_images), pixels=hyperparameters["pixels"], width=1)
+    testmeta = CenteredBinaries(total_items=int((1 - args.split) * args.number_images), pixels=hyperparameters["pixels"], width=1)
+
+    train_dataset = create_datasets(train_meta, rim, train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format="txt")
+    test_dataset = create_datasets(testmeta, rim, test_dir, batch_size=None, index_save_mod=1, format="txt")
+    # cost_function = Loss(tv_beta=args.tv)
+    cost_function = MSE()
     learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         **hyperparameters["learning rate"],
     )

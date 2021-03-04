@@ -7,7 +7,7 @@ import glob, os
 import numpy as np
 
 
-def create_and_save_data(datadir, meta_data, index_save_mod, format="png"):
+def create_and_save_data(datadir, meta_data, index_save_mod, format="txt"):
     images = meta_data.generate_epoch_images()
     for i, image in enumerate(images):  # iterate over first dimension
         if i % index_save_mod != 0:

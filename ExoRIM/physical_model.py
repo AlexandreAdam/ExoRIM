@@ -5,6 +5,7 @@ from ExoRIM.base import PhysicalModelBase, BaselinesBase
 from ExoRIM.operators import Baselines, closure_phase_operator, NDFTM, closure_phase_covariance_inverse, closure_fourier_matrices, \
     closure_baselines_projectors
 import ExoRIM.log_likelihood as chisq
+from ExoRIM.regularizers import entropy
 from scipy.linalg import pinv as pseudo_inverse, null_space
 
 
@@ -14,7 +15,7 @@ class PhysicalModelv1:
     """
 
     def __init__(self, pixels, mask_coordinates,
-                 wavelength=0.5e-6, SNR=100, vis_phase_std=1e-5, logim=True):
+                 wavelength=0.5e-6, SNR=100, vis_phase_std=0.1, logim=True, lam=1000):
         """
 
         :param pixels: Number of pixels on the side of the reconstructed image
@@ -49,14 +50,29 @@ class PhysicalModelv1:
         self.flatten = tf.keras.layers.Flatten(data_format="channels_last")
         self.logim = logim # whether we reconstruct in tje log space or brightness space
 
-    @tf.function
+        # TODO find a better way to do this
+        prior = np.zeros(shape=[1, pixels, pixels, 1])
+        x = np.arange(pixels) - pixels//2 + 0.5
+        xx, yy = np.meshgrid(x, x)
+        rho = np.hypot(xx, yy)
+        prior[0, ..., 0] += np.exp(-0.5 * rho**2/(pixels/4)**2)
+        prior /= prior.sum()
+        self.prior = tf.constant(prior, dtype)
+        self.lam = lam
+
     def grad_log_likelihood(self, image, X):
         """
         Compute the chi squared gradient relative to image pixels given interferometric data X
         """
-        grad1 = chisq.chisq_gradient_amplitude_analytic(image, tf.math.abs(X[:, :self.p]), self)
-        grad2 = chisq.chisq_gradient_closure_phase_auto(image, tf.math.angle(X[:, self.p:]), self)
-        return tf.concat([grad1, grad2], axis=-1)
+        amp = X[..., :self.p]
+        cp = X[..., self.p:]
+        with tf.GradientTape() as tape:
+            tape.watch(image)
+            ll = chisq.chi_squared_amplitude(image, amp, self)
+            ll += chisq.chi_squared_closure_phasor(image, cp, self)
+            # ll += self.lam * entropy(image, self.prior) 
+        grad = tape.gradient(ll, image)
+        return grad
 
     def forward(self, image):
         """
@@ -65,9 +81,12 @@ class PhysicalModelv1:
         :param flux: Flux vector of size (Batch size)
         :return: A concatenation of complex visibilities and bispectra (dtype: tf.complex128)
         """
-        visibilities = self.fourier_transform(image)
-        bispectra = self.bispectrum(image)
-        y = tf.concat([visibilities, bispectra], axis=1)  # p + q length vectors of type complex128
+        # visibilities = self.fourier_transform(image)
+        amp = tf.math.abs(self.fourier_transform(image))
+        # bispectra = self.bispectrum(image)
+        cp = tf.math.angle(self.bispectrum(image))
+        # y = tf.concat([visibilities, bispectra], axis=1)  # p + q length vectors of type complex128
+        y = tf.concat([amp, cp], axis=1)
         return y
 
     def fourier_transform(self, image):
