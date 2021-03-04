@@ -70,7 +70,7 @@ class PhysicalModelv1:
             tape.watch(image)
             ll = chisq.chi_squared_amplitude(image, amp, self)
             ll += chisq.chi_squared_closure_phasor(image, cp, self)
-            # ll += self.lam * entropy(image, self.prior) 
+            ll += self.lam * entropy(image, self.prior) 
         grad = tape.gradient(ll, image)
         return grad
 
@@ -137,13 +137,12 @@ class PhysicalModelv1:
     def compute_plate_scale(self, B: Baselines, pixels, wavel) -> float:
         # by default, use FOV/pixels and hope this satisfy Nyquist sampling criterion
         rho = np.sqrt(B.UVC[:, 0]**2 + B.UVC[:, 1]**2) / wavel  # frequency in 1/RAD
-        fov = rad2mas(1/rho.min())
-        B = 1/rad2mas(1/rho.max()) # highest frequeny in the signal in mas^{-1}
+        fov = rad2mas(1/rho).max()
+        B = (1/rad2mas(1/rho)).max() # highest frequeny in the signal in mas^{-1}
         plate_scale = fov / self.pixels
         if 1/plate_scale <= 2 * B:
             print("Nyquist sampling criterion is not satisfied")
         return plate_scale
-
 
 
 
