@@ -74,7 +74,16 @@ class RIM:
     def initial_guess(self, batch_size):
         # y0 = self.physical_model.inverse_fourier_transform(X)
         # y0 = softmax_scaler(y0, minimum=0, maximum=1.)
-        y0 = tf.ones(shape=[batch_size, self.pixels, self.pixels, 1]) / self.pixels**2
+        # y0 = tf.ones(shape=[batch_size, self.pixels, self.pixels, 1]) / self.pixels**2
+        x = np.arange(self.pixels) - self.pixels//2 + 0.5
+        xx, yy = np.meshgrid(x, x)
+        rho = np.hypot(xx, yy)
+        image = np.zeros([self.pixels, self.pixels])
+        image += np.exp(-0.5 * rho**4/16)
+        image /= image.sum()
+        image = np.tile(image, [batch_size, 1, 1])
+        image = image[..., np.newaxis]
+        y0 = tf.constant(image, dtype)
         return y0
 
     def fit(

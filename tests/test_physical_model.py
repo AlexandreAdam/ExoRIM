@@ -65,7 +65,7 @@ def test_grad_likelihood2():
     pixels = 128
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
-    phys = PhysicalModelv1(pixels, mask_coordinates)
+    phys = PhysicalModelv1(pixels, mask_coordinates, lam=0)
 
     x = np.arange(pixels) - pixels//2 + 0.5
     xx, yy = np.meshgrid(x, x)
@@ -89,12 +89,24 @@ def test_grad_likelihood2():
     print(grad.max())
     print(grad.min())
     print(grad.mean())
-    return grad
+    return image, image2, grad
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    grad = test_grad_likelihood2()
+    image, image2, grad = test_grad_likelihood2()
+    plt.figure()
     plt.imshow(grad[0, ..., 0], origin="lower", cmap="hot")
+    plt.title("Gradient")
+    plt.colorbar()
+
+    plt.figure()
+    plt.imshow(image[0, ..., 0], origin="lower", cmap="hot")
+    plt.title("Ground Truth")
+    plt.colorbar()
+
+    plt.figure()
+    plt.imshow(image2[0, ..., 0], origin="lower", cmap="hot")
+    plt.title("Guess")
     plt.colorbar()
     plt.show()
 
