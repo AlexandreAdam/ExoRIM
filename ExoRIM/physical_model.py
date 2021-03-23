@@ -15,7 +15,7 @@ class PhysicalModelv1:
     """
 
     def __init__(self, pixels, mask_coordinates,
-                 wavelength=0.5e-6, SNR=100, vis_phase_std=0.1, logim=True, lam=1000):
+                 wavelength=0.5e-6, SNR=100, vis_phase_std=0.1, logim=True, lam=0):
         """
 
         :param pixels: Number of pixels on the side of the reconstructed image
@@ -66,7 +66,7 @@ class PhysicalModelv1:
         """
         amp = X[..., :self.p]
         cp = X[..., self.p:]
-        with tf.GradientTape() as tape:
+        with tf.GradientTape(watch_accessed_variables=False) as tape:
             tape.watch(image)
             ll = chisq.chi_squared_amplitude(image, amp, self)
             ll += chisq.chi_squared_closure_phasor(image, cp, self)
@@ -143,8 +143,6 @@ class PhysicalModelv1:
         if 1/plate_scale <= 2 * B:
             print("Nyquist sampling criterion is not satisfied")
         return plate_scale
-
-
 
 
 #TODO decide on convention for constructing bispectrum (either A2 is taken to be conjugate always or conjugate is

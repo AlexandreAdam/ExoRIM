@@ -41,12 +41,12 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--hyperparameters", type=str, default="hyperparameters_small",
                         help="Name of the hyperparameter file (without the file extension)")
-    parser.add_argument("--tv", type=float, default=0., help="Total variation coefficient for the loss function")
+    # parser.add_argument("--tv", type=float, default=0., help="Total variation coefficient for the loss function")
     parser.add_argument("-n", "--number_images", type=int, default=100)
     parser.add_argument("-w", "--wavelength", type=float, default=0.5e-6)
     parser.add_argument("--SNR", type=float, default=10, help="Signal to noise ratio")
     parser.add_argument("-s", "--split", type=float, default=0.8)
-    parser.add_argument("-b", "--batch", type=int, default=1, help="Batch size")
+    parser.add_argument("-b", "--batch", type=int, default=10, help="Batch size")
     parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
     parser.add_argument("--holes", type=int, default=12, help="Number of holes in the mask")
     parser.add_argument("--longest_baseline", type=float, default=6., help="Longest baseline (meters) in the mask, up to noise added")
@@ -169,21 +169,21 @@ if __name__ == "__main__":
     with open(os.path.join(models_dir, "hyperparametres.json"), "w") as f:
         json.dump(rim.hyperparameters, f)
     # saves the ground truth images
-    replay_dataset_from_generator(
-        train_dataset,
-        epochs=rim.hyperparameters["epoch"],
-        dirname=train_dir,
-        fixed=args.fixed,
-        format="txt",
-        index_mod=args.index_save_mod,
-        epoch_mod=args.epoch_save_mod
-    )
-    replay_dataset_from_generator(
-        test_dataset,
-        epochs=rim.hyperparameters["epoch"],
-        dirname=test_dir,
-        fixed=args.fixed,
-        format="txt",
-        index_mod=int(args.number_images * (1 - args.split) / 4),
-        epoch_mod=1
-    )
+    # replay_dataset_from_generator(
+    #     train_dataset,
+    #     epochs=rim.hyperparameters["epoch"],
+    #     dirname=train_dir,
+    #     fixed=args.fixed,
+    #     format="txt",
+    #     index_mod=args.index_save_mod,
+    #     epoch_mod=args.epoch_save_mod
+    # )
+    # replay_dataset_from_generator(
+    #     test_dataset,
+    #     epochs=rim.hyperparameters["epoch"],
+    #     dirname=test_dir,
+    #     fixed=args.fixed,
+    #     format="txt",
+    #     index_mod=int(args.number_images * (1 - args.split) / 4),
+    #     epoch_mod=1
+    # )

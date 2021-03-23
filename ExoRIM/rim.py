@@ -147,13 +147,13 @@ class RIM:
             self.model._timestep_mod = -1
         if metrics is None:
             metrics = {}
-        if output_save_mod is None and output_dir is not None:
+        if output_save_mod is None:
             output_save_mod = {
-                "index_mod": 1,
-                "epoch_mod": 1,
-                "time_mod": 1,
-                "step_mod": 1
-            },
+                "index_mod": -1,
+                "epoch_mod": -1,
+                "time_mod": -1,
+                "step_mod": -1
+            }
         start = time.time()
         if "epoch" in self.hyperparameters.keys():
             _epoch_start = self.hyperparameters["epoch"]
