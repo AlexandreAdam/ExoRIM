@@ -1,6 +1,6 @@
 import tensorflow as tf
-from ExoRIM.definitions import mycomplex, dtype, TWOPI
-from ExoRIM.operators import closure_baselines_projectors
+from exorim.definitions import mycomplex, DTYPE, TWOPI
+from exorim.interferometry.operators import closure_baselines_projectors
 
 # ==========================================================================================
 # Helper functions
@@ -121,7 +121,7 @@ def chi_squared_visibility_phases(image, vphases, phys):
 def chi_squared_amplitude(image, amp, phys):
     A = phys.A
     sigma = phys.sigma
-    sig = tf.cast(sigma, dtype)
+    sig = tf.cast(sigma, DTYPE)
     im = cast_to_complex_flatten(image)
     amp_samples = tf.math.abs(tf.einsum("ij, ...j -> ...i", A, im))
     return tf.math.reduce_mean(((amp - amp_samples)/sig)**2, axis=1)
@@ -129,7 +129,7 @@ def chi_squared_amplitude(image, amp, phys):
 def chi_squared_amplitude_squared(image, amp_sq, phys):
     A = phys.A
     sigma = phys.sigma
-    sig = tf.cast(sigma, dtype)
+    sig = tf.cast(sigma, DTYPE)
     im = cast_to_complex_flatten(image)
     amp_samples = tf.math.abs(tf.einsum("ij, ...j -> ...i", A, im))**2
     return tf.math.reduce_mean(((amp_sq - amp_samples)/sig)**2, axis=1)
@@ -137,7 +137,7 @@ def chi_squared_amplitude_squared(image, amp_sq, phys):
 
 def chi_squared_bispectra(image, B, phys):
     sigma = 3 * phys.sigma  # TODO make a better noise model than this!
-    sig = tf.cast(sigma, dtype)
+    sig = tf.cast(sigma, DTYPE)
     B_sample = bispectrum(image, phys.A1, phys.A2, phys.A3)
     chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(B - B_sample)/sig), axis=1)
     return chisq
@@ -150,7 +150,7 @@ def chi_squared_closure_phasor(image, clphase, phys):
     |e^(i*psi) - e^(i*psi')|^2.
         Ai are the Fourier Transform Matrix to the i baseline of the ijk closure triangle.
     """
-    sig = tf.cast(phys.phase_std, dtype)
+    sig = tf.cast(phys.phase_std, DTYPE)
     clphase_samples = tf.math.angle(bispectrum(image, phys.A1, phys.A2, phys.A3))
     chisq = tf.reduce_mean(((1 - tf.math.cos(clphase - clphase_samples)) / sig)**2, axis=1)
     return chisq

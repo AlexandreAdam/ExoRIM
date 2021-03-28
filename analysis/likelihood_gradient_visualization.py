@@ -107,7 +107,7 @@ def main():
         q = (N - 1) * (N - 2) // 2
         # q = N * (N - 1) * (N - 2) // 6
         mycomplex = exo.definitions.mycomplex
-        dtype = exo.definitions.dtype
+        dtype = exo.definitions.DTYPE
         pulse = triangle_pulse_f(2 * np.pi * B.UVC[:, 0] / wavel, mas2rad(theoretical_pl)) * triangle_pulse_f(2 * np.pi * B.UVC[:, 1] / wavel, mas2rad(theoretical_pl))
         pulse = tf.constant(pulse.reshape((pulse.size, 1)), mycomplex)
         baselines = exo.operators.Baselines(mask_coordinates=mask)

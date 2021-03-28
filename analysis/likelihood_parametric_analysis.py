@@ -62,7 +62,7 @@ p = N * (N - 1) // 2
 # q = (N - 1) * (N - 2) // 2
 q = N * (N - 1) * (N - 2) // 6
 mycomplex = exo.definitions.mycomplex
-dtype = exo.definitions.dtype
+dtype = exo.definitions.DTYPE
 baselines = exo.operators.Baselines(mask_coordinates=circle_mask)
 # CPO = exo.operators.phase_closure_operator(baselines)
 CPO = exo.operators.redundant_phase_closure_operator(baselines)

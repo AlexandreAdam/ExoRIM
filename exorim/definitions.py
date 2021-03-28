@@ -3,19 +3,19 @@ import tensorflow as tf
 import numpy as np
 
 tf.keras.backend.set_floatx('float32')
-dtype = tf.float32  # TODO consider using mixed precision with float16
+DTYPE = tf.float32  # TODO consider using mixed precision with float16
 mycomplex = tf.complex64
 initializer = tf.random_normal_initializer(stddev=0.1)
-DEGREE = tf.constant(3.14159265358979323 / 180., dtype)
-INTENSITY_SCALER = tf.constant(1e6, dtype)
-TWOPI = tf.constant(2*np.pi, dtype)
+DEGREE = tf.constant(3.14159265358979323 / 180., DTYPE)
+INTENSITY_SCALER = tf.constant(1e6, DTYPE)
+TWOPI = tf.constant(2 * np.pi, DTYPE)
 
-
+# baseline model
 default_hyperparameters = {
-        "steps": 12,
-        "pixels": 32,
+        "steps": 8,
+        "pixels": 64,
         "channels": 1,
-        "state_size": 16,
+        "state_size": 32,
         "state_depth": 32,
         "learning rate": {
             "initial_learning_rate": 1e-3,
@@ -23,8 +23,8 @@ default_hyperparameters = {
             "decay_rate": 0.90,
         },
         "Regularizer Amplitude": {
-            "kernel": 0.01,
-            "bias": 0.01
+            "kernel": 0.00,
+            "bias": 0.00
         },
         "Downsampling Block": [
             {"Conv_Downsample": {
@@ -218,8 +218,8 @@ def log_scaling(X, base=10.):
     """
     This function separate positive and negative values of the tensor (axis=1 and 2) and computes their logarithm separately.
     """
-    positive = X * tf.cast(X > 0, dtype) + 1e-5
-    negative = - X * tf.cast(X < 0, dtype) + 1e-5
+    positive = X * tf.cast(X > 0, DTYPE) + 1e-5
+    negative = - X * tf.cast(X < 0, DTYPE) + 1e-5
     positve = tf.clip_by_value(tf.math.log(positive) / tf.math.log(base), 0, 30)
     negative = - tf.clip_by_value(tf.math.log(negative) / tf.math.log(base), 0, 30)
     return positve + negative
@@ -227,8 +227,8 @@ def log_scaling(X, base=10.):
 
 def gradient_summary_log_scale(grad, base=10.):
     # assumes gradient have already been rescaled to the range [-1, 1], such that logs are always < 0
-    positive = grad * tf.cast(grad > 0, dtype) + 1e-12
-    negative = - grad * tf.cast(grad < 0, dtype) + 1e-12
+    positive = grad * tf.cast(grad > 0, DTYPE) + 1e-12
+    negative = - grad * tf.cast(grad < 0, DTYPE) + 1e-12
     positve = - tf.math.log(positive) / tf.math.log(base)
     negative = tf.math.log(negative) / tf.math.log(base)
     return softmax_scaler(positve + negative, 0, 1)

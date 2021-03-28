@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-	name="ExoRIM",
-	version="0.1",
+	name="exorim",
+	version="0.5",
 	description="",
 	packages=find_packages(),
 	python_requires=">=3.6"

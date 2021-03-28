@@ -1,6 +1,6 @@
-from ExoRIM.physical_model import PhysicalModelv1
-from ExoRIM.operators import Baselines
-from ExoRIM.definitions import rad2mas
+from exorim.interferometry.models.physical_model import PhysicalModelv1
+from exorim.interferometry.operators import Baselines
+from exorim.definitions import rad2mas
 import tensorflow as tf
 import numpy as np
 

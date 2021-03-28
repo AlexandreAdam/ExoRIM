@@ -1,5 +1,5 @@
 from __future__ import division
-from ExoRIM.definitions import *
+from exorim.definitions import *
 import numpy as np
 import tensorflow as tf
 
@@ -20,7 +20,7 @@ def test_pixel_grid():
 
 
 def test_softmax_scaler():
-    x = tf.constant(np.linspace(-100, 100, 100), dtype)
+    x = tf.constant(np.linspace(-100, 100, 100), DTYPE)
     alpha = INTENSITY_SCALER
     estimated_max = tf.einsum("i, i ->", x, tf.math.softmax(alpha * x))
     assert abs(estimated_max.numpy() - 100) < 0.0001, f"Softmax avec alpha = {alpha} est une mauvaise estimation du maximum"

@@ -1,8 +1,7 @@
-from ExoRIM.operators import Baselines
+from exorim.interferometry.operators import Baselines
 from pynfft.nfft import NFFT
-from ExoRIM.operators import NDFTM, closure_phase_covariance, closure_phase_operator, closure_baselines_projectors
-from ExoRIM.definitions import mas2rad
-from scipy.special import jv
+from exorim.interferometry.operators import NDFTM, closure_phase_covariance, closure_phase_operator, closure_baselines_projectors
+from exorim.definitions import mas2rad
 import numpy as np
 import time
 

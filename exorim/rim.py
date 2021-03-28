@@ -1,6 +1,6 @@
-from ExoRIM.definitions import dtype, default_hyperparameters
-from ExoRIM.utilities import save_output, save_gradient_and_weights, save_loglikelihood_grad, nullwriter
-from ExoRIM.model import Model
+from exorim.definitions import DTYPE, default_hyperparameters
+from exorim.utilities import save_output, save_gradient_and_weights, save_loglikelihood_grad, nullwriter
+from exorim.models.modelv1 import Model
 import tensorflow as tf
 import numpy as np
 import time
@@ -8,7 +8,7 @@ import os
 
 
 class RIM:
-    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=dtype,
+    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=DTYPE,
                  noise_floor=1e-16):
         self._dtype = dtype
         self.noise_floor = noise_floor
@@ -83,7 +83,7 @@ class RIM:
         image /= image.sum()
         image = np.tile(image, [batch_size, 1, 1])
         image = image[..., np.newaxis]
-        y0 = tf.constant(image, dtype)
+        y0 = tf.constant(image, DTYPE)
         return y0
 
     def fit(

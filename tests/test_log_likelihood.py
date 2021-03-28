@@ -1,5 +1,5 @@
-from ExoRIM.operators import Baselines, NDFTM, closure_fourier_matrices, closure_phase_operator
-from ExoRIM.log_likelihood import *
+from exorim.interferometry.operators import Baselines, NDFTM, closure_fourier_matrices, closure_phase_operator
+from exorim.inference.log_likelihood import *
 import time
 import numpy as np
 import pytest
@@ -25,7 +25,7 @@ def test_chisq_vis_gradient():
     rho_prime = np.sqrt((xx - 10)**2 + (yy - 10)**2)
     noise = np.zeros_like(image)
     noise += np.exp(-rho_prime**2/blob_size**2)
-    noise = tf.constant(noise.reshape((1, pixels, pixels, 1)), dtype)
+    noise = tf.constant(noise.reshape((1, pixels, pixels, 1)), DTYPE)
 
     vis = tf.constant(np.dot(A, image.flatten()).reshape((1, -1)), mycomplex)
 
@@ -63,7 +63,7 @@ def test_chisq_closure_phase_gradient():
     rho_prime = np.sqrt((xx - 10)**2 + (yy - 10)**2)
     noise = np.zeros_like(image)
     noise += np.exp(-rho_prime**2/blob_size**2)
-    noise = tf.constant(noise.reshape((1, pixels, pixels, 1)), dtype)
+    noise = tf.constant(noise.reshape((1, pixels, pixels, 1)), DTYPE)
 
     clphases = tf.math.angle(bispectrum(image.reshape((1, pixels**2, 1)), A1, A2, A3))
 

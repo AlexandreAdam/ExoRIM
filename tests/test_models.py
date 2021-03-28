@@ -1,9 +1,9 @@
 import tensorflow as tf
-from ExoRIM.model import Model
-from ExoRIM.rim import RIM
-from ExoRIM.physical_model import PhysicalModel
-from ExoRIM.simulated_data import CenteredBinaries
-from ExoRIM.loss import MSE
+from exorim.models.modelv1 import Model
+from exorim.rim import RIM
+from exorim.interferometry.models.physical_model import PhysicalModel
+from exorim.interferometry.simulated_data import CenteredBinaries
+from exorim.loss import MSE
 import json
 import numpy as np
 

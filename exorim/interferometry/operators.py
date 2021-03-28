@@ -1,8 +1,8 @@
-from ExoRIM.definitions import mas2rad, pixel_grid
+from exorim.definitions import mas2rad, pixel_grid
 import numpy as np
 from scipy.linalg import inv as inverse, pinv as pseudo_inverse
 from scipy.sparse.linalg import svds as svd
-from ExoRIM.base import BaselinesBase
+from exorim.base import BaselinesBase
 
 
 class Baselines:
@@ -71,7 +71,7 @@ def NDFTM(coords, wavelength, pixels, plate_scale, inv=False, dprec=True):
     (tensorflow, numpy, scipy FFT implementations will not do).
     -----------------------------------
     Example of use, for an image of size isz:
-    >> B = ExoRIM.operators.Baselines(mask_coordinates)
+    >> B = exorim.operators.Baselines(mask_coordinates)
     >> FF = NDFTM(B.UVC, wavelength, pixels, FOV / pixels)
     >> FT = FF.dot(img.flatten())
     This last command returns a 1D vector FT of the img.

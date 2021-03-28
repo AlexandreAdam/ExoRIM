@@ -1,7 +1,7 @@
 import tensorflow as tf
-from ExoRIM.definitions import dtype
+from exorim.definitions import DTYPE
 
-LOG_FLOOR = tf.constant(1e-16, dtype)
+LOG_FLOOR = tf.constant(1e-16, DTYPE)
 
 def entropy(image, prior):
     # prior should have dimension [1, pixel, pixel, 1]

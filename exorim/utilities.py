@@ -1,8 +1,8 @@
 import numpy as np
 import tensorflow as tf
-from ExoRIM.simulated_data import CenteredImagesGenerator
-from ExoRIM.physical_model import PhysicalModel
-from ExoRIM.definitions import dtype, mycomplex
+from exorim.interferometry.simulated_data import CenteredImagesGenerator
+from exorim.interferometry.models.physical_model import PhysicalModel
+from exorim.definitions import DTYPE, mycomplex
 from PIL import Image
 import os, glob
 import pickle
@@ -150,7 +150,7 @@ def create_dataset_from_generator(
         gen.epoch = seed
     pixels = physical_model.pixels
     shapes = (tf.TensorShape([None]), tf.TensorShape([pixels, pixels, 1]))
-    dataset = tf.data.Dataset.from_generator(gen.generator, output_types=(mycomplex, dtype), output_shapes=shapes)
+    dataset = tf.data.Dataset.from_generator(gen.generator, output_types=(mycomplex, DTYPE), output_shapes=shapes)
     dataset = dataset.cache()              # accelerate the second and subsequent iterations over the dataset
     dataset = dataset.batch(batch_size, drop_remainder=True)
     # dataset = dataset.enumerate(start=0)

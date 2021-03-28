@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
-from ExoRIM.definitions import k_truncated_poisson, centroid, dtype
-from ExoRIM.physical_model import PhysicalModel
+from exorim.definitions import k_truncated_poisson, centroid, DTYPE
+from exorim.interferometry.models.physical_model import PhysicalModel
 from numpy.fft import fft2, ifft2
 
 
@@ -37,7 +37,7 @@ class CenteredImagesv1:
             max_point_sources=10
     ):
         """
-        This class defines the characteristics of a simulated dataset to train ExoRIM. It produces images with a
+        This class defines the characteristics of a simulated dataset to train exorim. It produces images with a
         centered blob and few fainter point sources near the center of the image. Information like widths of the
         point sources and contrasts are attached to the object for future analysis and reproducibility.
 
@@ -220,7 +220,7 @@ class CenteredCircle:
             pixels=32,
     ):
         """
-        This class defines the characteristics of a simulated dataset to train ExoRIM. It produces images with a
+        This class defines the characteristics of a simulated dataset to train exorim. It produces images with a
         centered blob.
 
         :param total_items: Total number of item to generate for an epoch
@@ -282,7 +282,7 @@ class CenteredImagesGenerator:
             np.random.seed(42)
         for i in range(self.total_items_per_epoch):
             # image are blurred to nominal resolution
-            Y = tf.constant(self.generate_blurred_image(), dtype=dtype)
+            Y = tf.constant(self.generate_blurred_image(), dtype=DTYPE)
             X = self.physical_model.simulate_noisy_data(tf.reshape(Y, [1, *Y.shape]))
             X = tf.reshape(X, X.shape[1:])  # drop the batch dimension acquired in physical model
             yield X, Y
