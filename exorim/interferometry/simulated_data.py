@@ -176,8 +176,10 @@ class CenteredBinaries:
             total_items=1000,
             pixels=32,
             width=5, # sigma parameter of super gaussian
-            flux=32**2
+            flux=32**2,
+            seed=None
     ):
+        self.seed = seed
         self.total_items = total_items
         self.pixels = pixels
         self.width = width
@@ -191,6 +193,7 @@ class CenteredBinaries:
         self.y = yy
 
     def generate_epoch_images(self):
+        np.random.seed(self.seed)
         separation = np.random.uniform(size=[self.total_items], low=2, high=self.max_sep)
         angle = np.random.uniform(size=[self.total_items], low=0, high=np.pi)
         images = np.zeros(shape=[self.total_items, self.pixels, self.pixels, 1])

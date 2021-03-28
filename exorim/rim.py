@@ -9,8 +9,10 @@ import os
 
 class RIM:
     def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=DTYPE,
-                 noise_floor=1e-16):
+                 noise_floor=1e-16, grad_log_scale=False):
         self._dtype = dtype
+        self.logim = physical_model.logim
+        self.grad_log_scale = grad_log_scale
         self.noise_floor = noise_floor
         self.hyperparameters = hyperparameters
         self.channels = hyperparameters["channels"]
@@ -25,15 +27,24 @@ class RIM:
 
     @tf.function
     def link_function(self, y):
-        return tf.math.log(y + self.noise_floor)
+        if self.logim:
+            return tf.math.log(y + self.noise_floor)
+        else:
+            return y
 
     @tf.function
     def inverse_link_function(self, eta):
-        return tf.math.exp(eta)
+        if self.logim:
+            return tf.math.exp(eta)
+        else:
+            return eta
 
     # @tf.function
     def grad_scaling(self, grad):
-        return grad #tf.clip_by_value(self.grad_scaling_factor * grad, -100, 100)
+        if self.grad_log_scale:
+            return tf.math.asinh(grad)
+        else:
+            return grad
 
     def __call__(self, X):
         return self.call(X)
@@ -46,10 +57,9 @@ class RIM:
         :return: 5D Tensor of shape (batch_size, [image_size, channels], steps)
         """
         batch_size = X.shape[0]
-        y0 = self.initial_guess(batch_size)
+        eta_0 = self.link_function(self.initial_guess(batch_size))
         h0 = self.init_hidden_states(batch_size)
-        grad = self.physical_model.grad_log_likelihood(y0, X)
-        eta_0 = self.link_function(y0)
+        grad = self.physical_model.grad_log_likelihood(eta_0, X)
         grad = self.grad_scaling(grad)
         stacked_input = tf.concat([eta_0, grad], axis=3)
         # compute gradient update
@@ -60,7 +70,7 @@ class RIM:
         outputs = tf.expand_dims(eta_t, -1)  # Plus one dimension for step stack
         grads = grad
         for current_step in range(self.steps - 1):
-            grad = self.physical_model.grad_log_likelihood(self.inverse_link_function(eta_t), X)
+            grad = self.physical_model.grad_log_likelihood(eta_t, X)
             grad = self.grad_scaling(grad)
             gt, ht = self.model(stacked_input, ht)
             eta_t = eta_t + gt
@@ -74,16 +84,16 @@ class RIM:
     def initial_guess(self, batch_size):
         # y0 = self.physical_model.inverse_fourier_transform(X)
         # y0 = softmax_scaler(y0, minimum=0, maximum=1.)
-        # y0 = tf.ones(shape=[batch_size, self.pixels, self.pixels, 1]) / self.pixels**2
-        x = np.arange(self.pixels) - self.pixels//2 + 0.5
-        xx, yy = np.meshgrid(x, x)
-        rho = np.hypot(xx, yy)
-        image = np.zeros([self.pixels, self.pixels])
-        image += np.exp(-0.5 * rho**4/16)
-        image /= image.sum()
-        image = np.tile(image, [batch_size, 1, 1])
-        image = image[..., np.newaxis]
-        y0 = tf.constant(image, DTYPE)
+        y0 = tf.ones(shape=[batch_size, self.pixels, self.pixels, 1]) / self.pixels**2
+        # x = np.arange(self.pixels) - self.pixels//2 + 0.5
+        # xx, yy = np.meshgrid(x, x)
+        # rho = np.hypot(xx, yy)
+        # image = np.zeros([self.pixels, self.pixels])
+        # image += np.exp(-0.5 * rho**4/16)
+        # image /= image.sum()
+        # image = np.tile(image, [batch_size, 1, 1])
+        # image = image[..., np.newaxis]
+        # y0 = tf.constant(image, DTYPE)
         return y0
 
     def fit(
@@ -196,9 +206,13 @@ class RIM:
                         tf.summary.scalar(key, score, step=step)
                     # dramatically slows down the training if enabled and step_mod too low
                     if record and step % output_save_mod["step_mod"] == 0:
-                        tf.summary.histogram(f"Residual_{epoch:04}_{batch:04}", tf.math.log(tf.math.abs(output[..., -1] - Y)), description="Logarithm of the absolute difference between Y_pred and Y")
-                        tf.summary.histogram(name=f"Log_Likelihood_Gradient_log_{batch:04}", data=tf.math.log(tf.math.abs(grads[0]))/tf.math.log(10.), description="Log Likelihood gradient for each time steps")
-                        tf.summary.histogram(name=f"Log_Likelihood_Gradient{batch:04}", data=grads[0], description="Log Likelihood gradient for each time steps")
+                        tf.summary.histogram(f"Residual_first", tf.math.log(tf.math.abs(output[..., 0] - Y)),
+                            description="Logarithm of the absolute difference between Y_pred and Y at the first time step")
+                        tf.summary.histogram(f"Residual_last", tf.math.log(tf.math.abs(output[..., -1] - Y)),
+                            description="Logarithm of the absolute difference between Y_pred and Y at the last time step")
+                        tf.summary.histogram(name=f"Log_Likelihood_Gradient_log_scale", data=tf.math.asinh(grads[0])/tf.math.log(10.),
+                            description="Arcsinh of the Likelihood gradient for each time steps (divided by log(10))")
+                        tf.summary.histogram(name=f"Log_Likelihood_Gradient", data=grads[0], description="Log Likelihood gradient")
 
                         for i, grad in enumerate(gradient):
                             tf.summary.histogram(name=self.model.trainable_weights[i].name + "_gradient", data=grad, step=step)

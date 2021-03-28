@@ -1,9 +1,9 @@
-from ExoRIM import RIM, MSE, PhysicalModel
-from ExoRIM.loss import MAE, Loss
+from exorim import RIM, MSE, PhysicalModel
+from exorim.loss import MAE, Loss
 from preprocessing.simulate_data import create_and_save_data
-from ExoRIM.simulated_data import CenteredBinaries 
-from ExoRIM.definitions import dtype
-from ExoRIM.utilities import create_dataset_from_generator, replay_dataset_from_generator
+from exorim.interferometry.simulated_data import CenteredBinaries 
+from exorim.definitions import DTYPE
+from exorim.utilities import create_dataset_from_generator, replay_dataset_from_generator
 from argparse import ArgumentParser
 from datetime import datetime
 import tensorflow as tf
@@ -20,7 +20,7 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
 def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, format="txt"):
-    images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data, index_save_mod, format), dtype=dtype)
+    images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data, index_save_mod, format), dtype=DTYPE)
     noisy_data = rim.physical_model.forward(images) # TODO make this noisy forward
     X = tf.data.Dataset.from_tensor_slices(noisy_data)  # split along batch dimension
     Y = tf.data.Dataset.from_tensor_slices(images)
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
     parser.add_argument("--noise_floor", type=float, default=1, help="Intensity noise floor")
     parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
-    parser.add_argument("--fixed", action="store_true", help="Keeps the dataset fix for each epochs to monitor progress")
+    # parser.add_argument("--fixed", action="store_true", help="Keeps the dataset fix for each epochs to monitor progress")
     args = parser.parse_args()
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
     h_file = args.hyperparameters + ".json"
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     mask = np.random.normal(0, args.longest_baseline/2, (args.holes, 2))
     phys = PhysicalModel(
         pixels=hyperparameters["pixels"],
-        mask_coordinates=mask,
+        # mask_coordinates=mask, # GOLAY9 mask
         wavelength=args.wavelength,
         SNR=args.SNR
     )
@@ -132,8 +132,8 @@ if __name__ == "__main__":
     #     fixed=args.fixed,
     #     seed=31415926
     # )
-    train_meta = CenteredBinaries(total_items=int(args.split * args.number_images), pixels=hyperparameters["pixels"], width=1)
-    testmeta = CenteredBinaries(total_items=int((1 - args.split) * args.number_images), pixels=hyperparameters["pixels"], width=1)
+    train_meta = CenteredBinaries(total_items=int(args.split * args.number_images), pixels=hyperparameters["pixels"], width=3, seed=42)
+    testmeta = CenteredBinaries(total_items=int((1 - args.split) * args.number_images), pixels=hyperparameters["pixels"], width=3, seed=1)
 
     train_dataset = create_datasets(train_meta, rim, train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format="txt")
     test_dataset = create_datasets(testmeta, rim, test_dir, batch_size=None, index_save_mod=1, format="txt")
@@ -169,21 +169,21 @@ if __name__ == "__main__":
     with open(os.path.join(models_dir, "hyperparametres.json"), "w") as f:
         json.dump(rim.hyperparameters, f)
     # saves the ground truth images
-    # replay_dataset_from_generator(
-    #     train_dataset,
-    #     epochs=rim.hyperparameters["epoch"],
-    #     dirname=train_dir,
-    #     fixed=args.fixed,
-    #     format="txt",
-    #     index_mod=args.index_save_mod,
-    #     epoch_mod=args.epoch_save_mod
+ #    replay_dataset_from_generator(
+        # train_dataset,
+        # epochs=rim.hyperparameters["epoch"],
+        # dirname=train_dir,
+        # fixed=args.fixed,
+        # format="txt",
+        # index_mod=args.index_save_mod,
+        # epoch_mod=args.epoch_save_mod
     # )
     # replay_dataset_from_generator(
-    #     test_dataset,
-    #     epochs=rim.hyperparameters["epoch"],
-    #     dirname=test_dir,
-    #     fixed=args.fixed,
-    #     format="txt",
-    #     index_mod=int(args.number_images * (1 - args.split) / 4),
-    #     epoch_mod=1
+        # test_dataset,
+        # epochs=rim.hyperparameters["epoch"],
+        # dirname=test_dir,
+        # fixed=args.fixed,
+        # format="txt",
+        # index_mod=int(args.number_images * (1 - args.split) / 4),
+        # epoch_mod=1
     # )

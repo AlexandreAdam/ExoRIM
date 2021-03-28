@@ -1,6 +1,6 @@
-from ExoRIM.simulated_data import CenteredImagesv1
+from exorim.interferometry.simulated_data import CenteredImagesv1
 from PIL import Image
-from ExoRIM.utilities import convert_to_8_bit
+from exorim.utilities import convert_to_8_bit
 import tarfile
 import pickle
 import glob, os
