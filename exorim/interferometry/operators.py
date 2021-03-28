@@ -2,7 +2,6 @@ from exorim.definitions import mas2rad, pixel_grid
 import numpy as np
 from scipy.linalg import inv as inverse, pinv as pseudo_inverse
 from scipy.sparse.linalg import svds as svd
-from exorim.base import BaselinesBase
 
 
 class Baselines:

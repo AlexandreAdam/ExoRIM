@@ -1,7 +1,7 @@
 import tensorflow as tf
 from exorim.models.modelv1 import Model
 from exorim.rim import RIM
-from exorim.interferometry.models.physical_model import PhysicalModel
+from exorim.interferometry.models.direct_fourier_transform import PhysicalModel
 from exorim.interferometry.simulated_data import CenteredBinaries
 from exorim.loss import MSE
 import json

@@ -1,5 +1,5 @@
 import tensorflow as tf
-from exorim.definitions import mycomplex, DTYPE, TWOPI
+from exorim.definitions import MYCOMPLEX, DTYPE, TWOPI
 from exorim.interferometry.operators import closure_baselines_projectors
 
 # ==========================================================================================
@@ -8,7 +8,7 @@ from exorim.interferometry.operators import closure_baselines_projectors
 
 
 def cast_to_complex_flatten(image):
-    im = tf.dtypes.cast(image, mycomplex)
+    im = tf.dtypes.cast(image, MYCOMPLEX)
     im = tf.keras.layers.Flatten(data_format="channels_last")(im)
     return im
 
@@ -77,7 +77,7 @@ def chi_squared_complex_visibility(image, vis, phys):
     if len(sigma.shape) < 2:
         chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(diff) / sigma), axis=1)
     else:
-        sigma = tf.cast(sigma, mycomplex)
+        sigma = tf.cast(sigma, MYCOMPLEX)
         chisq = 0.5 * tf.einsum("...j, ...j -> ...", tf.einsum("...i, ij,  -> ...j", sigma, diff), tf.math.conj(diff))
         chisq /= vis.shape[1]
     return chisq
@@ -100,10 +100,11 @@ def chi_squared_complex_visibility_with_self_calibration(image, X, phys):
     phi = tf.einsum("ij, ...j -> ...i", phys.CPO_right_pseudo_inverse, psi)
     phi_kernel = tf.einsum("ij, ...j -> ...i", phys.Bbar, alpha)
     vis_samples = vis_samples * tf.complex(tf.math.cos(phi_kernel), tf.math.sin(phi_kernel))
-    vis = tf.cast(tf.complex(amp * tf.math.cos(phi), amp * tf.math.sin(phi)), mycomplex)
+    vis = tf.cast(tf.complex(amp * tf.math.cos(phi), amp * tf.math.sin(phi)), MYCOMPLEX)
     diff = vis - vis_samples
     chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(diff) / sigma))
     return chisq
+
 
 def chi_squared_visibility_phases(image, vphases, phys):
     A = phys.A
@@ -118,6 +119,7 @@ def chi_squared_visibility_phases(image, vphases, phys):
         chisq /= vphases.shape[1]
     return chisq
 
+
 def chi_squared_amplitude(image, amp, phys):
     A = phys.A
     sigma = phys.sigma
@@ -125,6 +127,7 @@ def chi_squared_amplitude(image, amp, phys):
     im = cast_to_complex_flatten(image)
     amp_samples = tf.math.abs(tf.einsum("ij, ...j -> ...i", A, im))
     return tf.math.reduce_mean(((amp - amp_samples)/sig)**2, axis=1)
+
 
 def chi_squared_amplitude_squared(image, amp_sq, phys):
     A = phys.A
@@ -189,7 +192,7 @@ def chisq_gradient_complex_visibility(image, vis, phys):
     This function only support diagonal covariance matrix, given in the form of a (0,1)-tensor. For a 2-tensor
     covariance matrix, AutoGrad should be used since this analytical version is no longer valid.
     """
-    sig = tf.cast(phys.sigma, mycomplex)  # prevent dividing by zero
+    sig = tf.cast(phys.sigma, MYCOMPLEX)  # prevent dividing by zero
     im = cast_to_complex_flatten(image)
     samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
     wdiff = (vis - samples)/sig**2
@@ -204,12 +207,12 @@ def chisq_gradient_complex_visibility_with_self_calibration(image, X, phys):
     alpha = phys.alpha
     psi = phys.psi
     im = cast_to_complex_flatten(image)
-    sig = tf.cast(phys.sigma, mycomplex)
+    sig = tf.cast(phys.sigma, MYCOMPLEX)
     vis_samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
     phi = tf.einsum("ij, ...j -> ...i", phys.CPO_right_pseudo_inverse, psi)
     phi_kernel = tf.einsum("ij, ...j -> ...i", phys.Bbar, alpha)
     vis_samples = vis_samples * tf.complex(tf.math.cos(phi_kernel), tf.math.sin(phi_kernel))
-    vis = tf.cast(tf.complex(amp * tf.math.cos(phi), amp * tf.math.sin(phi)), mycomplex)
+    vis = tf.cast(tf.complex(amp * tf.math.cos(phi), amp * tf.math.sin(phi)), MYCOMPLEX)
     diff = (vis - vis_samples)/sig**2
     grad = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), diff))
     grad = tf.reshape(grad, image.shape)
@@ -228,7 +231,7 @@ def chisq_gradient_amplitude(image, amp, phys):
     V_samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
     amp_samples = tf.math.abs(V_samples)
     product = (amp - amp_samples) / sigma**2 / amp_samples
-    product = tf.cast(product, mycomplex)
+    product = tf.cast(product, MYCOMPLEX)
     out = - 2.0 * tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), V_samples * product))
     out = tf.reshape(out, shape=image.shape)
     return out / amp.shape[1]
@@ -241,7 +244,7 @@ def chisq_gradient_bispectra(image, B, phys):
     This version only support diagonal covariance matrix, given in the form of a (0,1)-tensor. For a 2-tensor
     covariance matrix, AutoGrad should be used since this analytical version is no longer valid.
     """
-    sig = tf.cast(3*phys.sigma, mycomplex)
+    sig = tf.cast(3 * phys.sigma, MYCOMPLEX)
     im = cast_to_complex_flatten(image)
     V1 = tf.einsum("ij, ...j -> ...i", phys.A1, im)
     V2 = tf.einsum("ij, ...j -> ...i", phys.A2, im)
@@ -269,7 +272,7 @@ def chisq_gradient_closure_phasor(image, clphase, phys):
     V3 = tf.einsum("ij, ...j -> ...i", phys.A3, im)
     B = V1 * tf.math.conj(V2) * V3
     clphase_samples = tf.math.angle(B)
-    wdiff = tf.cast(tf.math.sin(clphase - clphase_samples) / sigma ** 2, mycomplex)
+    wdiff = tf.cast(tf.math.sin(clphase - clphase_samples) / sigma ** 2, MYCOMPLEX)
     out = tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A1), wdiff / tf.math.conj(V1))
     out = out + tf.einsum("ji, ...j -> ...i", phys.A2, wdiff / V2)
     out = out + tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A3), wdiff / tf.math.conj(V3))
@@ -296,6 +299,7 @@ def x_transform_vis_with_self_cal(X, phys):
     phys.alpha = tf.Variable(tf.random.normal(shape=[X.shape[0], phys.N - 1]), constraint=lambda x: x%TWOPI)
     return amp
 
+
 def x_transform_bispectra(X, phys):
     return phys.bispectrum_X(X, phys)
 
@@ -305,8 +309,10 @@ def append_amp_closure_phases(X, phys):
     closure_phase = x_transform_closure_phase(X, phys)
     return tf.concat([amp, closure_phase], axis=1)
 
+
 def append_real_imag_visibility(X, phys):
     return tf.concat([tf.math.real(X), tf.math.imag(X)], axis=1)
+
 
 chi_squared = {
     "visibility": chi_squared_complex_visibility,
@@ -335,6 +341,6 @@ chisq_x_transformation = {
     "closure_phasor": x_transform_closure_phasor,
     "closure_phase": x_transform_closure_phase,
     "bispectra": x_transform_bispectra,
-    "append_amp_closure_phase": append_amp_closure_phases,
+    "append_visibility_amplitude_closure_phase": append_amp_closure_phases,
     "append_real_imag_visibility": append_real_imag_visibility
 }

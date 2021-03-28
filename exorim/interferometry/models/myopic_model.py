@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from exorim.definitions import DTYPE, mycomplex, rad2mas, triangle_pulse_f, mas2rad
+from exorim.definitions import DTYPE, MYCOMPLEX, rad2mas, triangle_pulse_f, mas2rad
 from exorim.base import PhysicalModelBase
 from exorim.interferometry.operators import Baselines, closure_phase_operator, NDFTM, closure_phase_covariance_inverse, closure_fourier_matrices, \
     closure_baselines_projectors
@@ -65,10 +65,10 @@ class MyopicPhysicalModel(PhysicalModelBase):
         self.CPO = tf.constant(self.CPO, DTYPE)
         self.CPO_right_pseudo_inverse = tf.constant(self.CPO_right_pseudo_inverse, DTYPE)
         self.Bbar = tf.constant(self.Bbar, DTYPE)
-        self.A = tf.constant(self.A, mycomplex)
-        self.A1 = tf.constant(A1, mycomplex)
-        self.A2 = tf.constant(A2, mycomplex)
-        self.A3 = tf.constant(A3, mycomplex)
+        self.A = tf.constant(self.A, MYCOMPLEX)
+        self.A1 = tf.constant(A1, MYCOMPLEX)
+        self.A2 = tf.constant(A2, MYCOMPLEX)
+        self.A3 = tf.constant(A3, MYCOMPLEX)
         self.flatten = tf.keras.layers.Flatten(data_format="channels_last")
         self.logim = logim  # whether we reconstruct in tje log space or brightness space
 
@@ -100,13 +100,13 @@ class MyopicPhysicalModel(PhysicalModelBase):
 
     @tf.function
     def fourier_transform(self, image):
-        im = tf.cast(image, mycomplex)
+        im = tf.cast(image, MYCOMPLEX)
         flat = self.flatten(im)
         return tf.einsum("ij, ...j->...i", self.A, flat)  # tensordot broadcasted on batch_size
 
     @tf.function
     def bispectrum(self, image):
-        im = tf.cast(image, mycomplex)
+        im = tf.cast(image, MYCOMPLEX)
         flat = self.flatten(im)
         V1 = tf.einsum("ij, ...j -> ...i", self.A1, flat)
         V2 = tf.einsum("ij, ...j -> ...i", self.A2, flat)
@@ -118,8 +118,8 @@ class MyopicPhysicalModel(PhysicalModelBase):
         X = self.fourier_transform(images)
         gain = self._aperture_gain(batch)
         phase_error = self._visibility_phase_noise(batch)
-        amp = tf.cast(gain * tf.math.abs(X), mycomplex)
-        phase = 1j * tf.cast(tf.math.angle(X) + phase_error, mycomplex)
+        amp = tf.cast(gain * tf.math.abs(X), MYCOMPLEX)
+        phase = 1j * tf.cast(tf.math.angle(X) + phase_error, MYCOMPLEX)
         noisy_vis = amp * tf.math.exp(phase)
         noisy_X = self.x_transform(noisy_vis, self)  # TODO make a better noise model
         return noisy_X

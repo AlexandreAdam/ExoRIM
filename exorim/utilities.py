@@ -1,8 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from exorim.interferometry.simulated_data import CenteredImagesGenerator
-from exorim.interferometry.models.physical_model import PhysicalModel
-from exorim.definitions import DTYPE, mycomplex
+from exorim.definitions import DTYPE, MYCOMPLEX
 from PIL import Image
 import os, glob
 import pickle
@@ -130,7 +129,7 @@ def save_loglikelihood_grad(grad, dirname, epoch, batch, index_mod, epoch_mod, t
 
 # Uses the simulated_data/CenteredImagesGenerator class
 def create_dataset_from_generator(
-        physical_model: PhysicalModel, #TODO make an abstract class to avoid circular import
+        physical_model, #TODO make an abstract class to avoid circular import
         item_per_epoch=1000,
         batch_size=50,
         highest_contrast=0.5,
@@ -150,7 +149,7 @@ def create_dataset_from_generator(
         gen.epoch = seed
     pixels = physical_model.pixels
     shapes = (tf.TensorShape([None]), tf.TensorShape([pixels, pixels, 1]))
-    dataset = tf.data.Dataset.from_generator(gen.generator, output_types=(mycomplex, DTYPE), output_shapes=shapes)
+    dataset = tf.data.Dataset.from_generator(gen.generator, output_types=(MYCOMPLEX, DTYPE), output_shapes=shapes)
     dataset = dataset.cache()              # accelerate the second and subsequent iterations over the dataset
     dataset = dataset.batch(batch_size, drop_remainder=True)
     # dataset = dataset.enumerate(start=0)

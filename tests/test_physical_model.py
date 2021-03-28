@@ -1,4 +1,4 @@
-from exorim.interferometry.models.physical_model import PhysicalModelv1
+from exorim.interferometry.models.direct_fourier_transform import PhysicalModel, GOLAY9
 from exorim.interferometry.operators import Baselines
 from exorim.definitions import rad2mas
 import tensorflow as tf
@@ -9,7 +9,7 @@ def test_nyquist_sampling_criterion():
     pixels = 64
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
-    phys = PhysicalModelv1(pixels, mask_coordinates)
+    phys = PhysicalModel(pixels, mask_coordinates)
     # get frequency sampled in Fourier space
     B = Baselines(mask_coordinates)
     uv = B.UVC/wavel
@@ -22,12 +22,28 @@ def test_nyquist_sampling_criterion():
     print(sampling_frequency)
     assert sampling_frequency > 2 * freq_sampled.max()
 
+    phys = PhysicalModel(pixels, GOLAY9) # GOLAY9 mask
+    # get frequency sampled in Fourier space
+    B = Baselines(GOLAY9)
+    uv = B.UVC/wavel
+    rho = np.hypot(uv[:, 0], uv[:, 1])
+    freq_sampled = 1/rad2mas(1/rho)
+    sampling_frequency = 1/phys.plate_scale # 1/mas
+
+
+    print(freq_sampled.max())
+    print(sampling_frequency)
+    assert sampling_frequency > 2 * freq_sampled.max()
+    assert 0 == 1
+
+
+
 
 def test_fov():
     pixels = 64
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
-    phys = PhysicalModelv1(pixels, mask_coordinates)
+    phys = PhysicalModel(pixels, mask_coordinates)
     # get frequency sampled in Fourier space
     B = Baselines(mask_coordinates)
     uv = B.UVC/wavel
@@ -42,7 +58,7 @@ def test_grad_likelihood():
     pixels = 64
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
-    phys = PhysicalModelv1(pixels, mask_coordinates)
+    phys = PhysicalModel(pixels, mask_coordinates)
 
     x = np.arange(pixels) - pixels//2 + 0.5
     xx, yy = np.meshgrid(x, x)
@@ -65,7 +81,7 @@ def test_grad_likelihood2():
     pixels = 128
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
-    phys = PhysicalModelv1(pixels, mask_coordinates, lam=0)
+    phys = PhysicalModel(pixels, mask_coordinates, lam=0)
 
     x = np.arange(pixels) - pixels//2 + 0.5
     xx, yy = np.meshgrid(x, x)

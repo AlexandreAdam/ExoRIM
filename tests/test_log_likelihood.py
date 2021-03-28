@@ -12,7 +12,7 @@ def test_chisq_vis_gradient():
     pixels = 32
     mask = np.random.normal(0, 6, [21, 2])
     B = Baselines(mask)
-    A = tf.constant(NDFTM(B.UVC, 0.5e-6, pixels, 0.3), mycomplex)
+    A = tf.constant(NDFTM(B.UVC, 0.5e-6, pixels, 0.3), MYCOMPLEX)
     sigma = tf.constant(0.01)
 
     image = np.zeros([pixels, pixels])
@@ -27,7 +27,7 @@ def test_chisq_vis_gradient():
     noise += np.exp(-rho_prime**2/blob_size**2)
     noise = tf.constant(noise.reshape((1, pixels, pixels, 1)), DTYPE)
 
-    vis = tf.constant(np.dot(A, image.flatten()).reshape((1, -1)), mycomplex)
+    vis = tf.constant(np.dot(A, image.flatten()).reshape((1, -1)), MYCOMPLEX)
 
     start = time.time()
     grad1 = chisq_gradient_complex_visibility_analytic(noise, A, vis, sigma)
@@ -48,9 +48,9 @@ def test_chisq_closure_phase_gradient():
     A = NDFTM(B.UVC, 0.5e-6, pixels, 0.3)
     CPO = closure_phase_operator(B)
     A1, A2, A3 = closure_fourier_matrices(A, CPO)
-    A1 = tf.constant(A1, mycomplex)
-    A2 = tf.constant(A2, mycomplex)
-    A3 = tf.constant(A3, mycomplex)
+    A1 = tf.constant(A1, MYCOMPLEX)
+    A2 = tf.constant(A2, MYCOMPLEX)
+    A3 = tf.constant(A3, MYCOMPLEX)
     sigma = tf.constant(0.01)
 
     image = np.zeros([pixels, pixels])

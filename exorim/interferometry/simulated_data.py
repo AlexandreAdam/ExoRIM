@@ -1,7 +1,6 @@
 import numpy as np
 import tensorflow as tf
 from exorim.definitions import k_truncated_poisson, centroid, DTYPE
-from exorim.interferometry.models.physical_model import PhysicalModel
 from numpy.fft import fft2, ifft2
 
 
@@ -176,12 +175,14 @@ class CenteredBinaries:
             self,
             total_items=1000,
             pixels=32,
-            width=5 # sigma parameter of super gaussian
+            width=5, # sigma parameter of super gaussian
+            flux=32**2
     ):
         self.total_items = total_items
         self.pixels = pixels
         self.width = width
         self.max_sep = pixels/2
+        self.flux = flux
 
         # make coordinate system
         x = np.arange(pixels) - pixels//2 + 0.5 # works when #pixels is even
@@ -199,16 +200,12 @@ class CenteredBinaries:
                 y0 = separation[i] * np.sin(angle[i] + j * np.pi)/2
                 images[i, ..., 0] += self.super_gaussian(x0, y0)
 
-        images = images / images.sum(axis=(1, 2), keepdims=True)
+        images = images / images.sum(axis=(1, 2), keepdims=True) * self.flux
         return images
 
     def super_gaussian(self, x0, y0):
         rho = np.hypot(self.x - x0, self.y - y0)
         return np.exp(-0.5 * (rho/self.width)**4)
-
-
-
-
 
 
 class CenteredCircle:
@@ -255,7 +252,7 @@ class CenteredCircle:
 class CenteredImagesGenerator:
     def __init__(
             self,
-            physical_model: PhysicalModel,
+            physical_model,
             total_items_per_epoch,
             channels=1,
             highest_contrast=0.5,
@@ -367,6 +364,6 @@ class CenteredImagesGenerator:
 
     def _elongation(self, nps):
         return np.random.uniform(1, 4, size=(nps, 2))
-
+#
 
 #TODO make sure images are normalized properly

@@ -61,7 +61,7 @@ ndftm_i = exo.operators.NDFTM(B.UVC, wavel, pixels, plate_scale, inv=True)
 p = N * (N - 1) // 2
 # q = (N - 1) * (N - 2) // 2
 q = N * (N - 1) * (N - 2) // 6
-mycomplex = exo.definitions.mycomplex
+mycomplex = exo.definitions.MYCOMPLEX
 dtype = exo.definitions.DTYPE
 baselines = exo.operators.Baselines(mask_coordinates=circle_mask)
 # CPO = exo.operators.phase_closure_operator(baselines)
@@ -260,7 +260,7 @@ im_copies = image1.flatten().reshape((1, image1.shape[0]**2))
 im_copies = np.tile(im_copies, [batch, 1])
 V_copies = V.reshape((1, V.shape[0]))
 V_copies = np.tile(V_copies, [batch, 1])
-V_copies = tf.cast(V_copies, exo.definitions.mycomplex)
+V_copies = tf.cast(V_copies, exo.definitions.MYCOMPLEX)
 
 angle = np.array([5 * np.pi/4 for i in range(batch//2)] + [np.pi/4 for i in range(batch//2)])
 r = np.array(list(range(batch//2))[::-1] + list(range(batch//2))) * pixels/batch

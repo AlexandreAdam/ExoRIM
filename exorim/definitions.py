@@ -4,7 +4,7 @@ import numpy as np
 
 tf.keras.backend.set_floatx('float32')
 DTYPE = tf.float32  # TODO consider using mixed precision with float16
-mycomplex = tf.complex64
+MYCOMPLEX = tf.complex64
 initializer = tf.random_normal_initializer(stddev=0.1)
 DEGREE = tf.constant(3.14159265358979323 / 180., DTYPE)
 INTENSITY_SCALER = tf.constant(1e6, DTYPE)
