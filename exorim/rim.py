@@ -210,8 +210,9 @@ class RIM:
                             description="Logarithm of the absolute difference between Y_pred and Y at the first time step")
                         tf.summary.histogram(f"Residual_last", tf.math.log(tf.math.abs(output[..., -1] - Y)),
                             description="Logarithm of the absolute difference between Y_pred and Y at the last time step")
-                        tf.summary.histogram(name=f"Log_Likelihood_Gradient_log_scale", data=tf.math.asinh(grads[0])/tf.math.log(10.),
-                            description="Arcsinh of the Likelihood gradient for each time steps (divided by log(10))")
+                        if not self.grad_log_scale:
+                            tf.summary.histogram(name=f"Log_Likelihood_Gradient_log_scale", data=tf.math.asinh(grads[0])/tf.math.log(10.),
+                                description="Arcsinh of the Likelihood gradient for each time steps (divided by log(10))")
                         tf.summary.histogram(name=f"Log_Likelihood_Gradient", data=grads[0], description="Log Likelihood gradient")
 
                         for i, grad in enumerate(gradient):
