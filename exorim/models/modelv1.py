@@ -9,7 +9,7 @@ class Model(tf.keras.models.Model):
                  name="modelv1",
                  kernel_size_downsampling=3,
                  filters_downsampling=16,
-                 downsampling_layers=2,  # same for upsampling
+                 downsampling_layers=1,  # same for upsampling
                  conv_layers=1,
                  kernel_size_gru=3,
                  state_depth=64,
@@ -48,10 +48,14 @@ class Model(tf.keras.models.Model):
             if batch_norm:
                 self.downsampling_block.append(tf.keras.layers.BatchNormalization(name=f"BatchNormDownsample{i+1}", axis=-1))
             for j in range(conv_layers):
+                if i == downsampling_layers - 1:
+                    filters=state_depth//2 # match convGRU filter size
+                else:
+                    filters=filters_downsampling
                 self.downsampling_block.append(tf.keras.layers.Conv2D(
                     strides=1,
                     kernel_size=kernel_size_downsampling,
-                    filters=filters_downsampling,
+                    filters=filters,
                     name=f"Conv{j + 1}",
                     activation=activation,
                     padding="same",
@@ -64,7 +68,7 @@ class Model(tf.keras.models.Model):
                     self.downsampling_block.append(
                         tf.keras.layers.BatchNormalization(name=f"BatchNormDownsampleConv{j + 1}", axis=-1))
         for i in range(downsampling_layers):
-            self.downsampling_block.append(tf.keras.layers.Conv2DTranspose(
+            self.upsampling_block.append(tf.keras.layers.Conv2DTranspose(
                 strides=2,
                 kernel_size=kernel_size_upsampling,
                 filters=filters_upsampling,
@@ -77,9 +81,9 @@ class Model(tf.keras.models.Model):
                 kernel_initializer=tf.keras.initializers.GlorotUniform()
             ))
             if batch_norm:
-                self.downsampling_block.append(tf.keras.layers.BatchNormalization(name=f"BatchNormUpsample{i+1}", axis=-1))
+                self.upsampling_block.append(tf.keras.layers.BatchNormalization(name=f"BatchNormUpsample{i+1}", axis=-1))
             for j in range(conv_layers):
-                self.downsampling_block.append(tf.keras.layers.Conv2DTranspose(
+                self.upsampling_block.append(tf.keras.layers.Conv2DTranspose(
                     strides=1,
                     kernel_size=kernel_size_upsampling,
                     filters=filters_upsampling,
@@ -92,7 +96,7 @@ class Model(tf.keras.models.Model):
                     kernel_initializer=tf.keras.initializers.GlorotUniform()
                 ))
                 if batch_norm:
-                    self.downsampling_block.append(
+                    self.upsampling_block.append(
                         tf.keras.layers.BatchNormalization(name=f"BatchNormUpsampleConv{j + 1}", axis=-1))
         self.gru1 = ConvGRU(filters=state_depth//2, kernel_size=kernel_size_gru)
         self.gru2 = ConvGRU(filters=state_depth//2, kernel_size=kernel_size_gru)
@@ -109,8 +113,15 @@ class Model(tf.keras.models.Model):
                 kernel_initializer=tf.keras.initializers.GlorotUniform()
             ))
             if batch_norm:
-                self.downsampling_block.append(
+                self.hidden_conv.append(
                     tf.keras.layers.BatchNormalization(name=f"BatchNormHiddenConv{i + 1}", axis=-1))
+        self.output_layer = tf.keras.layers.Conv2DTranspose(
+            name="output_conv",
+            kernel_size=1,
+            filters=1,
+            activation=tf.keras.layers.Activation("tanh"),
+            padding="same",
+        )
 
     def call(self, X, ht):
         """
@@ -131,7 +142,7 @@ class Model(tf.keras.models.Model):
         for layer in self.hidden_conv:
             ht_1_features = layer(ht_1_features)
             if global_step() % self._timestep_mod == 0:
-                summary_histograms(self.hidden_conv, ht_1_features)
+                summary_histograms(layer, ht_1_features)
         ht_2 = self.gru2(ht_1_features, ht_2)
         if global_step() % self._timestep_mod == 0:
             summary_histograms(self.gru2, ht_2)
@@ -142,5 +153,8 @@ class Model(tf.keras.models.Model):
             delta_xt = layer(delta_xt)
             if global_step() % self._timestep_mod == 0:
                 summary_histograms(layer, delta_xt)
+        delta_xt = self.output_layer(delta_xt)
+        if global_step() % self._timestep_mod == 0:
+            summary_histograms(self.output_layer, delta_xt)
         new_state = tf.concat([ht_1, ht_2], axis=3)
         return delta_xt, new_state

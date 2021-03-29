@@ -34,7 +34,6 @@ def test_nyquist_sampling_criterion():
     print(freq_sampled.max())
     print(sampling_frequency)
     assert sampling_frequency > 2 * freq_sampled.max()
-    assert 0 == 1
 
 
 
