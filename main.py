@@ -48,7 +48,7 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--min_delta", type=float, default=0., help="Tolerance for early stopping")
     parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping") # infinite patience for hparam check
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
-    parser.add_argument("-e", "--max_epoch", type=int, default=50, help="Maximum number of epoch")
+    parser.add_argument("-e", "--max_epoch", type=int, default=20, help="Maximum number of epoch")
     parser.add_argument("--index_save_mod", type=int, default=20, help="Image index to be saved")
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
     parser.add_argument("--noise_floor", type=float, default=1, help="Intensity noise floor")
@@ -114,6 +114,7 @@ if __name__ == "__main__":
         checkpoint_dir=models_dir,
         max_epochs=args.max_epoch,
         logdir=logdir,
+        record=True,
         output_save_mod={
             "index_mod": args.index_save_mod,
             "epoch_mod": args.epoch_save_mod,
