@@ -34,7 +34,7 @@ class Model(tf.keras.models.Model):
             activation = tf.keras.layers.Activation(activation)
         for i in range(downsampling_layers):
             self.downsampling_block.append(tf.keras.layers.Conv2D(
-                stride=2,
+                strides=2,
                 kernel_size=kernel_size_downsampling,
                 filters=filters_downsampling,
                 name=f"DownsampleConv{i+1}",
@@ -49,7 +49,7 @@ class Model(tf.keras.models.Model):
                 self.downsampling_block.append(tf.keras.layers.BatchNormalization(name=f"BatchNormDownsample{i+1}", axis=-1))
             for j in range(conv_layers):
                 self.downsampling_block.append(tf.keras.layers.Conv2D(
-                    stride=1,
+                    strides=1,
                     kernel_size=kernel_size_downsampling,
                     filters=filters_downsampling,
                     name=f"Conv{j + 1}",
@@ -65,7 +65,7 @@ class Model(tf.keras.models.Model):
                         tf.keras.layers.BatchNormalization(name=f"BatchNormDownsampleConv{j + 1}", axis=-1))
         for i in range(downsampling_layers):
             self.downsampling_block.append(tf.keras.layers.Conv2DTranspose(
-                stride=2,
+                strides=2,
                 kernel_size=kernel_size_upsampling,
                 filters=filters_upsampling,
                 name=f"UpsampleConv{i+1}",
@@ -80,7 +80,7 @@ class Model(tf.keras.models.Model):
                 self.downsampling_block.append(tf.keras.layers.BatchNormalization(name=f"BatchNormUpsample{i+1}", axis=-1))
             for j in range(conv_layers):
                 self.downsampling_block.append(tf.keras.layers.Conv2DTranspose(
-                    stride=1,
+                    strides=1,
                     kernel_size=kernel_size_upsampling,
                     filters=filters_upsampling,
                     name=f"TConv{j + 1}",

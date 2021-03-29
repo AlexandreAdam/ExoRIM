@@ -1,12 +1,14 @@
 import ray
 import wandb
+import tensorflow as tf
 from ray import tune
 from ray.tune.integration.wandb import wandb_mixin
 from exorim import MSE, PhysicalModel, RIM
 from exorim.interferometry.simulated_data import CenteredBinaries
-from ray.tune.suggest.bayesopt import BayesOptSearch
+from exorim.definitions import DTYPE
+from ray.tune.suggest.hyperopt import HyperOptSearch
 
-from ray.tune.schedulers import HyperBandScheduler
+# from ray.tune.schedulers import HyperBandScheduler
 
 #
 # class MyTrainableClass(tune.Trainable):
@@ -56,36 +58,38 @@ if __name__ == '__main__':
     config = {
         "grad_log_scale": tune.choice([True, False]),
         "logim": tune.choice([True, False]),
-        "lam": tune.grid_search([0, 1, 1e-2, 100]),
-        "time_steps": tune.randint(6, 12),
-        "state_depth": tune.grid_search([16, 32, 64, 128, 256]),
-        "kernel_size_downsampling": tune.grid_search([3, 5, 7]),
-        "filters_downsampling": tune.grid_search([16, 32, 64]),
-        "downsampling_layers": tune.grid_search([1, 2, 3]),
-        "conv_layers": tune.grid_search([1, 2]),
-        "kernel_size_gru": tune.grid_search([3, 5, 7]),
-        "hidden_layers": tune.grid_search([1, 2]),
-        "kernel_size_upsampling": tune.grid_search([3, 5, 7]),
-        "filters_upsampling": tune.grid_search([16, 32, 64]),
-        "kernel_regularizer_amp": tune.qloguniform(1e-3, 1e-1, 5e-4),
-        "bias_regularizer_amp": tune.qloguniform(1e-3, 1e-1, 5e-4),
+        "lam": tune.choice([0, 1, 1e-2, 100]),
+        "time_steps": tune.choice([6, 8, 10, 12]),
+        "state_depth": tune.choice([16, 32, 64, 128, 256]),
+        "kernel_size_downsampling": tune.choice([3, 5, 7]),
+        "filters_downsampling": tune.choice([16, 32, 64]),
+        "downsampling_layers": tune.choice([1, 2, 3]),
+        "conv_layers": tune.choice([1, 2]),
+        "kernel_size_gru": tune.choice([3, 5, 7]),
+        "hidden_layers": tune.choice([1, 2]),
+        "kernel_size_upsampling": tune.choice([3, 5, 7]),
+        "filters_upsampling": tune.choice([16, 32, 64]),
+        "kernel_regularizer_amp": tune.choice([1e-3, 1e-2, 1e-1]),
+        "bias_regularizer_amp": tune.choice([1e-3, 1e-2, 1e-1]),
         "batch_norm": tune.choice([True, False]),
         "activation": tune.choice(["leaky_relu", "relu", "gelu", "elu"]),
-        "initial_learning_rate": tune.grid_search([1e-3, 1e-4, 1e-5]),
-        "beta_1": tune.quniform(0.5, 0.99, 0.1), # Adam optimzier
-        "batch_size": tune.grid_search([5, 10, 20]),
-        "temperature": tune.grid_search([1, 10, 100, 1e4, 1e5])
+        "initial_learning_rate": tune.choice([1e-3, 1e-4, 1e-5]),
+        "beta_1": tune.uniform(0.5, 0.99), # Adam optimzier
+        "batch_size": tune.choice([5, 10, 20]),
+        "temperature": tune.choice([1, 10, 100, 1e4, 1e5]),
+        "wandb": {
+            "project": "exorim_modelv1_raytunev1",
+            }
     }
-    # make a dataset for gridsearch
-    temp_phys = PhysicalModel(args.pixels)
-    Y = CenteredBinaries(args.images, args.pixels, width=3, flux=args.pixels**2, seed=42).generate_epoch_images()
-    X = temp_phys.forward(Y)
-    del temp_phys
 
     @wandb_mixin
     def trainable(config):
         import tensorflow as tf
         phys = PhysicalModel(args.pixels, temperature=config["temperature"], logim=config["logim"], lam=config["lam"])
+        Y = tf.convert_to_tensor(CenteredBinaries(args.images, args.pixels, width=3, flux=args.pixels**2, seed=42).generate_epoch_images(), dtype=DTYPE)
+        X = phys.forward(Y)
+        Y = tf.data.Dataset.from_tensor_slices(Y)
+        X = tf.data.Dataset.from_tensor_slices(X)
         dataset = tf.data.Dataset.zip((X, Y))
         dataset = dataset.batch(config["batch_size"], drop_remainder=True)
         # dataset = dataset.cache()
@@ -114,13 +118,17 @@ if __name__ == '__main__':
         )
         optimizer = tf.keras.optimizers.Adam(learning_rate=lr_scheduler, beta_1=config["beta_1"])
         history = rim.fit(dataset, MSE(), optimizer, max_epochs=max_epochs)
-        tune.report(train_loss=min(history["train_loss"]))
+        tune.report(train_loss = min(history["train_loss"]))
         wandb.log({"train_loss": min(history["train_loss"])})
 
-
+    search_algorithm = HyperOptSearch(metric="train_loss", mode="min")
     analysis = tune.run(
         trainable,
-        config=config)
+        config=config,
+        num_samples=5,
+        search_alg=search_algorithm,
+        resources_per_trial={"cpu": 2}
+        )
 
     print("Best config: ", analysis.get_best_config(
         metric="mean_loss", mode="min"))
