@@ -1,6 +1,6 @@
-from ExoRIM.gridsearch import hparams_for_gridsearchV1, kfold_splits
-from ExoRIM.model import RIM, MSE
-from ExoRIM.simulated_data import CenteredImagesv1, OffCenteredBinaries
+from exorim.gridsearch import hparams_for_gridsearchV1, kfold_splits
+from exorim import RIM, MSE
+from exorim.interferometry.simulated_data import CenteredImagesv1
 from preprocessing.simulate_data import create_and_save_data
 from argparse import ArgumentParser
 from datetime import datetime
@@ -33,12 +33,12 @@ if __name__ == "__main__":
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
 
     basedir = os.getcwd()  # assumes script is run from base directory
-    projector_dir = os.path.join(basedir, "data", "projector_arrays")
-    results_dir = os.path.join(basedir, "results", "gridsearch_" + date)
+    projector_dir = os.path.join(basedir, "../data", "projector_arrays")
+    results_dir = os.path.join(basedir, "../results", "gridsearch_" + date)
     os.mkdir(results_dir)
-    models_dir = os.path.join(basedir, "models", "gridsearch_" + date)
+    models_dir = os.path.join(basedir, "../models", "gridsearch_" + date)
     os.mkdir(models_dir)
-    data_dir = os.path.join(basedir, "data", "gridsearch_" + date)
+    data_dir = os.path.join(basedir, "../data", "gridsearch_" + date)
     os.mkdir(data_dir)
 
     meta_data = CenteredImagesv1(
@@ -71,7 +71,7 @@ if __name__ == "__main__":
     }
 
     Y = tf.convert_to_tensor(create_and_save_data(data_dir, meta_data), dtype=tf.float32)
-    cost_function = CostFunction()
+    cost_function = MSE()
 
     for hparams in hparams_for_gridsearchV1(args.model_trained):
         hparams_dir = os.path.join(results_dir, f"hparams_{hparams['grid_id']:03}")

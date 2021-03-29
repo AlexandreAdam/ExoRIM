@@ -139,6 +139,21 @@ class PhysicalModel:
         X = chisq.chisq_x_transformation[self._loglikelihood](V, self)
         return X
 
+    def chi_squared(self, image, X):
+        if self.logim:
+            image = np.exp(image)
+        if self._loglikelihood == "append_visibility_amplitude_closure_phase":
+            amp = X[..., :self.p]
+            cp  = X[..., self.p:]
+            ll = chisq.chi_squared_amplitude(image, amp, self)
+            ll += chisq.chi_squared_closure_phasor(image, cp, self)
+            ll += self.lam * entropy(image, self.prior)
+            ll /= self.temperature
+        else:
+            ll = chisq.chi_squared[self._loglikelihood](image, X, self)
+            ll /= self.temperature
+        return ll
+
     def fourier_transform(self, image):
         im = tf.cast(image, MYCOMPLEX)
         flat = self.flatten(im)

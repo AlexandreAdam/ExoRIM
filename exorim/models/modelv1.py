@@ -1,144 +1,145 @@
 import tensorflow as tf
-from exorim.definitions import DTYPE, default_hyperparameters
+from exorim.definitions import DTYPE
 from exorim.models.layers.conv_gru import ConvGRU
 from exorim.models.utils import global_step, summary_histograms
 
 
 class Model(tf.keras.models.Model):
-    def __init__(self, hyperparameters=default_hyperparameters, dtype=DTYPE, **kwargs):
-        try:
-            name = hyperparameters["name"]
-        except KeyError:
-            name = "modelv1"
+    def __init__(self,
+                 name="modelv1",
+                 kernel_size_downsampling=3,
+                 filters_downsampling=16,
+                 downsampling_layers=2,  # same for upsampling
+                 conv_layers=1,
+                 kernel_size_gru=3,
+                 state_depth=64,
+                 hidden_layers=1,
+                 tconv_layers=1,
+                 kernel_size_upsampling=3,
+                 filter_size_upsampling=16,
+                 kernel_regularizer_amp=0.,
+                 bias_regularizer_amp=0.,
+                 batch_norm=False,
+                 dtype=DTYPE,
+                 activation="leaky_relu",
+                 **kwargs):
         super(Model, self).__init__(dtype=dtype, name=name, **kwargs)
         self._timestep_mod = 30  # silent instance attribute to be modified if needed in the RIM fit method
         self.downsampling_block = []
-        self.convolution_block = []
         self.recurrent_block = []
         self.upsampling_block = []
-        self.transposed_convolution_block = []
-        self.batch_norm = []
-        try:
-            batch_norm_params = hyperparameters["Batch Norm"]
-        except KeyError:
-            batch_norm_params = {}
-        for i in range(5):
-            self.batch_norm.append(tf.keras.layers.BatchNormalization(axis=-1, **batch_norm_params)) # last axis is channel dimension -> to be normalised
-        kernel_reg_amp = hyperparameters["Regularizer Amplitude"]["kernel"]
-        bias_reg_amp = hyperparameters["Regularizer Amplitude"]["bias"]
-        for layer in hyperparameters["Downsampling Block"]:
-            name = list(layer.keys())[0]
-            params = layer[name]
-            self.downsampling_block.append(tf.keras.layers.Conv2D(
-                # stride=(2, 2),  # (output side pixel)/
-                **params,  # kernel size and filters
-                name=name,
-                activation=tf.keras.layers.LeakyReLU(),
-                padding="same",
-                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
-                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-                data_format="channels_last",
-                kernel_initializer=tf.keras.initializers.GlorotUniform()
-            ))
-        for layer in hyperparameters["Convolution Block"]:
-            name = list(layer.keys())[0]
-            params = layer[name]
-            self.convolution_block.append(tf.keras.layers.Conv2D(
-                # stride=(1, 1),
-                **params,
-                name=name,
-                activation=tf.keras.layers.LeakyReLU(),
-                padding="same",
-                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
-                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-                data_format="channels_last",
-                kernel_initializer=tf.keras.initializers.GlorotUniform()
-            ))
-        for layer in hyperparameters["Transposed Convolution Block"]:
-            name = list(layer.keys())[0]
-            params = layer[name]
-            self.transposed_convolution_block.append(tf.keras.layers.Conv2DTranspose(
-                # stride=(1, 1),
-                **params,
-                name=name,
-                activation=tf.keras.layers.LeakyReLU(),
-                padding="same",
-                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
-                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-                data_format="channels_last",
-                kernel_initializer=tf.keras.initializers.GlorotUniform()
-            ))
-        for layer in hyperparameters["Upsampling Block"]:
-            name = list(layer.keys())[0]
-            params = layer[name]
-            self.upsampling_block.append(tf.keras.layers.Conv2DTranspose(
-                **params,
-                name=name,
-                activation=tf.keras.layers.LeakyReLU(),
-                padding="same",
-                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
-                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-                data_format="channels_last",
-                kernel_initializer=tf.keras.initializers.GlorotUniform()
-            ))
-        if hyperparameters["Upsampling Block"] == []:
-            name = "Identity"
-            self.upsampling_block.append(tf.identity)
-        self.gru1 = ConvGRU(**hyperparameters["Recurrent Block"]["GRU_1"])
-        self.gru2 = ConvGRU(**hyperparameters["Recurrent Block"]["GRU_2"])
-        if "Hidden_Conv_1" in hyperparameters["Recurrent Block"].keys():
-            self.hidden_conv = tf.keras.layers.Conv2DTranspose(
-                **hyperparameters["Recurrent Block"]["Hidden_Conv_1"],
-                name="Hidden_Conv_1",
-                activation=tf.keras.layers.LeakyReLU(),
-                padding="same",
-                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_reg_amp),
-                bias_regularizer=tf.keras.regularizers.l2(l=bias_reg_amp),
-                data_format="channels_last",
-                kernel_initializer=tf.keras.initializers.GlorotUniform()
-            )
+        self.hidden_conv = []
+        if activation == "leaky_relu":
+            activation = tf.keras.layers.LeakyReLU()
         else:
-            self.hidden_conv = None
-
+            activation = tf.keras.layers.Activation(activation)
+        for i in range(downsampling_layers):
+            self.downsampling_block.append(tf.keras.layers.Conv2D(
+                stride=2,
+                kernel_size=kernel_size_downsampling,
+                filters=filters_downsampling,
+                name=f"DownsampleConv{i+1}",
+                activation=activation,
+                padding="same",
+                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_regularizer_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l=bias_regularizer_amp),
+                data_format="channels_last",
+                kernel_initializer=tf.keras.initializers.GlorotUniform()
+            ))
+            if batch_norm:
+                self.downsampling_block.append(tf.keras.layers.BatchNormalization(name=f"BatchNormDownsample{i+1}", axis=-1))
+            for j in range(conv_layers):
+                self.downsampling_block.append(tf.keras.layers.Conv2D(
+                    stride=1,
+                    kernel_size=kernel_size_downsampling,
+                    filters=filters_downsampling,
+                    name=f"Conv{j + 1}",
+                    activation=activation,
+                    padding="same",
+                    kernel_regularizer=tf.keras.regularizers.l2(l=kernel_regularizer_amp),
+                    bias_regularizer=tf.keras.regularizers.l2(l=bias_regularizer_amp),
+                    data_format="channels_last",
+                    kernel_initializer=tf.keras.initializers.GlorotUniform()
+                ))
+                if batch_norm:
+                    self.downsampling_block.append(
+                        tf.keras.layers.BatchNormalization(name=f"BatchNormDownsampleConv{j + 1}", axis=-1))
+        for i in range(downsampling_layers):
+            self.downsampling_block.append(tf.keras.layers.Conv2DTranspose(
+                stride=2,
+                kernel_size=kernel_size_upsampling,
+                filters=filter_size_upsampling,
+                name=f"UpsampleConv{i+1}",
+                activation=activation,
+                padding="same",
+                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_regularizer_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l=bias_regularizer_amp),
+                data_format="channels_last",
+                kernel_initializer=tf.keras.initializers.GlorotUniform()
+            ))
+            if batch_norm:
+                self.downsampling_block.append(tf.keras.layers.BatchNormalization(name=f"BatchNormUpsample{i+1}", axis=-1))
+            for j in range(tconv_layers):
+                self.downsampling_block.append(tf.keras.layers.Conv2DTranspose(
+                    stride=1,
+                    kernel_size=kernel_size_upsampling,
+                    filters=kernel_size_upsampling,
+                    name=f"TConv{j + 1}",
+                    activation=activation,
+                    padding="same",
+                    kernel_regularizer=tf.keras.regularizers.l2(l=kernel_regularizer_amp),
+                    bias_regularizer=tf.keras.regularizers.l2(l=bias_regularizer_amp),
+                    data_format="channels_last",
+                    kernel_initializer=tf.keras.initializers.GlorotUniform()
+                ))
+                if batch_norm:
+                    self.downsampling_block.append(
+                        tf.keras.layers.BatchNormalization(name=f"BatchNormUpsampleConv{j + 1}", axis=-1))
+        self.gru1 = ConvGRU(filters=state_depth//2, kernel_size=kernel_size_gru)
+        self.gru2 = ConvGRU(filters=state_depth//2, kernel_size=kernel_size_gru)
+        for i in range(hidden_layers):
+            self.hidden_conv.append(tf.keras.layers.Conv2D(
+                filters=state_depth//2,
+                kernel_size=kernel_size_gru,
+                name=f"HiddenConv{i+1}",
+                activation=activation,
+                padding="same",
+                kernel_regularizer=tf.keras.regularizers.l2(l=kernel_regularizer_amp),
+                bias_regularizer=tf.keras.regularizers.l2(l=bias_regularizer_amp),
+                data_format="channels_last",
+                kernel_initializer=tf.keras.initializers.GlorotUniform()
+            ))
+            if batch_norm:
+                self.downsampling_block.append(
+                    tf.keras.layers.BatchNormalization(name=f"BatchNormHiddenConv{i + 1}", axis=-1))
 
     def call(self, X, ht):
         """
         :param yt: Image tensor of shape [batch, pixel, pixel, channel], correspond to the step t of the reconstruction.
         :param ht: Hidden memory tensor updated in the Recurrent Block
         """
-        X = self.batch_norm[0](X)
         for layer in self.downsampling_block:
             X = layer(X)
             if global_step() % self._timestep_mod == 0:
                 summary_histograms(layer, X)
-        X = self.batch_norm[1](X)
-        for layer in self.convolution_block:
-            X = layer(X)
-            if global_step() % self._timestep_mod == 0:
-                summary_histograms(layer, X)
-        X = self.batch_norm[2](X)
+
         # ===== Recurrent Block =====
         ht_1, ht_2 = tf.split(ht, 2, axis=3)
         ht_1 = self.gru1(X, ht_1)  # to be recombined in new state
-        summary_histograms(self.gru1, ht_1)
-        if self.hidden_conv is not None:
-            ht_1_features = self.hidden_conv(ht_1)
+        if global_step() % self._timestep_mod == 0:
+            summary_histograms(self.gru1, ht_1)
+        ht_1_features = tf.identity(ht_1)
+        for layer in self.hidden_conv:
+            ht_1_features = layer(ht_1_features)
             if global_step() % self._timestep_mod == 0:
                 summary_histograms(self.hidden_conv, ht_1_features)
-        else:
-            ht_1_features = ht_1
         ht_2 = self.gru2(ht_1_features, ht_2)
         if global_step() % self._timestep_mod == 0:
             summary_histograms(self.gru2, ht_2)
         # ===========================
-        delta_xt = self.batch_norm[3](ht_2)
-        # delta_xt = self.upsample2d(delta_xt)
+
+        delta_xt = tf.identity(ht_2)
         for layer in self.upsampling_block:
-            delta_xt = layer(delta_xt)
-            if global_step() % self._timestep_mod == 0:
-                summary_histograms(layer, delta_xt)
-        delta_xt = self.batch_norm[4](delta_xt)
-        for layer in self.transposed_convolution_block:
             delta_xt = layer(delta_xt)
             if global_step() % self._timestep_mod == 0:
                 summary_histograms(layer, delta_xt)

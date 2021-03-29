@@ -10,7 +10,7 @@ class BaselineModel(tf.keras.models.Model):
         self._timestep_mod = 30  # silent instance attribute to be modified if needed in the RIM fit method
         self.downsample1 = tf.keras.layers.Conv2D(
                 kernel_size=3,
-                filters=64,
+                filters=16,
                 strides=2,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
@@ -19,7 +19,7 @@ class BaselineModel(tf.keras.models.Model):
             )
         self.downsample2 = tf.keras.layers.Conv2D(
                 kernel_size=3,
-                filters=256,
+                filters=16,
                 strides=2,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
@@ -28,7 +28,7 @@ class BaselineModel(tf.keras.models.Model):
             )
         self.conv1 = tf.keras.layers.Conv2D(
                 kernel_size=3,
-                filters=256,
+                filters=16,
                 strides=1,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
@@ -37,7 +37,7 @@ class BaselineModel(tf.keras.models.Model):
             )
         self.conv2 = tf.keras.layers.Conv2D(
                 kernel_size=3,
-                filters=256,
+                filters=16,
                 strides=1,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
@@ -46,7 +46,7 @@ class BaselineModel(tf.keras.models.Model):
             )
         self.tconv1 = tf.keras.layers.Conv2DTranspose(
                 kernel_size=3,
-                filters=256,
+                filters=16,
                 strides=1,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
@@ -64,7 +64,7 @@ class BaselineModel(tf.keras.models.Model):
             )
         self.upsample1 = tf.keras.layers.Conv2DTranspose(
                 kernel_size=3,
-                filters=64,
+                filters=16,
                 strides=2,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
@@ -73,7 +73,7 @@ class BaselineModel(tf.keras.models.Model):
             )
         self.upsample2 = tf.keras.layers.Conv2DTranspose(
                 kernel_size=3,
-                filters=64,
+                filters=16,
                 strides=2,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
@@ -84,7 +84,7 @@ class BaselineModel(tf.keras.models.Model):
         self.gru2 = ConvGRU(filters=256, kernel_size=3)
         self.hidden_conv = tf.keras.layers.Conv2D(
             kernel_size=3,
-            filters=256,
+            filters=16,
             strides=1,
             activation=tf.keras.layers.LeakyReLU(),
             padding="same",

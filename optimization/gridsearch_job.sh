@@ -10,7 +10,7 @@ module load python/3.6
 virtualenv $SLURM_TMPDIR/env
 source $SLURM_TMPDIR/env/bin/activate
 pip install --no-index --upgrade pip
-pip install --no-index -r cc_requirements.txt
+pip install --no-index -r compute_canada_requirements.txt
 pip install /home/aadam/scratch/ExoRIM/dist/ExoRim-0.1-py3-none-any.whl
 module load cuda cudnn 
 python -W ignore::DeprecationWarning

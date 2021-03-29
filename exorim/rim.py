@@ -1,4 +1,4 @@
-from exorim.definitions import DTYPE, default_hyperparameters
+from exorim.definitions import DTYPE
 from exorim.utilities import save_output, save_gradient_and_weights, save_loglikelihood_grad, nullwriter
 from exorim.models.modelv1 import Model
 import tensorflow as tf
@@ -8,22 +8,27 @@ import os
 
 
 class RIM:
-    def __init__(self, physical_model, hyperparameters=default_hyperparameters, dtype=DTYPE,
-                 noise_floor=1e-16, grad_log_scale=False):
+    def __init__(self,
+                 physical_model,
+                 time_steps=8,
+                 state_size=8,  # works with model default, adjust with number of downsampling layers
+                 state_depth=64,
+                 dtype=DTYPE,
+                 noise_floor=1e-16,
+                 grad_log_scale=False,
+                 **model_hparams
+                 ):
         self._dtype = dtype
         self.logim = physical_model.logim
         self.grad_log_scale = grad_log_scale
         self.noise_floor = noise_floor
-        self.hyperparameters = hyperparameters
-        self.channels = hyperparameters["channels"]
-        self.pixels = hyperparameters["pixels"]
-        self.steps = hyperparameters["steps"]
-        self.state_size = hyperparameters["state_size"]
-        self.state_depth = hyperparameters["state_depth"]
-        self.model = Model(hyperparameters, dtype=self._dtype)
+        self.channels = 1
+        self.pixels = physical_model.pixels
+        self.steps = time_steps
+        self.state_size = state_size
+        self.state_depth = state_depth
+        self.model = Model(**model_hparams, dtype=self._dtype)
         self.physical_model = physical_model
-        # self.grad_scaling_factor = 1/(self.pixels * (self.physical_model.SNR**2 + 1/self.physical_model.sigma**2))
-        self.grad_scaling_factor = tf.constant(1/100, dtype)
 
     @tf.function
     def link_function(self, y):
@@ -101,7 +106,7 @@ class RIM:
             train_dataset,
             cost_function,
             optimizer,
-            max_time,
+            max_time=np.inf,
             metrics=None,
             patience=10,
             track="train_loss",
@@ -114,7 +119,7 @@ class RIM:
             checkpoint_dir=None,
             name="rim",
             logdir=None,
-            record=True
+            record=False
     ):
         """
         This function trains the weights of the model on the training dataset, which should be a
@@ -165,10 +170,6 @@ class RIM:
                 "step_mod": -1
             }
         start = time.time()
-        if "epoch" in self.hyperparameters.keys():
-            _epoch_start = self.hyperparameters["epoch"]
-        else:
-            _epoch_start = 0
         epoch = 1
         history = {"train_loss": [], "test_loss": []}
         history.update({key + "_train": [] for key in metrics.keys()})
@@ -214,14 +215,15 @@ class RIM:
                             tf.summary.histogram(name=f"Log_Likelihood_Gradient_log_scale", data=tf.math.asinh(grads[0])/tf.math.log(10.),
                                 description="Arcsinh of the Likelihood gradient for each time steps (divided by log(10))")
                         tf.summary.histogram(name=f"Log_Likelihood_Gradient", data=grads[0], description="Log Likelihood gradient")
-
+                        tf.summary.image(name="Training batch prediction", data=output[..., -1])
+                        tf.summary.image(name="Training batch labels",     data=self.link_function(Y))
                         for i, grad in enumerate(gradient):
                             tf.summary.histogram(name=self.model.trainable_weights[i].name + "_gradient", data=grad, step=step)
-                    # independant save of outputs
-                    if output_dir is not None:
-                        save_output(output, output_dir, epoch + _epoch_start, batch, format="txt", **output_save_mod)
-                        save_gradient_and_weights(gradient, self.model.trainable_weights, output_dir, epoch + _epoch_start, batch)
-                        save_loglikelihood_grad(grads, output_dir, epoch + _epoch_start, batch, **output_save_mod)
+
+                        if output_dir is not None:
+                            save_output(output, output_dir, epoch, batch, format="txt", **output_save_mod)
+                            save_gradient_and_weights(gradient, self.model.trainable_weights, output_dir, epoch, batch)
+                            save_loglikelihood_grad(grads, output_dir, epoch, batch, **output_save_mod)
                     train_writer.flush()
                     step += 1
                     tf.summary.experimental.set_step(step)
@@ -256,7 +258,6 @@ class RIM:
                 _patience -= 1
             if checkpoint_dir is not None:
                 if epoch % checkpoints == 0 or _patience == 0 or epoch == max_epochs - 1:
-                    self.model.save_weights(os.path.join(checkpoint_dir, f"{name}_{epoch + _epoch_start:03}_{cost_value:.5f}.h5"))
+                    self.model.save_weights(os.path.join(checkpoint_dir, f"{name}_{epoch:03}_{cost_value:.5f}.h5"))
             epoch += 1
-        self.hyperparameters["epoch"] = epoch + _epoch_start
         return history

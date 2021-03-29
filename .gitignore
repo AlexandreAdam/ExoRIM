@@ -15,4 +15,4 @@ notebooks/*.mp4
 notebooks/*.png
 wandb/*
 logs/*
-
+*/wandb/*
