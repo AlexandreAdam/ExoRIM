@@ -20,7 +20,7 @@ class Baselines:
         self.precision = precision  # precision when rounding
         self.build_uv_and_model()
 
-    def build_uv_and_model(self):
+    def build_uv_and_model(self, verbose=0):
         N = self.nbap
         mask = self.VAC
         p = N * (N-1) // 2
@@ -43,7 +43,8 @@ class Baselines:
         self.BLM = BLM[distinct_baselines]
         self.UVC = UVC[distinct_baselines]
         self.nbuv = distinct_baselines.size
-        print(f"{distinct_baselines.size} distinct baselines found. Mask has {p - distinct_baselines.size} redundant baselines")
+        if verbose > 0:
+            print(f"{distinct_baselines.size} distinct baselines found. Mask has {p - distinct_baselines.size} redundant baselines")
 
 
 # modified from F. Martinache Xara project
@@ -149,7 +150,7 @@ def closure_phase_operator_pseudo_inverse(CPO):
 
 
 #TODO this bugs if baselines had to cut redundant
-def closure_phase_operator(B: Baselines, fixed_aperture=0):
+def closure_phase_operator(B: Baselines, fixed_aperture=0, verbose=0):
     """
     The phase closure operator (CPO) can act on visibilities phase vector and map them to bispectra phases. Its shape
     is (q, p):
@@ -164,7 +165,8 @@ def closure_phase_operator(B: Baselines, fixed_aperture=0):
     N = B.nbap # number of apertures in the mask
     BLM = B.BLM
     q = (N-1) * (N-2) // 2
-    print(f"There are {q} independant closure phases")
+    if verbose > 0:
+        print(f"There are {q} independant closure phases")
     p = B.nbuv  # number of independant visibilities phases for non-redundant mask
     A = np.zeros((q, p))  # closure phase operator satisfying A*(V phases) = (Closure Phases)
     A_index = 0  # index for A_temp
@@ -199,7 +201,7 @@ def closure_phase_operator(B: Baselines, fixed_aperture=0):
     return A
 
 
-def redundant_phase_closure_operator(B: Baselines):
+def redundant_phase_closure_operator(B: Baselines, verbose=0):
     """
     The phase closure operator (CPO) can act on visibilities phase vector and map them to bispectra phases. Its shape
     is (q, p):
@@ -215,7 +217,8 @@ def redundant_phase_closure_operator(B: Baselines):
     BLM = B.BLM
     q = N * (N - 1) * (N - 2) // 6
     q_indep = (N-1) * (N-2) // 2
-    print(f"There are {q_indep} independant closure phases and {q} total closure phases")
+    if verbose > 0:
+        print(f"There are {q_indep} independant closure phases and {q} total closure phases")
     p = B.nbuv  # number of independant visibilities phases for non-redundant mask
     A = np.zeros((q, p))  # closure phase operator satisfying A*(V phases) = (Closure Phases)
     A_index = 0  # index for A_temp
@@ -249,7 +252,7 @@ def redundant_phase_closure_operator(B: Baselines):
     return A
 
 
-def orthogonal_phase_closure_operator(B: Baselines):
+def orthogonal_phase_closure_operator(B: Baselines, verbose=0):
     # kept as reference --> this method does not seem to work,
     # phase closure for unresolved source with basic noise model is not respected,
     """
@@ -259,12 +262,13 @@ def orthogonal_phase_closure_operator(B: Baselines):
     N = B.nbap # number of apertures in the mask
     BLM = B.BLM
     triangles = N * (N-1) * (N-2) // 6 # binomial coefficient (N, 3)
-    print(f"There are {triangles} triangles to look at")
     p = (N-1)*(N-2)//2 # number of independant closure phases
-    print(f"There are {p} independant closure phases")
     q = B.nbuv # number of independant visibilities phases
     A = np.zeros((triangles, q)) # closure phase operator satisfying A*(V phases) = (Closure Phases)
     A_index = 0 # index for A_temp
+    if verbose > 0:
+        print(f"There are {triangles} triangles to look at")
+        print(f"There are {p} independant closure phases")
     for i in range(N):
         for j in range(i + 1, N): # i, j, and k select a triangle of apertures
             # k index is vectorized
@@ -291,12 +295,15 @@ def orthogonal_phase_closure_operator(B: Baselines):
                 np.zeros(k.size)
             ), f"Closure relation is wrong!"
             A_index += k.size
-    print('Doing sparse svd')
+    if verbose > 0:
+        print('Doing sparse svd')
     rank = np.linalg.matrix_rank(A.astype('double'), tol=1e-6)
-    print("Closure phase operator matrix rank:", rank)
-    print(f"Discards the {rank - p} smallest singular values")
+    if verbose > 0:
+        print("Closure phase operator matrix rank:", rank)
+        print(f"Discards the {rank - p} smallest singular values")
     u, s, vt = svd(A.astype('double').T, k=p)
-    print(f"Closure phase projection operator U shape {u.T.shape}")
+    if verbose > 0:
+        print(f"Closure phase projection operator U shape {u.T.shape}")
     return u.T
 
 

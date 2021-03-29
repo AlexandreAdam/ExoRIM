@@ -14,9 +14,8 @@ class Model(tf.keras.models.Model):
                  kernel_size_gru=3,
                  state_depth=64,
                  hidden_layers=1,
-                 tconv_layers=1,
                  kernel_size_upsampling=3,
-                 filter_size_upsampling=16,
+                 filters_upsampling=16,
                  kernel_regularizer_amp=0.,
                  bias_regularizer_amp=0.,
                  batch_norm=False,
@@ -68,7 +67,7 @@ class Model(tf.keras.models.Model):
             self.downsampling_block.append(tf.keras.layers.Conv2DTranspose(
                 stride=2,
                 kernel_size=kernel_size_upsampling,
-                filters=filter_size_upsampling,
+                filters=filters_upsampling,
                 name=f"UpsampleConv{i+1}",
                 activation=activation,
                 padding="same",
@@ -79,11 +78,11 @@ class Model(tf.keras.models.Model):
             ))
             if batch_norm:
                 self.downsampling_block.append(tf.keras.layers.BatchNormalization(name=f"BatchNormUpsample{i+1}", axis=-1))
-            for j in range(tconv_layers):
+            for j in range(conv_layers):
                 self.downsampling_block.append(tf.keras.layers.Conv2DTranspose(
                     stride=1,
                     kernel_size=kernel_size_upsampling,
-                    filters=kernel_size_upsampling,
+                    filters=filters_upsampling,
                     name=f"TConv{j + 1}",
                     activation=activation,
                     padding="same",

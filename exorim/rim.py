@@ -11,13 +11,16 @@ class RIM:
     def __init__(self,
                  physical_model,
                  time_steps=8,
-                 state_size=8,  # works with model default, adjust with number of downsampling layers
                  state_depth=64,
                  dtype=DTYPE,
-                 noise_floor=1e-16,
+                 noise_floor=1,
                  grad_log_scale=False,
                  **model_hparams
                  ):
+        try:
+            state_size = physical_model.pixels//(2*model_hparams["downsampling_layers"])
+        except KeyError:
+            state_size = physical_model.pixels//2
         self._dtype = dtype
         self.logim = physical_model.logim
         self.grad_log_scale = grad_log_scale
@@ -27,7 +30,7 @@ class RIM:
         self.steps = time_steps
         self.state_size = state_size
         self.state_depth = state_depth
-        self.model = Model(**model_hparams, dtype=self._dtype)
+        self.model = Model(**model_hparams, state_depth=state_depth, dtype=dtype)
         self.physical_model = physical_model
 
     @tf.function
@@ -108,15 +111,15 @@ class RIM:
             optimizer,
             max_time=np.inf,
             metrics=None,
-            patience=10,
+            patience=np.inf,
             track="train_loss",
-            checkpoints=5,
             min_delta=0,
-            max_epochs=1000,
+            max_epochs=10,
             test_dataset=None,
             output_dir=None,
             output_save_mod=None,
             checkpoint_dir=None,
+            checkpoints=5,
             name="rim",
             logdir=None,
             record=False

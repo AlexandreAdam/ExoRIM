@@ -1,7 +1,9 @@
 from ray import tune
-from ray.tune.integration.wandb import WandbLogger, wandb_mixin
+from ray.tune.integration.wandb import wandb_mixin
 import wandb
+import ray
 
+ray.init()
 wandb.init(project="ray_tune_test")
 
 
@@ -22,7 +24,6 @@ def training_function(config):
 
 analysis = tune.run(
     training_function,
-    loggers=[WandbLogger],
     config={
         "alpha": tune.grid_search([0.001, 0.01, 0.1]),
         "beta": tune.choice([1, 2, 3]),
@@ -36,3 +37,4 @@ print("Best config: ", analysis.get_best_config(
 
 # Get a dataframe for analyzing trial results.
 df = analysis.results_df
+ray.shutdown()
