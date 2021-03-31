@@ -8,6 +8,7 @@ from exorim.interferometry.simulated_data import CenteredBinaries
 from exorim.definitions import DTYPE
 from ray.tune.suggest.hyperopt import HyperOptSearch
 
+PROJECT = "exorim_modelv1_raytunev2"
 # from ray.tune.schedulers import HyperBandScheduler
 
 #
@@ -50,20 +51,20 @@ if __name__ == '__main__':
     parser.add_argument("--smoke_test", action="store_true")
     args = parser.parse_args()
     if args.smoke_test:
-        max_epochs = 2
+        max_epochs = 3
     else:
-        max_epochs = 10 # 20
-    wandb.init(project="exorim_modelv1_raytunev1")
+        max_epochs = 5 # 20
+    wandb.init(project=PROJECT)
 
     config = {
-        "grad_log_scale": tune.choice([True, False]),
-        "logim": tune.choice([True, False]),
+        "grad_log_scale": tune.choice([False]),
+        "logim": tune.choice([True]),
         "lam": tune.choice([0, 1, 1e-2, 100]),
         "time_steps": tune.choice([6, 8, 10, 12]),
         "state_depth": tune.choice([16, 32, 64, 128, 256]),
         "kernel_size_downsampling": tune.choice([3, 5, 7]),
         "filters_downsampling": tune.choice([16, 32, 64]),
-        "downsampling_layers": tune.choice([1, 2, 3]),
+        "downsampling_layers": tune.choice([1, 2]),
         "conv_layers": tune.choice([1, 2]),
         "kernel_size_gru": tune.choice([3, 5, 7]),
         "hidden_layers": tune.choice([1, 2]),
@@ -74,11 +75,11 @@ if __name__ == '__main__':
         "batch_norm": tune.choice([True, False]),
         "activation": tune.choice(["leaky_relu", "relu", "gelu", "elu"]),
         "initial_learning_rate": tune.choice([1e-3, 1e-4, 1e-5]),
-        "beta_1": tune.uniform(0.5, 0.99), # Adam optimzier
+        "beta_1": tune.uniform(0.8, 0.99), # Adam optimzier
         "batch_size": tune.choice([5, 10, 20]),
-        "temperature": tune.choice([1, 10, 100, 1e4, 1e5]),
+        "temperature": tune.choice([1, 10, 100]),
         "wandb": {
-            "project": "exorim_modelv1_raytunev1",
+            "project":PROJECT,
             }
     }
 
@@ -125,7 +126,7 @@ if __name__ == '__main__':
     analysis = tune.run(
         trainable,
         config=config,
-        num_samples=5,
+        num_samples=20,
         search_alg=search_algorithm,
         resources_per_trial={"cpu": 2}
         )
