@@ -87,7 +87,7 @@ if __name__ == "__main__":
         "Chi squared": lambda Y_pred, Y_true: tf.reduce_mean(phys.chi_squared(Y_pred, phys.forward(Y_true)))
     }
 
-    rim = RIM(physical_model=phys, noise_floor=args.noise_floor)
+    rim = RIM(physical_model=phys, noise_floor=args.noise_floor, adam=True)
     train_meta = CenteredBinaries(total_items=int(args.split * args.number_images), pixels=args.pixels, width=3, seed=args.seed)
     testmeta = CenteredBinaries(total_items=int((1 - args.split) * args.number_images), pixels=args.pixels, width=3, seed=0)
 

@@ -15,6 +15,7 @@ class RIM:
                  dtype=DTYPE,
                  noise_floor=1,
                  grad_log_scale=False,
+                 adam=False, # Log likelihood gradient Adam update (True) or Vanilla (False)
                  **model_hparams
                  ):
         try:
@@ -32,6 +33,7 @@ class RIM:
         self.state_depth = state_depth
         self.model = Model(**model_hparams, state_depth=state_depth, dtype=dtype)
         self.physical_model = physical_model
+        self.adam = adam
 
     @tf.function
     def link_function(self, y):
@@ -47,10 +49,24 @@ class RIM:
         else:
             return eta
 
-    # @tf.function
+    @tf.function
     def grad_scaling(self, grad):
         if self.grad_log_scale:
             return tf.math.asinh(grad)
+        else:
+            return grad
+
+    def grad_update(self, grad, time_step, beta_1=0.9, beta_2=0.999, epsilon=1e-8):
+        if self.adam:
+            if time_step == 0: # reset mean and variance for time t=-1
+                self._grad_mean = tf.zeros_like(grad)
+                self._grad_var = tf.zeros_like(grad)
+            self._grad_mean = beta_1 * self._grad_mean + (1 - beta_1) * grad
+            self._grad_var  = beta_2 * self._grad_var + (1 - beta_2) * tf.square(grad)
+            # for grad update, unbias the moments
+            m_hat = self._grad_mean / (1 - beta_1**(time_step + 1))
+            v_hat = self._grad_var / (1 - beta_2**(time_step + 1))
+            return m_hat / (tf.sqrt(v_hat) + epsilon)
         else:
             return grad
 
