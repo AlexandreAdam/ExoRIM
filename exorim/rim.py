@@ -56,7 +56,7 @@ class RIM:
         else:
             return grad
 
-    @tf.function
+    # @tf.function
     def grad_update(self, grad, time_step, beta_1=0.9, beta_2=0.999, epsilon=1e-8):
         if self.adam:
             if time_step == 0: # reset mean and variance for time t=-1
