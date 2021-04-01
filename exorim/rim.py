@@ -56,6 +56,7 @@ class RIM:
         else:
             return grad
 
+    @tf.function
     def grad_update(self, grad, time_step, beta_1=0.9, beta_2=0.999, epsilon=1e-8):
         if self.adam:
             if time_step == 0: # reset mean and variance for time t=-1
@@ -85,8 +86,8 @@ class RIM:
         h0 = self.init_hidden_states(batch_size)
         grad = self.physical_model.grad_log_likelihood(eta_0, X)
         grad = self.grad_scaling(grad)
+        grad = self.grad_update(grad, time_step=0)
         stacked_input = tf.concat([eta_0, grad], axis=3)
-        # compute gradient update
         gt, ht = self.model(stacked_input, h0)
         # update image
         eta_t = eta_0 + gt
@@ -96,6 +97,7 @@ class RIM:
         for current_step in range(self.steps - 1):
             grad = self.physical_model.grad_log_likelihood(eta_t, X)
             grad = self.grad_scaling(grad)
+            grad = self.grad_update(grad, time_step=current_step+1)
             gt, ht = self.model(stacked_input, ht)
             eta_t = eta_t + gt
             outputs = tf.concat([outputs, tf.reshape(eta_t, eta_t.shape + [1])], axis=4)  #TODO use tf.stack
