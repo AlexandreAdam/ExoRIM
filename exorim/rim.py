@@ -15,6 +15,7 @@ class RIM:
                  dtype=DTYPE,
                  noise_floor=1,
                  grad_log_scale=False,
+                 adam=False, # Log likelihood gradient Adam update (True) or Vanilla (False)
                  **model_hparams
                  ):
         try:
@@ -32,6 +33,7 @@ class RIM:
         self.state_depth = state_depth
         self.model = Model(**model_hparams, state_depth=state_depth, dtype=dtype)
         self.physical_model = physical_model
+        self.adam = adam
 
     @tf.function
     def link_function(self, y):
@@ -47,10 +49,25 @@ class RIM:
         else:
             return eta
 
-    # @tf.function
+    @tf.function
     def grad_scaling(self, grad):
         if self.grad_log_scale:
             return tf.math.asinh(grad)
+        else:
+            return grad
+
+    # @tf.function
+    def grad_update(self, grad, time_step, beta_1=0.9, beta_2=0.999, epsilon=1e-8):
+        if self.adam:
+            if time_step == 0: # reset mean and variance for time t=-1
+                self._grad_mean = tf.zeros_like(grad)
+                self._grad_var = tf.zeros_like(grad)
+            self._grad_mean = beta_1 * self._grad_mean + (1 - beta_1) * grad
+            self._grad_var  = beta_2 * self._grad_var + (1 - beta_2) * tf.square(grad)
+            # for grad update, unbias the moments
+            m_hat = self._grad_mean / (1 - beta_1**(time_step + 1))
+            v_hat = self._grad_var / (1 - beta_2**(time_step + 1))
+            return m_hat / (tf.sqrt(v_hat) + epsilon)
         else:
             return grad
 
@@ -69,8 +86,8 @@ class RIM:
         h0 = self.init_hidden_states(batch_size)
         grad = self.physical_model.grad_log_likelihood(eta_0, X)
         grad = self.grad_scaling(grad)
+        grad = self.grad_update(grad, time_step=0)
         stacked_input = tf.concat([eta_0, grad], axis=3)
-        # compute gradient update
         gt, ht = self.model(stacked_input, h0)
         # update image
         eta_t = eta_0 + gt
@@ -80,6 +97,7 @@ class RIM:
         for current_step in range(self.steps - 1):
             grad = self.physical_model.grad_log_likelihood(eta_t, X)
             grad = self.grad_scaling(grad)
+            grad = self.grad_update(grad, time_step=current_step+1)
             gt, ht = self.model(stacked_input, ht)
             eta_t = eta_t + gt
             outputs = tf.concat([outputs, tf.reshape(eta_t, eta_t.shape + [1])], axis=4)  #TODO use tf.stack

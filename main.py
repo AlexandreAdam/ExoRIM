@@ -36,7 +36,7 @@ def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--pixels", type=int, default=32)
-    parser.add_argument("--learning_rate", type=float, default=1e-3)
+    parser.add_argument("--learning_rate", type=float, default=1e-2)
     parser.add_argument("--decay_rate", type=float, default=0.9)
     parser.add_argument("--decay_steps", type=int, default=10)
     parser.add_argument("-n", "--number_images", type=int, default=100)
@@ -87,7 +87,7 @@ if __name__ == "__main__":
         "Chi squared": lambda Y_pred, Y_true: tf.reduce_mean(phys.chi_squared(Y_pred, phys.forward(Y_true)))
     }
 
-    rim = RIM(physical_model=phys, noise_floor=args.noise_floor)
+    rim = RIM(physical_model=phys, noise_floor=args.noise_floor, adam=True)
     train_meta = CenteredBinaries(total_items=int(args.split * args.number_images), pixels=args.pixels, width=3, seed=args.seed)
     testmeta = CenteredBinaries(total_items=int((1 - args.split) * args.number_images), pixels=args.pixels, width=3, seed=0)
 

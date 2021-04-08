@@ -30,6 +30,8 @@ class Model(tf.keras.models.Model):
         self.hidden_conv = []
         if activation == "leaky_relu":
             activation = tf.keras.layers.LeakyReLU()
+        elif activation == "gelu":
+            activation = tf.keras.activations.gelu
         else:
             activation = tf.keras.layers.Activation(activation)
         for i in range(downsampling_layers):
@@ -95,7 +97,7 @@ class Model(tf.keras.models.Model):
                     data_format="channels_last",
                     kernel_initializer=tf.keras.initializers.GlorotUniform()
                 ))
-                if batch_norm:
+                if batch_norm and (j != conv_layers-1 or i != downsampling_layers-1): # except last layer
                     self.upsampling_block.append(
                         tf.keras.layers.BatchNormalization(name=f"BatchNormUpsampleConv{j + 1}", axis=-1))
         self.gru1 = ConvGRU(filters=state_depth//2, kernel_size=kernel_size_gru)
@@ -119,7 +121,7 @@ class Model(tf.keras.models.Model):
             name="output_conv",
             kernel_size=1,
             filters=1,
-            activation=tf.keras.layers.Activation("tanh"),
+            activation=tf.keras.layers.Activation("linear"),
             padding="same",
         )
 
