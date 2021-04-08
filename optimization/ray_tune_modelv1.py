@@ -1,6 +1,5 @@
 import ray
 import wandb
-import tensorflow as tf
 from ray import tune
 from ray.tune.integration.wandb import wandb_mixin
 from exorim import MSE, PhysicalModel, RIM

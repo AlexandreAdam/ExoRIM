@@ -5,5 +5,5 @@ setup(
 	version="0.5",
 	description="",
 	packages=find_packages(),
-	python_requires=">=3.6"
+	python_requires="==3.6"
 )
