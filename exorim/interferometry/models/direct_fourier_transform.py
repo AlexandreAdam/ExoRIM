@@ -31,8 +31,7 @@ class PhysicalModel:
                  SNR=100,
                  vis_phase_std=0.1,
                  logim=True,
-                 lam=0 # regularization
-            ):
+                 lam=0):  # regularization
         assert loglikelihood in ["append_visibility_amplitude_closure_phase", "visibilities", "visibility_amplitude"]
         self.temperature = tf.constant(temperature, dtype=DTYPE)
         self._loglikelihood = loglikelihood
