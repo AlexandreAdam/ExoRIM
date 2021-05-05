@@ -71,14 +71,15 @@ class RIM:
         else:
             return grad
 
-    def __call__(self, X):
-        return self.call(X)
+    def __call__(self, X, PSF=None):
+        return self.call(X, PSF, oversampling_factor, invert_y_axis)
 
-    def call(self, X):
+    def call(self, X, PSF=None):
         """
         Method used in training to get model predictions.
 
-        :param X: Vector of complex visibilities amplitude and closure phases
+        :param X: Vector of complex visibilities amplitude and closure phases.
+        :param PSF: Point Spread Function of the telescope and mask.
         :return: 5D Tensor of shape (batch_size, [image_size, channels], steps)
         """
         batch_size = X.shape[0]

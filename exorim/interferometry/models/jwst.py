@@ -28,27 +28,36 @@ class PhysicalModel:
                  window="hamming",
                  temperature=1,
                  filter="F380M",
-                 SNR=100,
-                 vis_phase_std=0.1,
                  logim=True,
-                 rotations=False,  # assume we have done mask rotations or not. False correspond to a single observation
+                 # rotations=False,  # assume we have done mask rotations or not. False correspond to a single observation
                  psf="jwst_F430M_2_psf.fits",
+                 invert_y_axis=True, # probably should not change this parameter
                  lam=0):  # regularization
         assert loglikelihood in ["append_visibility_amplitude_closure_phase", "visibilities", "visibility_amplitude"]
         self.pixels = pixels  # number of pixels of the image output of the model -> to be zero-padded to psf size
         self.filter = filter
-        self.baselines = Baselines(mask_coordinates=JWST_NIRISS_MASK)
+        coords = JWST_NIRISS_MASK
+        if invert_y_axis:
+            coords[:, 1] = -coords[:, 1]
+        self.baselines = Baselines(mask_coordinates=coords)
         _fits = fits.open(os.path.join(_here, "psf", psf))
-        psf = _fits[0].data
-        h = get_window(window, psf.hape[0])
-        window = np.outer(h, h)
+
         self.platescale = _fits[0].header["PIXELSCL"]/1000       # mas
         self.wavelength = _fits[0].header["WAVELEN"]             # meters
         self.fov = _fits[0].header["FOV"]/1000                   # mas
         self.diffraction_limit = _fits[0].header["DIFLMT"]/1000  # mas
 
+        # get piston from psf
+        psf = _fits[0].data
+        h = get_window(window, psf.hape[0])
+        window = np.outer(h, h)
+        psf *= window
+        psf /= psf.sum()
+        A = NDFTM(self.baselines.UVC, self.wavelength, self.pixels, self.platescale)
+        self.psf_pistons = tf.constant(A @ np.ravel(psf), dtype=DTYPE)
 
-        self.A = NDFTM(self.baselines.UVC, self.wavelength, psf.hape[0], self.platescale)
+
+
 
 
 

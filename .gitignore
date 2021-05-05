@@ -16,3 +16,4 @@ notebooks/*.png
 wandb/*
 logs/*
 */wandb/*
+*.fits
