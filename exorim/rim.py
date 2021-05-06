@@ -204,7 +204,7 @@ class RIM:
         while _patience > 0 and epoch < max_epochs and (time.time() - start) < max_time*3600:
             epoch_loss.reset_states()
             metrics_train = {key: 0 for key in metrics.keys()}
-            batch = -1
+            batch = 0
             with train_writer.as_default():
                 for (X, Y) in train_dataset:  # X and Y by ML convention, batch is an index
                     batch += 1
