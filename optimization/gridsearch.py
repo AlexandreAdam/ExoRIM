@@ -10,7 +10,6 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 
-SCOREFILE = os.path.expanduser('./scores.csv')
 
 
 # total number of slurm workers detected
@@ -74,6 +73,7 @@ args = parser.parse_args()
 date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
 
 PARAM_GRID = hparams_for_gridsearchV2(args.model_trained)
+SCOREFILE = os.path.expanduser(f'../results/scores_{date}.csv')
 
 phys = PhysicalModel(pixels=64)
 
