@@ -9,7 +9,7 @@ import numpy as np
 import os
 # try:
 #     import wandb
-#     wandb.init(project="exorim", sync_tensorboard=True)
+#     wandb.init(project="exorim", user="adam"sync_tensorboard=True)
 # except ImportError:
 #     print("wandb not installed, package ignored")
 
@@ -35,7 +35,7 @@ def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--pixels", type=int, default=32)
+    parser.add_argument("--pixels", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=1e-2)
     parser.add_argument("--decay_rate", type=float, default=0.9)
     parser.add_argument("--decay_steps", type=int, default=10)
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     }
 
     rim = RIM(physical_model=phys, noise_floor=args.noise_floor, adam=True)
-    train_meta = CenteredBinaries(total_items=int(args.split * args.number_images), pixels=args.pixels, width=3, seed=args.seed)
+    train_meta = CenteredBinaries(total_items=int(args.split * args.number_images), pixels=args.pixels, width=args.pixels/10, seed=args.seed)
     testmeta = CenteredBinaries(total_items=int((1 - args.split) * args.number_images), pixels=args.pixels, width=3, seed=0)
 
     train_dataset = create_datasets(train_meta, rim, train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format="txt")
@@ -111,7 +111,7 @@ if __name__ == "__main__":
         track="train_loss",
         checkpoints=args.checkpoint,
         output_dir=results_dir,
-        checkpoint_dir=models_dir,
+        checkpoint_dir=None, #models_dir,
         max_epochs=args.max_epoch,
         logdir=logdir,
         record=True,

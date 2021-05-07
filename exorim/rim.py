@@ -15,7 +15,10 @@ class RIM:
                  dtype=DTYPE,
                  noise_floor=1,
                  grad_log_scale=False,
-                 adam=False, # Log likelihood gradient Adam update (True) or Vanilla (False)
+                 adam=True, # Log likelihood gradient Adam update (True) or Vanilla (False)
+                 beta_1=0.9, # adam update hparams
+                 beta_2=0.999,
+                 epsilon=1e-8,
                  **model_hparams
                  ):
         try:
@@ -34,6 +37,9 @@ class RIM:
         self.model = Model(**model_hparams, state_depth=state_depth, dtype=dtype)
         self.physical_model = physical_model
         self.adam = adam
+        self.beta_1 = beta_1
+        self.beta_2 = beta_2
+        self.epsilon = epsilon
 
     @tf.function
     def link_function(self, y):
@@ -57,24 +63,24 @@ class RIM:
             return grad
 
     # @tf.function
-    def grad_update(self, grad, time_step, beta_1=0.9, beta_2=0.999, epsilon=1e-8):
+    def grad_update(self, grad, time_step):
         if self.adam:
             if time_step == 0: # reset mean and variance for time t=-1
                 self._grad_mean = tf.zeros_like(grad)
                 self._grad_var = tf.zeros_like(grad)
-            self._grad_mean = beta_1 * self._grad_mean + (1 - beta_1) * grad
-            self._grad_var  = beta_2 * self._grad_var + (1 - beta_2) * tf.square(grad)
+            self._grad_mean = self. beta_1 * self._grad_mean + (1 - self.beta_1) * grad
+            self._grad_var  = self.beta_2 * self._grad_var + (1 - self.beta_2) * tf.square(grad)
             # for grad update, unbias the moments
-            m_hat = self._grad_mean / (1 - beta_1**(time_step + 1))
-            v_hat = self._grad_var / (1 - beta_2**(time_step + 1))
-            return m_hat / (tf.sqrt(v_hat) + epsilon)
+            m_hat = self._grad_mean / (1 - self.beta_1**(time_step + 1))
+            v_hat = self._grad_var / (1 - self.beta_2**(time_step + 1))
+            return m_hat / (tf.sqrt(v_hat) + self.epsilon)
         else:
             return grad
 
-    def __call__(self, X, PSF=None):
-        return self.call(X, PSF, oversampling_factor, invert_y_axis)
+    def __call__(self, X):
+        return self.call(X)
 
-    def call(self, X, PSF=None):
+    def call(self, X):
         """
         Method used in training to get model predictions.
 
@@ -101,7 +107,7 @@ class RIM:
             grad = self.grad_update(grad, time_step=current_step+1)
             gt, ht = self.model(stacked_input, ht)
             eta_t = eta_t + gt
-            outputs = tf.concat([outputs, tf.reshape(eta_t, eta_t.shape + [1])], axis=4)  #TODO use tf.stack
+            outputs = tf.concat([outputs, tf.reshape(eta_t, eta_t.shape + [1])], axis=4)
             grads = tf.concat([grads, grad], axis=3)
         return outputs, grads
 
@@ -109,18 +115,7 @@ class RIM:
         return tf.zeros(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype)
 
     def initial_guess(self, batch_size):
-        # y0 = self.physical_model.inverse_fourier_transform(X)
-        # y0 = softmax_scaler(y0, minimum=0, maximum=1.)
         y0 = tf.ones(shape=[batch_size, self.pixels, self.pixels, 1]) / self.pixels**2
-        # x = np.arange(self.pixels) - self.pixels//2 + 0.5
-        # xx, yy = np.meshgrid(x, x)
-        # rho = np.hypot(xx, yy)
-        # image = np.zeros([self.pixels, self.pixels])
-        # image += np.exp(-0.5 * rho**4/16)
-        # image /= image.sum()
-        # image = np.tile(image, [batch_size, 1, 1])
-        # image = image[..., np.newaxis]
-        # y0 = tf.constant(image, DTYPE)
         return y0
 
     def fit(
