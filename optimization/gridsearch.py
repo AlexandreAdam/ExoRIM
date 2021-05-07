@@ -1,5 +1,6 @@
 from numpy.random import choice as choose
 from exorim import RIM, MSE, PhysicalModel
+from exorim.definitions import DTYPE
 from exorim.interferometry.simulated_data import CenteredBinaries
 from argparse import ArgumentParser
 from datetime import datetime
@@ -44,8 +45,8 @@ def hparams_for_gridsearchV2(n_params):
                 "batch_norm": choose([True, False]),
                 "activation": choose(["leaky_relu", "relu", "gelu", "elu"]),
                 "learning_rate": choose([1e-2, 1e-3, 1e-4]),
-                "beta_1": np.random.uniform(0.5, 0.99),  # Adam update in RIM
-                "beta_2": 10**(-(np.random.uniform(0, 0.1))),
+                "beta_1": np.round(np.random.uniform(0.5, 0.99),2),  # Adam update in RIM
+                "beta_2": np.round(10**(-(np.random.uniform(0, 0.1))), 3),
                 # "batch_size": choose([5, 10, 20]),
                 # "temperature": choose([1, 10, 100]),
             }
@@ -80,7 +81,7 @@ meta_data = CenteredBinaries(
     width=6,
     flux=64**2
 )
-images = meta_data.generate_epoch_images()
+images = tf.constant(meta_data.generate_epoch_images(), dtype=DTYPE)
 noisy_data = phys.noisy_forward(images)
 X = tf.data.Dataset.from_tensor_slices(noisy_data)  # split along batch dimension
 Y = tf.data.Dataset.from_tensor_slices(images)
