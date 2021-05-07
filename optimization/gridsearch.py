@@ -44,7 +44,7 @@ def hparams_for_gridsearchV2(n_params):
                 "bias_regularizer_amp": choose([1e-3, 1e-2, 1e-1]),
                 "batch_norm": choose([True, False]),
                 "activation": choose(["leaky_relu", "relu", "gelu", "elu"]),
-                "learning_rate": choose([1e-2, 1e-3, 1e-4]),
+                "initial_learning_rate": choose([1e-2, 1e-3, 1e-4]),
                 "beta_1": np.round(np.random.uniform(0.5, 0.99),2),  # Adam update in RIM
                 "beta_2": np.round(10**(-(np.random.uniform(0, 0.1))), 3),
                 # "batch_size": choose([5, 10, 20]),
@@ -56,6 +56,8 @@ parser = ArgumentParser()
 # note that number of fits is model_trained * folds, default is then 50 fits done
 parser.add_argument("--model_trained", type=int, default=10)
 # parser.add_argument("-f", "--folds", type=int, default=5)
+parser.add_argument("--decay_rate", type=float, default=0.9)
+parser.add_argument("--decay_steps", type=int, default=1000)
 parser.add_argument("-n", "--number_images", type=int, default=500)
 parser.add_argument("-s", "--split", type=float, default=0.8)
 parser.add_argument("-b", "--batch_size", type=int, default=25, help="Batch size")
@@ -104,10 +106,15 @@ def search_distributed():
         exclude_keys = ['learning_rate']
         rim_params = {k: params[k] for k in set(list(params.keys())) - set(exclude_keys)}
         rim = RIM(phys, **rim_params)
+        learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=params["initial_learning_rate"],
+            decay_rate=args.decay_rate,
+            decay_steps=args.decay_steps
+        )
         history = rim.fit(
             train_dataset=dataset,
             # test_dataset=test_dataset,
-            optimizer=tf.keras.optimizers.Adam(learning_rate=params["learning_rate"]),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate_schedule),
             max_time=args.training_time,
             cost_function=cost_function,
             min_delta=args.min_delta,
