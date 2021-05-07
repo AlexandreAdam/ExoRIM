@@ -19,6 +19,16 @@ GOLAY9 = tf.constant(np.array([
  [2.98779,  0.49796],
 ]), dtype=DTYPE)
 
+JWST_NIRISS_MASK = tf.constant(np.array([ #V2/m and V3/m coordinates
+    [ 1.143,  1.980],  # C1
+    [ 2.282,  1.317],  # B2
+    [ 2.286,  0.000],  # C2
+    [ 0.000, -2.635],  # B4
+    [-2.282, -1.317],  # B5
+    [-2.282,  1.317],  # B6
+    [-1.143,  1.980]   # C6
+]), dtype=DTYPE)
+
 
 class PhysicalModel:
     def __init__(self,
@@ -29,9 +39,8 @@ class PhysicalModel:
                  temperature=1,
                  wavelength=0.5e-6,
                  SNR=100,
-                 vis_phase_std=0.1,
-                 logim=True,
-                 lam=0):  # regularization
+                 vis_phase_std=0.05,
+                 logim=True):  # regularization
         assert loglikelihood in ["append_visibility_amplitude_closure_phase", "visibilities", "visibility_amplitude"]
         self.temperature = tf.constant(temperature, dtype=DTYPE)
         self._loglikelihood = loglikelihood
@@ -40,7 +49,7 @@ class PhysicalModel:
         self.baselines = Baselines(mask_coordinates=mask_coordinates)
         self.resolution = rad2mas(wavelength / np.max(np.sqrt(self.baselines.UVC[:, 0]**2 + self.baselines.UVC[:, 1]**2)))
 
-        self.plate_scale = self.compute_plate_scale(self.baselines, pixels, wavelength)
+        self.plate_scale = self.compute_plate_scale(self.baselines, wavelength)
 
         #TODO figure out how to use these
         # self.pulse = triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 0] / wavelength, mas2rad(self.resolution))
@@ -64,16 +73,6 @@ class PhysicalModel:
         self.A3 = tf.constant(A3, MYCOMPLEX)
         self.flatten = tf.keras.layers.Flatten(data_format="channels_last")
         self.logim = logim # whether we reconstruct in tje log space or brightness space
-
-        # TODO find a better way to do this
-        prior = np.zeros(shape=[1, pixels, pixels, 1])
-        x = np.arange(pixels) - pixels//2 + 0.5
-        xx, yy = np.meshgrid(x, x)
-        rho = np.hypot(xx, yy)
-        prior[0, ..., 0] += np.exp(-0.5 * rho**2/(pixels/4)**2)
-        prior /= prior.sum()
-        self.prior = tf.constant(prior, DTYPE)
-        self.lam = lam
 
     def grad_log_likelihood(self, image, X, append=False):
         """
@@ -104,7 +103,7 @@ class PhysicalModel:
                         _image = image
                     ll = chisq.chi_squared_amplitude(_image, amp, self)
                     ll += chisq.chi_squared_closure_phasor(_image, cp, self)
-                    ll += self.lam * entropy(_image, self.prior)
+                    # ll += self.lam * entropy(_image, self.prior)
                     ll /= self.temperature
                 grad = tape.gradient(ll, image)
                 return grad
@@ -146,7 +145,7 @@ class PhysicalModel:
             cp  = X[..., self.p:]
             ll = chisq.chi_squared_amplitude(image, amp, self)
             ll += chisq.chi_squared_closure_phasor(image, cp, self)
-            ll += self.lam * entropy(image, self.prior)
+            # ll += self.lam * entropy(image, self.prior)
             ll /= self.temperature
         else:
             ll = chisq.chi_squared[self._loglikelihood](image, X, self)
@@ -166,35 +165,20 @@ class PhysicalModel:
         V3 = tf.einsum("ij, ...j -> ...i", self.A3, flat)
         return V1 * tf.math.conj(V2) * V3  # hack that works with baseline class! Be careful using other methods
 
-    def simulate_noisy_data(self, images):
+    def noisy_forward(self, images):
         batch = images.shape[0]
         V = self.fourier_transform(images)
-        gain = self._aperture_gain(batch)
-        phase_error = self._visibility_phase_noise(batch)
-        amp = tf.cast(gain * tf.math.abs(V), MYCOMPLEX)
-        phase = 1j * tf.cast(tf.math.angle(V) + phase_error, MYCOMPLEX)
-        noisy_V = amp * tf.math.exp(phase)
+        gain = self._gain(batch)
+        noisy_V = gain * V
         X = chisq.chisq_x_transformation[self._loglikelihood](noisy_V, self)
         return X
 
-    def _visibility_phase_noise(self, batch):
-        """
-        Noise drawn from uniform distribution sort of simulate atmosphere disturbance in optical regime
-        :param variance: Variance of the gaussian distribution in RAD
-        """
-        noise = np.random.normal(0, self.phase_std, size=[batch, self.baselines.nbap])
-        visibility_phase_noise = np.einsum("ij, ...j -> ...i", self.baselines.BLM, noise)
-        return tf.constant(visibility_phase_noise, dtype=DTYPE)
+    def _gain(self, batch):
+        amp = np.random.normal(1, 1/self.SNR, size=[batch, self.p])
+        phase = np.exp(1j * np.random.normal(0, self.phase_std, size=[batch, self.p]))  # baseline intrinsic phase error
+        return tf.constant(amp * phase, dtype=MYCOMPLEX)
 
-    def _aperture_gain(self, batch):
-        """
-        Simulate aperture gain based on signal to noise ratio. Since we suppose noise as zero mean, then SNR is
-        S^2 / Var(Amplitude Noise).
-        Gain is a normal distributed variable around 1. with standard deviation 1/sqrt(SNR)
-        """
-        return tf.constant(np.random.normal(1, 1/self.SNR, size=[batch, self.p]), dtype=DTYPE)
-
-    def compute_plate_scale(self, B: Baselines, pixels, wavel) -> float:
+    def compute_plate_scale(self, B: Baselines, wavel) -> float:
         # by default, use FOV/pixels and hope this satisfy Nyquist sampling criterion
         rho = np.sqrt(B.UVC[:, 0]**2 + B.UVC[:, 1]**2) / wavel  # frequency in 1/RAD
         fov = rad2mas(1/rho).max()

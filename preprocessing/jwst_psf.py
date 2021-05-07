@@ -112,14 +112,14 @@ def main(args):
             niriss.pupilopd = ('OPD_RevW_ote_for_NIRISS_requirements.fits.gz', i)
             for spectral in tqdm(spectral_types):
                 src = webbpsf.specFromSpectralType(spectral, catalog="ck04")
-                niriss.calc_psf(oversample=args.oversample, outfile=f"../exorim/interferometry/models/psf/jwst_{args.filter}_{args.oversample}_psf_OPD{i+1:02}_{spectral}.fits", 
+                niriss.calc_psf(oversample=args.oversample, outfile=f"../data/psf/jwst_{args.filter}_{args.oversample}_psf_OPD{i+1:02}_{spectral}.fits", 
                     display=args.display, overwrite=True, normalize='last', source=src)
         if args.display:
             plt.show()
     elif args.filter == "all":
         for f in FILTERS:
             niriss.filers = f
-            niriss.calc_psf(oversample=args.oversample, outfile=f"../exorim/interferometry/models/psf/jwst_{f}_{args.oversample}_psf.fits", display=False, overwrite=True)
+            niriss.calc_psf(oversample=args.oversample, outfile=f"../data/psf/jwst_{f}_{args.oversample}_psf.fits", display=False, overwrite=True)
 
 
 if __name__ == "__main__":
