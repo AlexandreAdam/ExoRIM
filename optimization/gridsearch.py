@@ -103,7 +103,7 @@ cost_function = MSE()
 def search_distributed():
     for i in range(this_worker, args.model_trained, N_WORKERS):
         params = next(PARAM_GRID)
-        exclude_keys = ['learning_rate']
+        exclude_keys = ['initial_learning_rate']
         rim_params = {k: params[k] for k in set(list(params.keys())) - set(exclude_keys)}
         rim = RIM(phys, **rim_params)
         learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
