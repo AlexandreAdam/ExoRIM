@@ -98,7 +98,7 @@ cost_function = MSE()
 
 # performs hyperparamter search in parallel, using a slurm array job
 def search_distributed():
-    for i in range(this_worker, len(PARAM_GRID), N_WORKERS):
+    for i in range(this_worker, args.model_trained, N_WORKERS):
         params = PARAM_GRID[i]
         rim = RIM(phys, **params)
         history = rim.fit(
