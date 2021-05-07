@@ -100,7 +100,9 @@ cost_function = MSE()
 def search_distributed():
     for i in range(this_worker, args.model_trained, N_WORKERS):
         params = next(PARAM_GRID)
-        rim = RIM(phys, **params)
+        exclude_keys = ['learning_rate']
+        rim_params = {k: params[k] for k in set(list(params.keys())) - set(exclude_keys)}
+        rim = RIM(phys, **rim_params)
         history = rim.fit(
             train_dataset=dataset,
             # test_dataset=test_dataset,
