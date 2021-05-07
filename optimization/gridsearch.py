@@ -73,7 +73,7 @@ args = parser.parse_args()
 date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
 
 PARAM_GRID = hparams_for_gridsearchV2(args.model_trained)
-SCOREFILE = os.path.expanduser(f'../results/scores_{date}.csv')
+SCOREFILE = os.path.expanduser(f'../results/scores_1.csv')
 
 phys = PhysicalModel(pixels=64)
 
