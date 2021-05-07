@@ -93,7 +93,7 @@ dataset = dataset.cache()  # accelerate the second and subsequent iterations ove
 dataset = dataset.prefetch(AUTOTUNE)  # Batch is prefetched by CPU while training on the previous batch occurs
 
 metrics = {
-    "Chi squared": lambda Y_pred, Y_true: tf.reduce_mean(phys.chi_squared(Y_pred, phys.forward(Y_true)))
+    "chi_squared": lambda Y_pred, Y_true: tf.reduce_mean(phys.chi_squared(Y_pred, phys.forward(Y_true)))
 }
 
 cost_function = MSE()
