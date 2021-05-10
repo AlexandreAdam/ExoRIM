@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 from exorim.definitions import k_truncated_poisson, centroid, DTYPE
 from numpy.fft import fft2, ifft2
+import math
 
 
 def gaussian_filter(pixel_scale, resolution, pixels):
@@ -205,6 +206,59 @@ class CenteredBinaries:
 
         images = images / images.sum(axis=(1, 2), keepdims=True) * self.flux
         return images
+
+    def super_gaussian(self, x0, y0):
+        rho = np.hypot(self.x - x0, self.y - y0)
+        return np.exp(-0.5 * (rho/self.width)**4)
+
+
+class CenteredBinariesDataset(tf.keras.utils.Sequence):
+    def __init__(
+            self,
+            phys,
+            total_items=1000,
+            batch_size=10,
+            pixels=32,
+            width=5, # sigma parameter of super gaussian
+            flux=32**2,
+            seed=None
+    ):
+        self.seed = seed
+        self.total_items = total_items
+        self.pixels = pixels
+        self.width = width
+        self.max_sep = pixels/2
+        self.flux = flux
+        self.batch_size = batch_size
+        self.phys = phys
+
+        # make coordinate system
+        x = np.arange(pixels) - pixels//2 + 0.5 # works when #pixels is even
+        xx, yy = np.meshgrid(x, x)
+        self.x = xx
+        self.y = yy
+
+    def __len__(self):
+        return math.ceil(self.total_items / self.batch_size)
+
+    def __getitem__(self, idx):
+        return self.generate_batch()
+
+    def generate_batch(self):
+        np.random.seed(self.seed)
+        separation = np.random.uniform(size=[self.batch_size], low=2, high=self.max_sep)
+        angle = np.random.uniform(size=[self.batch_size], low=0, high=np.pi)
+        images = np.zeros(shape=[self.batch_size, self.pixels, self.pixels, 1])
+        for i in range(self.batch_size):
+            for j in range(2): # make a 180 rotation for j=1
+                x0 = separation[i] * np.cos(angle[i] + j * np.pi)/2
+                y0 = separation[i] * np.sin(angle[i] + j * np.pi)/2
+                images[i, ..., 0] += self.super_gaussian(x0, y0)
+
+        images = images / images.sum(axis=(1, 2), keepdims=True) * self.flux
+        images = tf.constant(images, dtype=DTYPE)
+        X = self.phys.noisy_forward(images)
+        return X, images
 
     def super_gaussian(self, x0, y0):
         rho = np.hypot(self.x - x0, self.y - y0)

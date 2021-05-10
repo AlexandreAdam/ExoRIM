@@ -65,6 +65,7 @@ parser.add_argument("-m", "--min_delta", type=float, default=0, help="Tolerance 
 parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping")
 # parser.add_argument("-c", "--checkpoint", type=int, default=20, help="Checkpoint to save model weights")
 parser.add_argument("-e", "--max_epoch", type=int, default=100, help="Maximum number of epoch")
+parser.add_argument("--pixels", type=int, default=64, help="Number of pixels on a side of the image")
 # parser.add_argument("--index_save_mod", type=int, default=25, help="Image index to be saved")
 # parser.add_argument("--epoch_save_mod", type=int, default=5, help="Epoch at which to save images")
 # step save mod is overwritten by hparams
@@ -75,7 +76,7 @@ date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
 PARAM_GRID = hparams_for_gridsearchV2(args.model_trained)
 SCOREFILE = os.path.expanduser('./scores_4.csv')
 
-phys = PhysicalModel(pixels=64)
+phys = PhysicalModel(pixels=args.pixels)
 
 meta_data = CenteredBinaries(
     total_items=args.number_images,

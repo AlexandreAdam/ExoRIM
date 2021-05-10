@@ -1,6 +1,6 @@
 from exorim import RIM, MSE, PhysicalModel
 from preprocessing.simulate_data import create_and_save_data
-from exorim.interferometry.simulated_data import CenteredBinaries 
+from exorim.interferometry.simulated_data import CenteredBinaries, CenteredBinariesDataset
 from exorim.definitions import DTYPE
 from argparse import ArgumentParser
 from datetime import datetime
@@ -56,6 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
     parser.add_argument("--seed", type=float, default=42, help="Dataset seed")
     parser.add_argument("--model_id", type=str, default="None", help="Start from this model id checkpoint. None means start from scratch")
+    parser.add_argument("--infinite_dataset", action="store_true", help="If used, images are not saved and dataset is a generator (better memory usage). Also, there is no test set")
 
     args = parser.parse_args()
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
@@ -102,11 +103,15 @@ if __name__ == "__main__":
     }
 
     rim = RIM(physical_model=phys, noise_floor=args.noise_floor, adam=True)
-    train_meta = CenteredBinaries(total_items=int(args.split * args.number_images), pixels=args.pixels, width=args.pixels/10, seed=args.seed)
-    testmeta = CenteredBinaries(total_items=int((1 - args.split) * args.number_images), pixels=args.pixels, width=3, seed=0)
-
-    train_dataset = create_datasets(train_meta, rim, train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format="txt")
-    test_dataset = create_datasets(testmeta, rim, test_dir, batch_size=None, index_save_mod=1, format="txt")
+    if args.infinite_dataset:  # slightly less optimized dataset, but an infinite and working one nonetheless
+        train_dataset = CenteredBinariesDataset(phys, total_items=args.number_images, batch_size=args.batch,
+                                                pixels=args.pixels, width=args.pixels/10, flux=args.pixels**2)
+        test_dataset = None
+    else:
+        train_meta = CenteredBinaries(total_items=int(args.split * args.number_images), pixels=args.pixels, width=args.pixels/10, seed=args.seed)
+        testmeta = CenteredBinaries(total_items=int((1 - args.split) * args.number_images), pixels=args.pixels, width=3, seed=0)
+        train_dataset = create_datasets(train_meta, rim, train_dir, batch_size=args.batch, index_save_mod=args.index_save_mod, format="txt")
+        test_dataset = create_datasets(testmeta, rim, test_dir, batch_size=None, index_save_mod=1, format="txt")
     cost_function = MSE()
     learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         initial_learning_rate=args.learning_rate,
