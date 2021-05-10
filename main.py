@@ -19,7 +19,7 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 # hold full dataset in memory, fixed and saved to disk -- useful for testing and monitoring epoch progress
 def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, format="txt"):
     images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data, index_save_mod, format), dtype=DTYPE)
-    noisy_data = rim.physical_model.forward(images)     # TODO make this noisy forward
+    noisy_data = rim.physical_model.noisy_forward(images)
     X = tf.data.Dataset.from_tensor_slices(noisy_data)  # split along batch dimension
     Y = tf.data.Dataset.from_tensor_slices(images)
     dataset = tf.data.Dataset.zip((X, Y))
@@ -55,29 +55,42 @@ if __name__ == "__main__":
     parser.add_argument("--noise_floor", type=float, default=1, help="Intensity noise floor")
     parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
     parser.add_argument("--seed", type=float, default=42, help="Dataset seed")
+    parser.add_argument("--model_id", type=str, default="None", help="Start from this model id checkpoint. None means start from scratch")
 
     args = parser.parse_args()
     date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
-    id = date
+    if args.model_id != "None":
+        id = args.model_id
+        basedir = os.getcwd()  # assumes script is run from base directory
+        results_dir = os.path.join(basedir, "results", id)
+        models_dir = os.path.join(basedir, "models", id)
+        data_dir = os.path.join(basedir, "data", id)
+        train_dir = os.path.join(data_dir, "train")
+        test_dir = os.path.join(data_dir, "test")
+        logdir = os.path.join(basedir, "logs", id)
+    else:
+        id = date
+
+        # create directories needed
+        basedir = os.getcwd()  # assumes script is run from base directory
+        results_dir = os.path.join(basedir, "results", id)
+        os.mkdir(results_dir)
+        models_dir = os.path.join(basedir, "models", id)
+        os.mkdir(models_dir)
+        data_dir = os.path.join(basedir, "data", id)
+        os.mkdir(data_dir)
+        train_dir = os.path.join(data_dir, "train")
+        os.mkdir(train_dir)
+        test_dir = os.path.join(data_dir, "test")
+        os.mkdir(test_dir)
+
+        # another approach to save results using tensorboard and wandb
+        logdir = os.path.join(basedir, "logs", id)
+        os.mkdir(logdir)
+        os.mkdir(os.path.join(logdir, "train"))
+        os.mkdir(os.path.join(logdir, "test"))
+
     print(f"id = {id}")
-
-    basedir = os.getcwd()  # assumes script is run from base directory
-    results_dir = os.path.join(basedir, "results", id)
-    os.mkdir(results_dir)
-    models_dir = os.path.join(basedir, "models", id)
-    os.mkdir(models_dir)
-    data_dir = os.path.join(basedir, "data", id)
-    os.mkdir(data_dir)
-    train_dir = os.path.join(data_dir, "train")
-    os.mkdir(train_dir)
-    test_dir = os.path.join(data_dir, "test")
-    os.mkdir(test_dir)
-
-    # another approach to save results using tensorboard and wandb
-    logdir = os.path.join(basedir, "logs", id)
-    os.mkdir(logdir)
-    os.mkdir(os.path.join(logdir, "train"))
-    os.mkdir(os.path.join(logdir, "test"))
 
     phys = PhysicalModel( # GOLAY9 mask
         pixels=args.pixels,
@@ -100,19 +113,23 @@ if __name__ == "__main__":
         decay_rate=args.decay_rate,
         decay_steps=args.decay_steps
     )
+
+    opt = tf.keras.optimizers.Adam(learning_rate=learning_rate_schedule)
+    ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=opt, net=rim.model)
+    manager = tf.train.CheckpointManager(ckpt, models_dir, max_to_keep=3)
     history = rim.fit(
         train_dataset=train_dataset,
         test_dataset=test_dataset,
-        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate_schedule),
+        optimizer=opt,
         # max_time=args.training_time,
         cost_function=cost_function,
         min_delta=args.min_delta,
         patience=args.patience,
         metrics=metrics,
         track="train_loss",
+        checkpoint_manager=manager,
         checkpoints=args.checkpoint,
         output_dir=results_dir,
-        checkpoint_dir=None, #models_dir,
         max_epochs=args.max_epoch,
         logdir=logdir,
         record=True,

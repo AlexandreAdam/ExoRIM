@@ -19,6 +19,7 @@ class RIM:
                  beta_1=0.9, # adam update hparams
                  beta_2=0.999,
                  epsilon=1e-8,
+                 checkpoint_manager=None, # to restore from previous versions
                  **model_hparams
                  ):
         try:
@@ -35,6 +36,9 @@ class RIM:
         self.state_size = state_size
         self.state_depth = state_depth
         self.model = Model(**model_hparams, state_depth=state_depth, dtype=dtype)
+        if checkpoint_manager is not None:
+            checkpoint_manager.checkpoint.restore(checkpoint_manager.latest_checkpoint)
+            print(f"Initialized model from {checkpoint_manager.latest_checkpoint}")
         self.physical_model = physical_model
         self.adam = adam
         self.beta_1 = beta_1
@@ -132,8 +136,8 @@ class RIM:
             test_dataset=None,
             output_dir=None,
             output_save_mod=None,
-            checkpoint_dir=None,
-            checkpoints=5,
+            checkpoint_manager=None,
+            checkpoints=10, # some integer in case checkpoint_manager is not None
             name="rim",
             logdir=None,
             record=False
@@ -186,6 +190,8 @@ class RIM:
                 "time_mod": -1,
                 "step_mod": -1
             }
+        if checkpoint_manager is not None:
+            checkpoint_manager.checkpoint.restore(checkpoint_manager.latest_checkpoint)
         start = time.time()
         epoch = 1
         history = {"train_loss": [], "test_loss": []}
@@ -273,8 +279,11 @@ class RIM:
                 min_score = history[track][-1]
             else:
                 _patience -= 1
-            if checkpoint_dir is not None:
+            if checkpoint_manager is not None:
+                checkpoint_manager.checkpoint.step.assign_add(1) # a bit of a hack
+                # save a model if checkpoint is reached and model has improved or last step has been reached
                 if epoch % checkpoints == 0 or _patience == 0 or epoch == max_epochs - 1:
-                    self.model.save_weights(os.path.join(checkpoint_dir, f"{name}_{epoch:03}_{cost_value:.5f}.h5"))
+                    checkpoint_manager.save() # os.path.join(checkpoint_dir, f"{name}_{epoch:03}_{cost_value:.5f}.h5")
+                    print("Saved checkpoint for step {}: {}".format(int(checkpoint_manager.checkpoint.step), checkpoint_manager.latest_checkpoint))
             epoch += 1
         return history
