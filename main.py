@@ -16,6 +16,7 @@ import os
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
+# hold full dataset in memory, fixed and saved to disk -- useful for testing and monitoring epoch progress
 def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, format="txt"):
     images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data, index_save_mod, format), dtype=DTYPE)
     noisy_data = rim.physical_model.forward(images)     # TODO make this noisy forward
@@ -35,10 +36,10 @@ def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--pixels", type=int, default=64)
-    parser.add_argument("--learning_rate", type=float, default=1e-2)
+    parser.add_argument("--pixels", type=int, default=32)
+    parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--decay_rate", type=float, default=0.9)
-    parser.add_argument("--decay_steps", type=int, default=10)
+    parser.add_argument("--decay_steps", type=int, default=100)
     parser.add_argument("-n", "--number_images", type=int, default=100)
     parser.add_argument("-w", "--wavelength", type=float, default=0.5e-6)
     parser.add_argument("--SNR", type=float, default=10, help="Signal to noise ratio")
@@ -48,7 +49,7 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--min_delta", type=float, default=0., help="Tolerance for early stopping")
     parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping") # infinite patience for hparam check
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
-    parser.add_argument("-e", "--max_epoch", type=int, default=20, help="Maximum number of epoch")
+    parser.add_argument("-e", "--max_epoch", type=int, default=100, help="Maximum number of epoch")
     parser.add_argument("--index_save_mod", type=int, default=20, help="Image index to be saved")
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
     parser.add_argument("--noise_floor", type=float, default=1, help="Intensity noise floor")

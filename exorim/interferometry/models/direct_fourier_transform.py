@@ -3,7 +3,6 @@ from exorim.interferometry.operators import NDFTM, \
     closure_phase_operator, closure_phase_covariance_inverse
 from exorim.definitions import rad2mas, DTYPE, MYCOMPLEX
 import exorim.inference.log_likelihood as chisq
-from exorim.inference.regularizers import entropy
 import numpy as np
 import tensorflow as tf
 
@@ -40,7 +39,8 @@ class PhysicalModel:
                  wavelength=0.5e-6,
                  SNR=100,
                  vis_phase_std=0.05,
-                 logim=True):  # regularization
+                 logim=True,
+                 flux=None):  # regularization
         assert loglikelihood in ["append_visibility_amplitude_closure_phase", "visibilities", "visibility_amplitude"]
         self.temperature = tf.constant(temperature, dtype=DTYPE)
         self._loglikelihood = loglikelihood
@@ -62,7 +62,10 @@ class PhysicalModel:
         self.p = self.A.shape[0]  # number of visibility samples
         self.q = self.CPO.shape[0]  # number of closure phases
         self.SNR = SNR
-        self.sigma = tf.constant(1 / self.SNR, DTYPE)
+        if flux is None: #TODO remove this hack
+            self.sigma = tf.constant(0.1 * self.pixels**2 / self.SNR, DTYPE)  # assumes flux is an electron count normalized at 1 count per pixel
+        else:
+            self.sigma = tf.constant(0.1 * flux / self.SNR, DTYPE)
         self.phase_std = tf.constant(vis_phase_std, DTYPE)
         self.SIGMA = tf.constant(closure_phase_covariance_inverse(self.CPO, 1/SNR), DTYPE)
         A1, A2, A3 = closure_fourier_matrices(self.A, self.CPO)
@@ -78,7 +81,6 @@ class PhysicalModel:
         """
         Compute the chi squared gradient relative to image pixels given interferometric data X
         """
-        #TODO put this gradient in loglikelihood file
         if self._loglikelihood == "append_visibility_amplitude_closure_phase":
             amp = X[..., :self.p]
             cp = X[..., self.p:]
@@ -86,7 +88,7 @@ class PhysicalModel:
                 if self.logim:
                     image = tf.math.exp(image)
                     grad = chisq.chisq_gradient_amplitude(image, amp, self)
-                    grad += chisq.chisq_gradient_closure_phasor(image, cp, self) #TODO entropy analytical gradient?
+                    grad += chisq.chisq_gradient_closure_phasor(image, cp, self)
                     grad *= image
                     return grad / self.temperature
                 else:
@@ -144,8 +146,7 @@ class PhysicalModel:
             amp = X[..., :self.p]
             cp  = X[..., self.p:]
             ll = chisq.chi_squared_amplitude(image, amp, self)
-            ll += chisq.chi_squared_closure_phasor(image, cp, self)
-            # ll += self.lam * entropy(image, self.prior)
+            ll += chisq.chisq_gradient_closure_phasor(image, cp, self)
             ll /= self.temperature
         else:
             ll = chisq.chi_squared[self._loglikelihood](image, X, self)
@@ -155,7 +156,7 @@ class PhysicalModel:
     def fourier_transform(self, image):
         im = tf.cast(image, MYCOMPLEX)
         flat = self.flatten(im)
-        return tf.einsum("ij, ...j->...i", self.A, flat)  # tensordot broadcasted on batch_size
+        return tf.einsum("ij, ...j->...i", self.A, flat) # tensordot broadcasted on batch_size, divide by flux
 
     def bispectrum(self, image):
         im = tf.cast(image, MYCOMPLEX)
@@ -165,9 +166,9 @@ class PhysicalModel:
         V3 = tf.einsum("ij, ...j -> ...i", self.A3, flat)
         return V1 * tf.math.conj(V2) * V3  # hack that works with baseline class! Be careful using other methods
 
-    def noisy_forward(self, images):
-        batch = images.shape[0]
-        V = self.fourier_transform(images)
+    def noisy_forward(self, image):
+        batch = image.shape[0]
+        V = self.fourier_transform(image)
         gain = self._gain(batch)
         noisy_V = gain * V
         X = chisq.chisq_x_transformation[self._loglikelihood](noisy_V, self)

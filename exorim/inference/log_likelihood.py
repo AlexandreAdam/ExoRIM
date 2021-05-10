@@ -16,15 +16,15 @@ def cast_to_complex_flatten(image):
 def bispectrum(image, A1, A2, A3):
     im = cast_to_complex_flatten(image)
     einsum = "ij, ...j -> ...i"
-    V1 = tf.einsum(einsum, A1, im)
-    V2 = tf.einsum(einsum, A2, im)
-    V3 = tf.einsum(einsum, A3, im)
+    V1 = tf.einsum(einsum, A1, im) 
+    V2 = tf.einsum(einsum, A2, im) 
+    V3 = tf.einsum(einsum, A3, im) 
     B = V1 * tf.math.conj(V2) * V3
     return B
 
 
 def bispectrum_x(X, phys):
-    V1, V2, V3 = closure_baselines_projectors(phys.CPO.numpy())  #TODO find a better way in tensorflow
+    V1, V2, V3 = closure_baselines_projectors(phys.CPO.numpy())  
     V1 = tf.einsum("ij, ...j -> ...i", V1, X)
     V2 = tf.einsum("ij, ...j -> ...i", V2, X)
     V3 = tf.einsum("ij, ...j -> ...i", V3, X)
@@ -134,7 +134,7 @@ def chi_squared_amplitude_squared(image, amp_sq, phys):
     sigma = phys.sigma
     sig = tf.cast(sigma, DTYPE)
     im = cast_to_complex_flatten(image)
-    amp_samples = tf.math.abs(tf.einsum("ij, ...j -> ...i", A, im))**2
+    amp_samples = tf.math.abs(tf.einsum("ij, ...j -> ...i", A, im))
     return tf.math.reduce_mean(((amp_sq - amp_samples)/sig)**2, axis=1)
 
 
