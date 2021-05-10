@@ -7,6 +7,7 @@ from datetime import datetime
 import tensorflow as tf
 import numpy as np
 import os
+import json
 # try:
 #     import wandb
 #     wandb.init(project="exorim", user="adam"sync_tensorboard=True)
@@ -33,29 +34,53 @@ def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, 
         dataset = dataset.cache()
     return dataset
 
+# Model json signature
+# {'time_steps': 10,
+#  'state_depth': 256,
+#  'filters_downsampling': 32,
+#  'downsampling_layers': 2,
+#  'conv_layers': 1,
+#  'hidden_layers': 2,
+#  'filters_upsampling': 64,
+#  'kernel_regularizer_amp': 0.001,
+#  'bias_regularizer_amp': 0.001,
+#  'batch_norm': True,
+#  'activation': 'elu',
+#  'initial_learning_rate': 0.001,
+#  'beta_1': 0.72,
+#  'beta_2': 0.817}
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
+    # if starting from previous model version, make sure pixels match model architecture
+    parser.add_argument("--model_id", type=str, default="None", help="Start from this model id checkpoint. None means start from scratch")
     parser.add_argument("--pixels", type=int, default=32)
+
+    # model hyperparameter
     parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--decay_rate", type=float, default=0.9)
     parser.add_argument("--decay_steps", type=int, default=100)
-    parser.add_argument("-n", "--number_images", type=int, default=100)
+    parser.add_argument("--hparams_json", type=str, default=None, help="Json of model hyperparameters, should match expected signature described above")
+
+    # Physics
     parser.add_argument("-w", "--wavelength", type=float, default=0.5e-6)
     parser.add_argument("--SNR", type=float, default=10, help="Signal to noise ratio")
+    parser.add_argument("--noise_floor", type=float, default=1, help="Intensity noise floor")
+
+    # Training parameters
+    parser.add_argument("-n", "--number_images", type=int, default=100)
     parser.add_argument("-s", "--split", type=float, default=0.8)
     parser.add_argument("-b", "--batch", type=int, default=10, help="Batch size")
-    # parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
+    parser.add_argument("-t", "--training_time", type=float, default=2, help="Time allowed for training in hours")
     parser.add_argument("-m", "--min_delta", type=float, default=0., help="Tolerance for early stopping")
     parser.add_argument("-p", "--patience", type=int, default=10, help="Patience for early stopping") # infinite patience for hparam check
     parser.add_argument("-c", "--checkpoint", type=int, default=5, help="Checkpoint to save model weights")
     parser.add_argument("-e", "--max_epoch", type=int, default=100, help="Maximum number of epoch")
     parser.add_argument("--index_save_mod", type=int, default=20, help="Image index to be saved")
     parser.add_argument("--epoch_save_mod", type=int, default=1, help="Epoch at which to save images")
-    parser.add_argument("--noise_floor", type=float, default=1, help="Intensity noise floor")
     parser.add_argument("--format", type=str, default="png", help="Format with which to save image, either png or txt")
-    parser.add_argument("--seed", type=float, default=42, help="Dataset seed")
-    parser.add_argument("--model_id", type=str, default="None", help="Start from this model id checkpoint. None means start from scratch")
+    parser.add_argument("--seed", type=float, default=42, help="Dataset seed") # used for fixed length dataset
     parser.add_argument("--infinite_dataset", action="store_true", help="If used, images are not saved and dataset is a generator (better memory usage). Also, there is no test set")
 
     args = parser.parse_args()
@@ -101,8 +126,12 @@ if __name__ == "__main__":
     metrics = {
         "Chi squared": lambda Y_pred, Y_true: tf.reduce_mean(phys.chi_squared(Y_pred, phys.forward(Y_true)))
     }
-
-    rim = RIM(physical_model=phys, noise_floor=args.noise_floor, adam=True)
+    if args.hparams_json != "None":
+        with open(args.hparams_json, "r") as f:
+            hparams = json.load(f)
+        rim = RIM(physical_model=phys, noise_floor=args.noise_floor, adam=True, **hparams)
+    else:
+        rim = RIM(physical_model=phys, noise_floor=args.noise_floor, adam=True)
     if args.infinite_dataset:  # slightly less optimized dataset, but an infinite and working one nonetheless
         train_dataset = CenteredBinariesDataset(phys, total_items=args.number_images, batch_size=args.batch,
                                                 pixels=args.pixels, width=args.pixels/10, flux=args.pixels**2)
