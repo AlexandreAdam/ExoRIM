@@ -73,7 +73,7 @@ args = parser.parse_args()
 date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
 
 PARAM_GRID = hparams_for_gridsearchV2(args.model_trained)
-SCOREFILE = os.path.expanduser('./scores_1.csv')
+SCOREFILE = os.path.expanduser('./scores_4.csv')
 
 phys = PhysicalModel(pixels=64)
 
@@ -130,7 +130,7 @@ def search_distributed():
             # name=f"rim_{hparams['grid_id']:03}_{fold:02}"
         )
         score = np.min(history["train_loss"])
-        chi_squared = np.min(history["chi_squared_train"])
+        chi_squared = np.nanmin(history["chi_squared_train"])
         out = params
         out.update({"train_loss": score, "chi_squared_train": chi_squared})
         result = pd.DataFrame.from_dict(out, orient="index").T
@@ -141,9 +141,9 @@ def search_distributed():
 
 
 def main():
-    print(f'WORKER {this_worker} ALIVE.')
+    # print(f'WORKER {this_worker} ALIVE.')
     search_distributed()
-    print(f'WORKER {this_worker} DONE.')
+    # print(f'WORKER {this_worker} DONE.')
 
 
 if __name__ == '__main__':
