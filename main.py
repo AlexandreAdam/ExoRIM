@@ -60,7 +60,7 @@ if __name__ == "__main__":
     # model hyperparameter
     parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--decay_rate", type=float, default=0.9)
-    parser.add_argument("--decay_steps", type=int, default=100)
+    parser.add_argument("--decay_steps", type=int, default=1000)
     parser.add_argument("--hparams_json", type=str, default=None, help="Json of model hyperparameters, should match expected signature described above")
 
     # Physics
