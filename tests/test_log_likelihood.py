@@ -1,5 +1,6 @@
-from exorim.interferometry.operators import Baselines, NDFTM, closure_fourier_matrices, closure_phase_operator
-from exorim.inference.log_likelihood import *
+from exorim.operators import Baselines, NDFTM, closure_fourier_matrices, closure_phase_operator
+from exorim.definitions import MYCOMPLEX, DTYPE
+import tensorflow as tf
 import time
 import numpy as np
 import pytest
@@ -30,10 +31,10 @@ def test_chisq_vis_gradient():
     vis = tf.constant(np.dot(A, image.flatten()).reshape((1, -1)), MYCOMPLEX)
 
     start = time.time()
-    grad1 = chisq_gradient_complex_visibility_analytic(noise, A, vis, sigma)
+    grad1 = chisq_gradient_complex_visibility(noise, A, vis, sigma)
     print(f"Auto grad took {time.time() - start:.3f} sec")
     start = time.time()
-    grad2 = chisq_gradient_complex_visibility_auto(noise, A, vis, sigma)
+    grad2 = chisq_gradient_complex_visibility(noise, A, vis, sigma)
     print(f"Analytical grad took {time.time() - start:.3f} sec")
     assert np.allclose(sigma**2*grad1.numpy(), sigma**2*grad2.numpy(), rtol=1e-3)
 

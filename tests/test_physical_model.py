@@ -1,12 +1,12 @@
-from exorim.interferometry.models.direct_fourier_transform import PhysicalModel, GOLAY9
-from exorim.interferometry.operators import Baselines
+from exorim.physical_model import PhysicalModel, GOLAY9
+from exorim.operators import Baselines
 from exorim.definitions import rad2mas
 import tensorflow as tf
 import numpy as np
 
 
 def test_nyquist_sampling_criterion():
-    pixels = 64
+    pixels = 32
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
     phys = PhysicalModel(pixels, mask_coordinates)
@@ -33,13 +33,11 @@ def test_nyquist_sampling_criterion():
 
     print(freq_sampled.max())
     print(sampling_frequency)
-    assert sampling_frequency > 2 * freq_sampled.max()
-
-
+    assert np.round(sampling_frequency, 5) > np.round(2 * freq_sampled.max(), 5)
 
 
 def test_fov():
-    pixels = 64
+    pixels = 32
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
     phys = PhysicalModel(pixels, mask_coordinates)
@@ -49,12 +47,12 @@ def test_fov():
     rho = np.hypot(uv[:, 0], uv[:, 1])
     fov = rad2mas(1/rho.min())
     reconstruction_fov = pixels * phys.plate_scale
-    assert fov <= reconstruction_fov # reconstruction should at least encapsulate largest scale
+    assert np.round(fov, 5) <= np.round(reconstruction_fov, 5) # reconstruction should at least encapsulate largest scale
 
 
 
 def test_grad_likelihood():
-    pixels = 64
+    pixels = 32
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
     phys = PhysicalModel(pixels, mask_coordinates)
@@ -77,10 +75,10 @@ def test_grad_likelihood():
 
 
 def test_grad_likelihood2():
-    pixels = 128
+    pixels = 32
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
-    phys = PhysicalModel(pixels, mask_coordinates, lam=0)
+    phys = PhysicalModel(pixels, mask_coordinates)
 
     x = np.arange(pixels) - pixels//2 + 0.5
     xx, yy = np.meshgrid(x, x)
