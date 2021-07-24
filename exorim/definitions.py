@@ -3,12 +3,13 @@ import tensorflow as tf
 import numpy as np
 
 tf.keras.backend.set_floatx('float32')
-DTYPE = tf.float32  # TODO consider using mixed precision with float16
+DTYPE = tf.float32
 MYCOMPLEX = tf.complex64
 initializer = tf.random_normal_initializer(stddev=0.1)
 DEGREE = tf.constant(3.14159265358979323 / 180., DTYPE)
 INTENSITY_SCALER = tf.constant(1e6, DTYPE)
 TWOPI = tf.constant(2 * np.pi, DTYPE)
+LOG_FLOOR = tf.constant(1e-8, DTYPE)
 
 
 def lrelu(x, alpha=0.3):
@@ -29,6 +30,22 @@ def xsquared(x):
 
 def lrelu4p(x, alpha=0.04):
     return tf.maximum(x, tf.multiply(x, alpha))
+
+
+def bipolar_elu(x):
+    """Bipolar ELU as in https://arxiv.org/abs/1709.04054."""
+    x1, x2 = tf.split(x, 2, axis=-1)
+    y1 = tf.nn.elu(x1)
+    y2 = -tf.nn.elu(-x2)
+    return tf.concat([y1, y2], axis=-1)
+
+
+def bipolar_leaky_relu(x, alpha=0.2, **kwargs):
+    """Bipolar Leaky ReLU as in https://arxiv.org/abs/1709.04054."""
+    x1, x2 = tf.split(x, 2, axis=-1)
+    y1 = tf.nn.leaky_relu(x1, alpha=alpha)
+    y2 = -tf.nn.leaky_relu(-x2, alpha=alpha)
+    return tf.concat([y1, y2], axis=-1)
 
 
 def poisson(k, mu):

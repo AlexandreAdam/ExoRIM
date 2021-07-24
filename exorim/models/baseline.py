@@ -1,7 +1,6 @@
 import tensorflow as tf
 from exorim.definitions import DTYPE
 from exorim.models.layers import ConvGRU
-from exorim.models.utils import global_step, summary_histograms
 
 
 class BaselineModel(tf.keras.models.Model):
@@ -44,7 +43,7 @@ class BaselineModel(tf.keras.models.Model):
                 data_format="channels_last",
                 kernel_initializer=tf.keras.initializers.GlorotUniform()
             )
-        self.tconv1 = tf.keras.layers.Conv2DTranspose(
+        self.tconv1 = tf.keras.layers.Conv2D(
                 kernel_size=3,
                 filters=16,
                 strides=1,
@@ -53,10 +52,10 @@ class BaselineModel(tf.keras.models.Model):
                 data_format="channels_last",
                 kernel_initializer=tf.keras.initializers.GlorotUniform()
             )
-        self.tconv2 = tf.keras.layers.Conv2DTranspose(
+        self.tconv2 = tf.keras.layers.Conv2D(
                 kernel_size=3,
                 filters=1,
-                strides=2,
+                strides=1,
                 activation=tf.keras.layers.LeakyReLU(),
                 padding="same",
                 data_format="channels_last",
@@ -80,11 +79,13 @@ class BaselineModel(tf.keras.models.Model):
                 data_format="channels_last",
                 kernel_initializer=tf.keras.initializers.GlorotUniform()
             )
-        self.gru1 = ConvGRU(filters=256, kernel_size=3)
-        self.gru2 = ConvGRU(filters=256, kernel_size=3)
+        self.state_depth = 32
+        self.downsampling_factor = 4
+        self.gru1 = ConvGRU(filters=16, kernel_size=3)
+        self.gru2 = ConvGRU(filters=16, kernel_size=3)
         self.hidden_conv = tf.keras.layers.Conv2D(
             kernel_size=3,
-            filters=16,
+            filters=32,
             strides=1,
             activation=tf.keras.layers.LeakyReLU(),
             padding="same",
@@ -92,40 +93,33 @@ class BaselineModel(tf.keras.models.Model):
             kernel_initializer=tf.keras.initializers.GlorotUniform()
         )
 
-    def call(self, X, ht):
+    def call(self, xt, ht, grad):
         """
         :param yt: Image tensor of shape [batch, pixel, pixel, channel], correspond to the step t of the reconstruction.
         :param ht: Hidden memory tensor updated in the Recurrent Block
         """
-        X = self.downsample1(X)
-        X = self.conv1(X)
-        if global_step() % self._timestep_mod == 0:
-            summary_histograms(self.conv1, X)
-        X = self.downsample2(X)
-        X = self.conv2(X)
-        if global_step() % self._timestep_mod == 0:
-            summary_histograms(self.conv2, X)
+        delta_xt = tf.concat([tf.identity(xt), grad], axis=3)
+        delta_xt = self.downsample1(delta_xt)
+        delta_xt = self.conv1(delta_xt)
+        delta_xt = self.downsample2(delta_xt)
+        delta_xt = self.conv2(delta_xt)
 
         # ===== Recurrent Block =====
         ht_1, ht_2 = tf.split(ht, 2, axis=3)
-        ht_1 = self.gru1(X, ht_1)  # to be recombined in new state
-        if global_step() % self._timestep_mod == 0:
-            summary_histograms(self.gru1, ht_1)
+        ht_1 = self.gru1(delta_xt, ht_1)  # to be recombined in new state
         ht_1_features = self.hidden_conv(ht_1)
-        if global_step() % self._timestep_mod == 0:
-            summary_histograms(self.hidden_conv, ht_1_features)
         ht_2 = self.gru2(ht_1_features, ht_2)
-        if global_step() % self._timestep_mod == 0:
-            summary_histograms(self.gru2, ht_2)
         # ===========================
 
-        X = self.upsample1(ht_2)
-        X = self.tconv1(X)
-        if global_step() % self._timestep_mod == 0:
-            summary_histograms(self.tconv1, X)
-        X = self.upsample2(X)
-        X = self.tconv2(X)
-        if global_step() % self._timestep_mod == 0:
-            summary_histograms(self.tconv2, X)
+        delta_xt = self.upsample1(ht_2)
+        delta_xt = self.tconv1(delta_xt)
+        delta_xt = self.upsample2(delta_xt)
+        delta_xt = self.tconv2(delta_xt)
+
         new_state = tf.concat([ht_1, ht_2], axis=3)
-        return X, new_state
+        xt_1 = xt + delta_xt
+        return xt_1, new_state
+
+    def init_hidden_states(self, input_pixels, batch_size, constant=0.):
+        state_size = input_pixels // self.downsampling_factor
+        return constant * tf.ones(shape=(batch_size, state_size, state_size, self.state_depth), dtype=self._dtype)
