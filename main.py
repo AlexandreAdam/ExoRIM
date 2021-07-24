@@ -20,7 +20,7 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 # hold full dataset in memory, fixed and saved to disk -- useful for testing and monitoring epoch progress
 def create_datasets(meta_data, rim, dirname, batch_size=None, index_save_mod=1, format="txt"):
     images = tf.convert_to_tensor(create_and_save_data(dirname, meta_data, index_save_mod, format), dtype=DTYPE)
-    noisy_data = rim.physical_model.noisy_forward(images)
+    noisy_data = rim.physical_model.noisy_forward(images)     # TODO make this noisy forward
     X = tf.data.Dataset.from_tensor_slices(noisy_data)  # split along batch dimension
     Y = tf.data.Dataset.from_tensor_slices(images)
     dataset = tf.data.Dataset.zip((X, Y))
