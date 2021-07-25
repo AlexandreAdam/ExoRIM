@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from exorim.definitions import k_truncated_poisson, centroid, DTYPE
+from exorim import PhysicalModel
 from numpy.fft import fft2, ifft2
 import math
 
@@ -215,25 +216,24 @@ class CenteredBinaries:
 class CenteredBinariesDataset(tf.keras.utils.Sequence):
     def __init__(
             self,
-            phys,
+            phys: PhysicalModel,
             total_items=1000,
             batch_size=10,
-            pixels=32,
             width=5, # sigma parameter of super gaussian
             flux=32**2,
             seed=None
     ):
         self.seed = seed
         self.total_items = total_items
-        self.pixels = pixels
+        self.pixels = phys.pixels
         self.width = width
-        self.max_sep = pixels/2
+        self.max_sep = phys.pixels/2
         self.flux = flux
         self.batch_size = batch_size
         self.phys = phys
 
         # make coordinate system
-        x = np.arange(pixels) - pixels//2 + 0.5 # works when #pixels is even
+        x = np.arange(phys.pixels) - phys.pixels//2 + 0.5 * (phys.pixels%2)
         xx, yy = np.meshgrid(x, x)
         self.x = xx
         self.y = yy
@@ -421,6 +421,3 @@ class CenteredImagesGenerator:
 
     def _elongation(self, nps):
         return np.random.uniform(1, 4, size=(nps, 2))
-#
-
-#TODO make sure images are normalized properly

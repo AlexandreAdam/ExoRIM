@@ -141,9 +141,7 @@ def search_distributed():
 
 
 def main():
-    # print(f'WORKER {this_worker} ALIVE.')
     search_distributed()
-    # print(f'WORKER {this_worker} DONE.')
 
 
 if __name__ == '__main__':
