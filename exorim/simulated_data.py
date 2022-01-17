@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
-from exorim.definitions import k_truncated_poisson, centroid, DTYPE
-from exorim import PhysicalModel
+from .definitions import k_truncated_poisson, centroid, DTYPE
+from .physical_model import PhysicalModel
 from numpy.fft import fft2, ifft2
 import math
 
@@ -178,7 +178,7 @@ class CenteredBinaries:
             total_items=1000,
             pixels=32,
             width=5, # sigma parameter of super gaussian
-            flux=32**2,
+            # flux=32**2,
             seed=None
     ):
         self.seed = seed
@@ -186,7 +186,7 @@ class CenteredBinaries:
         self.pixels = pixels
         self.width = width
         self.max_sep = pixels/2
-        self.flux = flux
+        # self.flux = flux
 
         # make coordinate system
         x = np.arange(pixels) - pixels//2 + 0.5 # works when #pixels is even
@@ -205,7 +205,7 @@ class CenteredBinaries:
                 y0 = separation[i] * np.sin(angle[i] + j * np.pi)/2
                 images[i, ..., 0] += self.super_gaussian(x0, y0)
 
-        images = images / images.sum(axis=(1, 2), keepdims=True) * self.flux
+        images = images / images.max(axis=(1, 2), keepdims=True)
         return images
 
     def super_gaussian(self, x0, y0):
@@ -255,7 +255,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
                 y0 = separation[i] * np.sin(angle[i] + j * np.pi)/2
                 images[i, ..., 0] += self.super_gaussian(x0, y0)
 
-        images = images / images.sum(axis=(1, 2), keepdims=True) * self.flux
+        images = images / images.max(axis=(1, 2), keepdims=True)
         images = tf.constant(images, dtype=DTYPE)
         X = self.phys.noisy_forward(images)
         return X, images
