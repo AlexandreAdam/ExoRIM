@@ -79,9 +79,9 @@ phys = PhysicalModel(pixels=args.pixels)
 
 meta_data = CenteredBinaries(
     total_items=args.number_images,
-    pixels=64,
+    pixels=32,
     width=6,
-    flux=64**2
+    flux=32**2
 )
 images = tf.constant(meta_data.generate_epoch_images(), dtype=DTYPE)
 noisy_data = phys.noisy_forward(images)

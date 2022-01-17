@@ -4,6 +4,7 @@ from exorim.definitions import mas2rad
 import numpy as np
 from scipy.special import j1
 import time
+import matplotlib.pyplot as plt
 
 pixels = 128
 wavel = 1.5e-6
@@ -12,9 +13,11 @@ x = np.arange(pixels) - pixels//2
 xx, yy = np.meshgrid(x, x)
 image = np.zeros_like(xx)
 rho = np.sqrt(xx**2 + yy**2)
-image = image + 1.0 * (rho < 5)
-
+image = image + 1.0 * (rho < 10)
+plt.imshow(image)
+plt.show()
 mask = np.random.normal(0, 6, [100, 2])
+
 
 def uv_samples(mask):
     N = mask.shape[0]
@@ -53,5 +56,15 @@ end = time.time() - start
 print(f"Took {end:.4f} seconds to compute NFFT") # usually at least 5x faster, scales better with large number of pixels
 # print(np.abs(vis))
 # print(np.abs(vis1))
-assert np.allclose(np.abs(vis), np.abs(vis1), rtol=1e-5)
-assert np.allclose(np.sin(np.angle(vis) - np.angle(vis1)), np.zeros_like(vis), atol=1e-5)
+plt.figure()
+plt.plot(sorted(np.abs(vis)), color="k")
+plt.plot(sorted(np.abs(vis1)), color="r")
+plt.show()
+plt.figure()
+plt.plot(sorted(np.angle(vis)), color="k")
+plt.plot(sorted(np.angle(vis1)), color="r")
+plt.show()
+assert np.allclose(np.abs(vis), np.abs(vis1), rtol=1e-3)
+assert np.allclose(np.sin(np.angle(vis) - np.angle(vis1)), np.zeros_like(vis), atol=1e-3)
+# print(np.angle(vis))
+

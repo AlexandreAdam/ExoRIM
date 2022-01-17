@@ -104,6 +104,7 @@ def test_grad_likelihood2():
     print(grad.mean())
     return image, image2, grad
 
+
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     image, image2, grad = test_grad_likelihood2()
