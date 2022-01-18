@@ -219,8 +219,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
             phys: PhysicalModel,
             total_items=1000,
             batch_size=10,
-            width=5, # sigma parameter of super gaussian
-            flux=32**2,
+            width=5,  # sigma parameter of super gaussian
             seed=None
     ):
         self.seed = seed
@@ -228,7 +227,6 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
         self.pixels = phys.pixels
         self.width = width
         self.max_sep = phys.pixels/2
-        self.flux = flux
         self.batch_size = batch_size
         self.phys = phys
 

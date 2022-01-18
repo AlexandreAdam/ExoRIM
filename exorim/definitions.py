@@ -9,7 +9,7 @@ initializer = tf.random_normal_initializer(stddev=0.1)
 DEGREE = tf.constant(3.14159265358979323 / 180., DTYPE)
 INTENSITY_SCALER = tf.constant(1e6, DTYPE)
 TWOPI = tf.constant(2 * np.pi, DTYPE)
-LOG_FLOOR = tf.constant(1e-6, DTYPE)
+LOG_FLOOR = tf.constant(1e-3, DTYPE)
 
 
 def lrelu(x, alpha=0.3):
