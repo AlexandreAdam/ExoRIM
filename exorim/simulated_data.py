@@ -240,10 +240,10 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
         return math.ceil(self.total_items / self.batch_size)
 
     def __getitem__(self, idx):
-        return self.generate_batch()
+        return self.generate_batch(idx)
 
-    def generate_batch(self):
-        np.random.seed(self.seed)
+    def generate_batch(self, idx):
+        np.random.seed(self.seed + idx)
         separation = np.random.uniform(size=[self.batch_size], low=2, high=self.max_sep)
         angle = np.random.uniform(size=[self.batch_size], low=0, high=np.pi)
         images = np.zeros(shape=[self.batch_size, self.pixels, self.pixels, 1])
