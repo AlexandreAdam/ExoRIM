@@ -25,8 +25,8 @@ class RIM:
         self.epsilon = epsilon
 
         if self.logim:
-            self.link_function = tf.keras.layers.Lambda(lambda x: tf.math.log(x + LOG_FLOOR))
-            self.inverse_link_function = tf.keras.layers.Lambda(lambda x: tf.math.exp(x))
+            self.link_function = tf.keras.layers.Lambda(lambda x: tf.math.log(x + LOG_FLOOR) / tf.math.log(10.))
+            self.inverse_link_function = tf.keras.layers.Lambda(lambda x: 10**x)
         else:
             self.link_function = tf.identity
             self.inverse_link_function = tf.identity
@@ -46,7 +46,7 @@ class RIM:
             return grad
 
     def initial_states(self, batch_size):
-        source = self.link_function(tf.ones(shape=[batch_size, self.pixels, self.pixels, 1]) / self.pixels**2)
+        source = tf.zeros(shape=[batch_size, self.pixels, self.pixels, 1])
         states = self.model.init_hidden_states(input_pixels=self.pixels, batch_size=batch_size)
         return source, states
 

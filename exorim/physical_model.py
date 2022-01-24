@@ -84,7 +84,7 @@ class PhysicalModel:
             cp = X[..., self.p:]
             if self._analytic:
                 if self.logim:
-                    image = tf.math.exp(image)
+                    image = 10**image
                     grad = chisq.chisq_gradient_amplitude(image, amp, self)
                     grad += chisq.chisq_gradient_closure_phasor(image, cp, self)
                     grad *= image
@@ -98,7 +98,7 @@ class PhysicalModel:
                 with tf.GradientTape(watch_accessed_variables=False) as tape:
                     tape.watch(image)
                     if self.logim:
-                        _image = tf.math.exp(image)
+                        _image = 10**image
                     else:
                         _image = image
                     ll = chisq.chi_squared_amplitude(_image, amp, self)
@@ -110,7 +110,7 @@ class PhysicalModel:
         else:  # case where we dont append two terms, so visibilities and amplitude alone go here
             if self._analytic:
                 if self.logim:
-                    image = np.exp(image)
+                    image = 10**image
                     return image * chisq.chisq_gradients[self._loglikelihood](image, X, self) / self.temperature
                 else:
                     return chisq.chisq_gradients[self._loglikelihood](image, X, self) / self.temperature
@@ -118,7 +118,7 @@ class PhysicalModel:
                 with tf.GradientTape(watch_accessed_variables=False) as tape:
                     tape.watch(image)
                     if self.logim:
-                        _image = tf.math.exp(image)
+                        _image = 10**image
                     else:
                         _image = image
                     ll = chisq.chi_squared[self._loglikelihood](_image, X, self)
@@ -147,7 +147,7 @@ class PhysicalModel:
 
     def chi_squared(self, image, X):
         if self.logim:
-            image = np.exp(image)
+            image = 10**image
         if self._loglikelihood == "append_visibility_amplitude_closure_phase":
             amp = X[..., :self.p]
             cp  = X[..., self.p:]

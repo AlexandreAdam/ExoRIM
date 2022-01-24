@@ -1,7 +1,6 @@
 import tensorflow as tf
 from .layers import ConvDecodingLayer, ConvEncodingLayer, ConvGRUBlock
 from .utils import get_activation
-from exorim.definitions import DTYPE
 
 
 class Model(tf.keras.Model):
