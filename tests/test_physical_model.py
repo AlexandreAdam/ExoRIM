@@ -1,4 +1,5 @@
-from exorim.physical_model import PhysicalModel, GOLAY9
+from exorim.physical_model import PhysicalModel, GOLAY9, JWST_NIRISS_MASK
+from exorim.simulated_data import CenteredBinariesDataset
 from exorim.operators import Baselines
 from exorim.definitions import rad2mas
 import tensorflow as tf
@@ -107,23 +108,44 @@ def test_grad_likelihood2():
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    image, image2, grad = test_grad_likelihood2()
-    plt.figure()
-    plt.imshow(grad[0, ..., 0], origin="lower", cmap="hot")
-    plt.title("Gradient")
-    plt.colorbar()
+    # image, image2, grad = test_grad_likelihood2()
+    # plt.figure()
+    # plt.imshow(grad[0, ..., 0], origin="lower", cmap="hot")
+    # plt.title("Gradient")
+    # plt.colorbar()
+    #
+    # plt.figure()
+    # plt.imshow(image[0, ..., 0], origin="lower", cmap="hot")
+    # plt.title("Ground Truth")
+    # plt.colorbar()
+    #
+    # plt.figure()
+    # plt.imshow(image2[0, ..., 0], origin="lower", cmap="hot")
+    # plt.title("Guess")
+    # plt.colorbar()
+    # plt.show()
 
-    plt.figure()
-    plt.imshow(image[0, ..., 0], origin="lower", cmap="hot")
-    plt.title("Ground Truth")
-    plt.colorbar()
-
-    plt.figure()
-    plt.imshow(image2[0, ..., 0], origin="lower", cmap="hot")
-    plt.title("Guess")
-    plt.colorbar()
+    phys = PhysicalModel(pixels=32, mask_coordinates=JWST_NIRISS_MASK, analytic=True, wavelength=3.8e-6)
+    dataset = CenteredBinariesDataset(phys, total_items=1, batch_size=1, width=2)
+    X, image = dataset.generate_batch()
+    plt.imshow(image[0, ..., 0])
     plt.show()
 
+    plt.figure()
+    fft = np.abs(np.fft.fftshift(np.fft.fft2(image[0, ..., 0])))
+    pixels = 32
+    wavel = 8e-6
+    uv = phys.baselines.UVC
+    rho = np.hypot(uv[:, 0], uv[:, 1])
+    fov = rad2mas(wavel / rho).max()
+    plate_scale = fov / pixels  # mas
+    fftfreq = np.fft.fftshift(np.fft.fftfreq(pixels, plate_scale))
 
-
-
+    im = plt.imshow(np.abs(fft), cmap="hot", extent=[fftfreq.min(), fftfreq.max()] * 2)
+    baselines = Baselines(mask_coordinates=GOLAY9)
+    ufreq = 1 / rad2mas(1 / baselines.UVC[:, 0] * wavel)
+    vfreq = 1 / rad2mas(1 / baselines.UVC[:, 1] * wavel)
+    plt.plot(ufreq, vfreq, "bo")
+    plt.colorbar(im)
+    plt.title("UV coverage")
+    plt.show()
