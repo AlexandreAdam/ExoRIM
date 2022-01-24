@@ -38,8 +38,8 @@ class Model(tf.keras.Model):
 
         resampling_kernel_size = resampling_kernel_size if resampling_kernel_size is not None else kernel_size
         bottleneck_kernel_size = bottleneck_kernel_size if bottleneck_kernel_size is not None else kernel_size
-        self.state_depth = bottleneck_filters if bottleneck_filters is not None else int(filter_scaling**(layers + 1) * filters)
-        self.downsampling_factor = layers**strides
+        self.state_depth = bottleneck_filters if bottleneck_filters is not None else int(filter_scaling**layers * filters)
+        self.downsampling_factor = strides**layers
         activation = get_activation(activation, alpha=alpha)
 
         self._num_layers = layers

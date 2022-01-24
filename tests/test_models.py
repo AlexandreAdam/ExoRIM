@@ -21,7 +21,11 @@ def test_modelv1():
 
 
 def test_modelv2():
-    model = Model()
+    model = Model(
+        filters=32,
+        filter_scaling=2,
+        layers=3
+    )
     phys = PhysicalModel(pixels=32)
     rim = RIM(model, phys, time_steps=3)
     image = tf.random.normal(shape=(1, 32, 32, 1))
@@ -39,4 +43,4 @@ def test_unet_model():
 
 
 if __name__ == '__main__':
-    test_baseline_model()
+    test_modelv2()

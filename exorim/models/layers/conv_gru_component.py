@@ -11,8 +11,7 @@ class ConvGRUBlock(tf.keras.Model):
             self,
             filters,
             kernel_size=5,
-            activation="leaky_relu",
-            **kwargs
+            activation="leaky_relu"
     ):
         gru_filters = filters//2
         super(ConvGRUBlock, self).__init__()
@@ -20,7 +19,7 @@ class ConvGRUBlock(tf.keras.Model):
             filters=filters,
             kernel_size=kernel_size,
             strides=1,
-            activation=get_activation(activation, **kwargs),
+            activation=get_activation(activation),
             padding='same')
         self.gru1 = ConvGRU(gru_filters, kernel_size=kernel_size)
         self.gru2 = ConvGRU(gru_filters, kernel_size=kernel_size)
