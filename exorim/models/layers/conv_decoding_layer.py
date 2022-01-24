@@ -32,11 +32,10 @@ class ConvDecodingLayer(tf.keras.layers.Layer):
         self.conv_layers = []
         for i in range(self.num_conv_layers):
             self.conv_layers.append(
-                tf.keras.layers.Conv2DTranspose(
+                tf.keras.layers.Conv2D(
                     filters=self.filters,
                     kernel_size=self.kernel_size,
                     activation=self.activation,
-                    padding="valid",
                     **common_params
                 )
             )
@@ -48,7 +47,6 @@ class ConvDecodingLayer(tf.keras.layers.Layer):
                 kernel_size=self.upsampling_kernel_size,
                 strides=self.strides,
                 activation=self.activation,
-                padding="same",
                 **common_params
             )
 

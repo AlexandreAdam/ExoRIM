@@ -1,14 +1,12 @@
 import tensorflow as tf
 from .layers import ConvDecodingLayer, ConvEncodingLayer, ConvGRUBlock
 from .utils import get_activation
-from math import floor
 
 
 class Model(tf.keras.Model):
     def __init__(
             self,
             name="RIMModel",
-            input_pixels=32, # to compute state size
             filters=32,
             filter_scaling=1,
             kernel_size=3,
@@ -31,7 +29,7 @@ class Model(tf.keras.Model):
         super(Model, self).__init__(name=name)
         self.trainable = trainable
 
-        common_params = {"kernel_initializer": initializer,
+        common_params = {"padding": "same", "kernel_initializer": initializer,
                          "data_format": "channels_last", "use_bias": use_bias,
                          "kernel_regularizer": tf.keras.regularizers.L2(l2=kernel_regularizer_amp)}
         if use_bias:
@@ -40,7 +38,7 @@ class Model(tf.keras.Model):
         resampling_kernel_size = resampling_kernel_size if resampling_kernel_size is not None else kernel_size
         bottleneck_kernel_size = bottleneck_kernel_size if bottleneck_kernel_size is not None else kernel_size
         self.state_depth = bottleneck_filters if bottleneck_filters is not None else int(filter_scaling**layers * filters)
-        _state_size = input_pixels
+        self.downsampling_factor = strides**layers
         activation = get_activation(activation, alpha=alpha)
 
         self._num_layers = layers
@@ -63,9 +61,6 @@ class Model(tf.keras.Model):
                     **common_params
                 )
             )
-            for j in range(block_conv_layers):
-                _state_size -= kernel_size - 1
-            _state_size = floor(_state_size/strides)
             self.decoding_layers.append(
                 ConvDecodingLayer(
                     kernel_size=kernel_size,
@@ -90,10 +85,8 @@ class Model(tf.keras.Model):
             filters=output_filters,
             kernel_size=(1, 1),
             activation="linear",
-            padding="same"
-
+            **common_params
         )
-        self.state_size = _state_size
 
     def __call__(self, xt, states, grad):
         return self.call(xt, states, grad)
@@ -110,4 +103,5 @@ class Model(tf.keras.Model):
         return xt_1, new_state
 
     def init_hidden_states(self, input_pixels, batch_size, constant=0.):
-        return constant * tf.ones(shape=(batch_size, self.state_size, self.state_size, self.state_depth), dtype=self._dtype)
+        state_size = input_pixels // self.downsampling_factor
+        return constant * tf.ones(shape=(batch_size, state_size, state_size, self.state_depth), dtype=self._dtype)

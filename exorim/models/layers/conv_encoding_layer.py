@@ -35,7 +35,6 @@ class ConvEncodingLayer(tf.keras.layers.Layer):
                     filters=self.filters,
                     kernel_size=self.kernel_size,
                     activation=self.activation,
-                    padding="valid",
                     **common_params
                 )
             )
@@ -44,7 +43,6 @@ class ConvEncodingLayer(tf.keras.layers.Layer):
             kernel_size=self.downsampling_kernel_size,
             strides=self.strides,
             activation=self.activation,
-            padding="same",
             **common_params
         )
 
