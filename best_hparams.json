@@ -1,1 +1,0 @@
-{"time_steps": 10, "state_depth": 256, "filters_downsampling": 32, "downsampling_layers": 2, "conv_layers": 1, "hidden_layers": 2, "filters_upsampling": 64, "kernel_regularizer_amp": 0.001, "bias_regularizer_amp": 0.001, "batch_norm": true, "activation": "elu", "beta_1": 0.72, "beta_2": 0.817}

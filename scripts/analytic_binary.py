@@ -53,7 +53,7 @@ def main():
     gam = gamma_binary(xx, yy, i1, i2)
     gam = general_gamma_binary(xx, yy, i1, i2)
     fig, ((axv, axr), (axi, axphi)) = plt.subplots(2, 2, figsize=(10, 6))
-    fig.suptitle(rf"I1={i1}, I2={i2}, $\beta$={sep} mas")
+    fig.suptitle(rf"$I_1$={i1}, $I_2$={i2}, $\beta$={sep} mas")
     imshow(2 * i1 * i2 / (i1**2 + i2**2) * np.abs(gam), axv)
     axv.set_title("Visbility")
     imshow(gam.real, axr)

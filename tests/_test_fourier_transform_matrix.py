@@ -9,9 +9,6 @@ from exorim.definitions import mas2rad, rad2mas
 from matplotlib.ticker import FuncFormatter
 import os
 
-results_dir = "../../results/experiment5"
-if not os.path.isdir(results_dir):
-    os.mkdir(results_dir)
 
 
 def main():

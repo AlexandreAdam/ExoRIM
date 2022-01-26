@@ -116,8 +116,8 @@ def main():
     ax1.set_xlabel(r"$\theta_x$ [mas]")
     ax1.set_title(r"sep=86 mas, PA=102 deg, c=5:1")
 
-    plt.savefig("martinache/image.png")
-    np.savetxt("martinache/image.txt", image)
+    # plt.savefig("martinache/image.png")
+    # np.savetxt("martinache/image.txt", image)
 
     plt.figure()
     plt.plot(np.sort(np.rad2deg(cp)), "k-", label="exorim", lw=1)
@@ -127,10 +127,10 @@ def main():
     plt.xlabel("Closure triangle")
     plt.ylabel("Closure phase (degrees)")
     plt.legend()
-    plt.savefig("martinache/comparison.png")
+    # plt.savefig("martinache/comparison.png")
 
-    np.savetxt("martinache/exorim_closure_phases.txt", cp, header=f"sep={sep} mas, PA={PA} deg, contrast={contrast}:1, pixels={pixels}, "
-                                                                  f"plate_scale={plate_scale:5f} mas")
+    # np.savetxt("martinache/exorim_closure_phases.txt", cp, header=f"sep={sep} mas, PA={PA} deg, contrast={contrast}:1, pixels={pixels}, "
+                                                                  # f"plate_scale={plate_scale:5f} mas")
     # ax2.
 
 
