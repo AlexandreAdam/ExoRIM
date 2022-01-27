@@ -1,19 +1,19 @@
-from exorim.operators import Baselines
+from exorim import Operators
 from pynfft.nfft import NFFT
-from exorim.operators import NDFTM, closure_phase_covariance, closure_phase_operator, closure_baselines_projectors
+from exorim.operators import NDFTM, closure_phase_covariance, closure_baseline_projectors
 from exorim.definitions import mas2rad
 import numpy as np
 import time
 
 
-def test_baselines():
+def test_operator():
     N = 11
     L = 100
     var = 10
     x = (L + np.random.normal(0, var, N)) * np.cos(2 * np.pi * np.arange(N) / N)
     y = (L + np.random.normal(0, var, N)) * np.sin(2 * np.pi * np.arange(N) / N)
     circle_mask = np.array([x, y]).T
-    B = Baselines(circle_mask)
+    B = Operators(circle_mask, wavelength=0.5e-6)
 
 
 def test_pynfft():
@@ -47,7 +47,6 @@ def test_pynfft():
     end = time.time() - start
     print(f"Took {end:.4f} second to compute NDFTM")
 
-    # TODO implement this in new physical model
     phase = np.exp(-1j * np.pi / wavel * mas2rad(plate_scale) * (uv[:, 0] + uv[:, 1]))
     start = time.time()
     plan = NFFT([pixels, pixels], uv.shape[0], n=[pixels, pixels])
@@ -62,17 +61,13 @@ def test_pynfft():
     assert np.allclose(np.sin(np.angle(vis) - np.angle(vis1)), np.zeros_like(vis), atol=1e-5)
 
 
-# def test_fourier_transform_matrix():
-#     N = 12
-#     mask = np.random.normal(0, 1, N)
-#     B = Baselines(mask)
-
 def test_closure_phase_covariance_operator():
     N = 4
     mask = np.random.normal(0, 2, (N, 2))
-    B = Baselines(mask)
+    wavelength = 0.5e-6
+    B = Operators(mask, wavelength)
     sigma = 1
-    CPO = closure_phase_operator(B)
+    CPO = B.CPO
     pc_cov = closure_phase_covariance(CPO, sigma)
     print(pc_cov)
     expected_result = np.array([
@@ -82,7 +77,6 @@ def test_closure_phase_covariance_operator():
     ])
     assert np.all(np.equal(pc_cov, expected_result))
     sigma = 2
-    CPO = closure_phase_operator(B)
     pc_cov = closure_phase_covariance(CPO, sigma)
     expected_result *= sigma**2
     print(pc_cov)
@@ -92,9 +86,9 @@ def test_closure_phase_covariance_operator():
 def test_closure_baseline_projectors():
     N = 5
     mask = np.random.normal(0, 2, (N, 2))
-    B = Baselines(mask)
-    CPO = closure_phase_operator(B)
-    V1, V2, V3 = closure_baselines_projectors(CPO)
+    B = Operators(mask, 0.5e-6)
+    CPO = B.CPO
+    V1, V2, V3 = closure_baseline_projectors(CPO)
     print(V1)
     print(V2)
     print(V3)

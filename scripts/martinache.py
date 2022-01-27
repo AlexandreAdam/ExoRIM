@@ -1,6 +1,6 @@
 import numpy as np
 from exorim.operators import Baselines, redundant_phase_closure_operator, NDFTM, closure_fourier_matrices, closure_baselines_projectors
-from exorim.log_likelihood import bispectrum
+from exorim.inference import bispectrum
 from exorim.definitions import rad2mas, mas2rad
 import matplotlib.pyplot as plt
 from xara.core import cvis_binary

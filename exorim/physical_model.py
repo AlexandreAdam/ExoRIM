@@ -1,6 +1,6 @@
-from .operators import NDFTM, closure_fourier_matrices, Baselines, closure_phase_operator, closure_phase_covariance_inverse
-from .definitions import rad2mas, DTYPE, MYCOMPLEX
-import exorim.log_likelihood as chisq
+from .operators import Operators
+from .definitions import rad2mas, DTYPE, MYCOMPLEX, cast_to_complex_flatten, LOG10
+import exorim.inference as chisq
 import numpy as np
 import tensorflow as tf
 
@@ -28,161 +28,82 @@ JWST_NIRISS_MASK = tf.constant(np.array([ #V2/m and V3/m coordinates
 
 
 class PhysicalModel:
-    def __init__(self,
-                 pixels,
-                 mask_coordinates=GOLAY9,
-                 loglikelihood="append_visibility_amplitude_closure_phase",
-                 analytic=False,
-                 temperature=1,
-                 wavelength=0.5e-6,
-                 SNR=100,
-                 vis_phase_std=0.05,
-                 logim=True,
-                 flux=None):  # regularization
-        assert loglikelihood in ["append_visibility_amplitude_closure_phase", "visibilities", "visibility_amplitude"]
-        self.temperature = tf.constant(temperature, dtype=DTYPE)
-        self._loglikelihood = loglikelihood
-        self._analytic = analytic
+    def __init__(
+            self,
+            pixels,
+            mask_coordinates=JWST_NIRISS_MASK,
+            wavelength=3.8e-6,
+            chi_squared="append_visibility_amplitude_closure_phase",
+            oversampling_factor=None,
+            logim=True
+    ):
+        assert chi_squared in ["append_visibility_amplitude_closure_phase", "visibility", "visibility_amplitude"]
+        self._chi_squared = chi_squared
         self.pixels = pixels
-        self.baselines = Baselines(mask_coordinates=mask_coordinates)
-        self.resolution = rad2mas(wavelength / np.max(np.sqrt(self.baselines.UVC[:, 0]**2 + self.baselines.UVC[:, 1]**2)))
-
-        self.plate_scale = self.compute_plate_scale(self.baselines, wavelength)
-
-        #TODO figure out how to use these
-        # self.pulse = triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 0] / wavelength, mas2rad(self.resolution))
-        # self.pulse *= triangle_pulse_f(2 * np.pi * self.baselines.UVC[:, 1] / wavelength, mas2rad(self.resolution))
-
-        self.CPO = closure_phase_operator(self.baselines)
-
-        self.A = NDFTM(self.baselines.UVC, wavelength, pixels, self.plate_scale)
-        self.N = mask_coordinates.shape[0]  # number of apertures
-        self.p = self.A.shape[0]  # number of visibility samples
-        self.q = self.CPO.shape[0]  # number of closure phases
-        self.SNR = SNR
-        if flux is None: #TODO remove this hack
-            self.sigma = tf.constant(0.1 * self.pixels**2 / self.SNR, DTYPE)  # assumes flux is an electron count normalized at 1 count per pixel
-        else:
-            self.sigma = tf.constant(0.1 * flux / self.SNR, DTYPE)
-        self.phase_std = tf.constant(vis_phase_std, DTYPE)
-        self.SIGMA = tf.constant(closure_phase_covariance_inverse(self.CPO, 1/SNR), DTYPE)
-        A1, A2, A3 = closure_fourier_matrices(self.A, self.CPO)
-        self.CPO = tf.constant(self.CPO, DTYPE)
-        self.A = tf.constant(self.A, MYCOMPLEX)
+        self.operators = Operators(mask_coordinates=mask_coordinates, wavelength=wavelength)
+        self.CPO = tf.constant(self.operators.CPO, DTYPE)
+        self.plate_scale = self.compute_plate_scale(wavelength, oversampling_factor)
+        A, A1, A2, A3 = self.operators.build_operators(pixels, self.plate_scale)
+        V1, V2, V3 = self.operators.closure_baseline_projectors()
+        self.A = tf.constant(A, MYCOMPLEX)
         self.A1 = tf.constant(A1, MYCOMPLEX)
         self.A2 = tf.constant(A2, MYCOMPLEX)
         self.A3 = tf.constant(A3, MYCOMPLEX)
-        self.flatten = tf.keras.layers.Flatten(data_format="channels_last")
-        self.logim = logim # whether we reconstruct in tje log space or brightness space
+        self.V1 = tf.constant(V1, MYCOMPLEX)
+        self.V2 = tf.constant(V2, MYCOMPLEX)
+        self.V3 = tf.constant(V3, MYCOMPLEX)
+        self.logim = logim
+        self.nbuv = self.operators.nbuv
 
-    def grad_log_likelihood(self, image, X):
-        """
-        Compute the chi squared gradient relative to image pixels given interferometric data X
-        """
-        if self._loglikelihood == "append_visibility_amplitude_closure_phase":
-            amp = X[..., :self.p]
-            cp = X[..., self.p:]
-            if self._analytic:
-                if self.logim:
-                    image = 10**image
-                    grad = chisq.chisq_gradient_amplitude(image, amp, self)
-                    grad += chisq.chisq_gradient_closure_phasor(image, cp, self)
-                    grad *= image
-                    return grad / self.temperature
-                else:
-                    grad = chisq.chisq_gradient_amplitude(image, amp, self)
-                    grad += chisq.chisq_gradient_closure_phasor(image, cp, self)
-                    return grad / self.temperature
-            # With autograd
-            else:
-                with tf.GradientTape(watch_accessed_variables=False) as tape:
-                    tape.watch(image)
-                    if self.logim:
-                        _image = 10**image
-                    else:
-                        _image = image
-                    ll = chisq.chi_squared_amplitude(_image, amp, self)
-                    ll += chisq.chi_squared_closure_phasor(_image, cp, self)
-                    # ll += self.lam * entropy(_image, self.prior)
-                    ll /= self.temperature
-                grad = tape.gradient(ll, image)
-                return grad
-        else:  # case where we dont append two terms, so visibilities and amplitude alone go here
-            if self._analytic:
-                if self.logim:
-                    image = 10**image
-                    return image * chisq.chisq_gradients[self._loglikelihood](image, X, self) / self.temperature
-                else:
-                    return chisq.chisq_gradients[self._loglikelihood](image, X, self) / self.temperature
-            else:
-                with tf.GradientTape(watch_accessed_variables=False) as tape:
-                    tape.watch(image)
-                    if self.logim:
-                        _image = 10**image
-                    else:
-                        _image = image
-                    ll = chisq.chi_squared[self._loglikelihood](_image, X, self)
-                    ll /= self.temperature
-                grad = tape.gradient(ll, image)
-                return grad
+        if self.logim:
+            self.image_link = lambda image: 10**image
+            self.gradient_link = lambda image, grad: image * grad * LOG10
+        else:
+            self.image_link = lambda image: image
+            self.gradient_link = lambda image, grad: grad
+
+    def grad_log_likelihood(self, image, X, sigma):
+        image = self.image_link(image)
+        grad = chisq.chisq_gradients[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
+        return self.gradient_link(image, grad)
 
     def forward(self, image):
-        """
-
-        :param image: Tensor of shape (Batch size, pixel, pixel, channels) where channels = 1 for now
-        :param flux: Flux vector of size (Batch size)
-        :return: A concatenation of complex visibilities and bispectra (dtype: tf.complex128)
-        """
-        V = self.fourier_transform(image)
-        X = chisq.chisq_x_transformation[self._loglikelihood](V, self)
+        V = tf.einsum("ij, ...j->...i", self.A, cast_to_complex_flatten(image))
+        X = chisq.v_transformation[self._chi_squared](V, self)
         return X
 
-    def noisy_forward(self, image):
+    def noisy_forward(self, image, amplitude_noise_std, phase_noise_std):
         batch = image.shape[0]
-        V = self.fourier_transform(image)
-        gain = self._gain(batch)
+        V = tf.einsum("ij, ...j->...i", self.A, cast_to_complex_flatten(image))
+        gain = self.gain(batch, amplitude_noise_std, phase_noise_std) # TODO find principled way to add noise and infer closure phase noise from it
         noisy_V = gain * V
-        X = chisq.chisq_x_transformation[self._loglikelihood](noisy_V, self)
+        X = chisq.v_transformation[self._chi_squared](noisy_V, self)
         return X
 
-    def chi_squared(self, image, X):
-        if self.logim:
-            image = 10**image
-        if self._loglikelihood == "append_visibility_amplitude_closure_phase":
-            amp = X[..., :self.p]
-            cp  = X[..., self.p:]
-            ll = chisq.chi_squared_amplitude(image, amp, self)
-            ll += chisq.chisq_gradient_closure_phasor(image, cp, self)
-            ll /= self.temperature
-        else:
-            ll = chisq.chi_squared[self._loglikelihood](image, X, self)
-            ll /= self.temperature
-        return ll
-
-    def fourier_transform(self, image):
-        im = tf.cast(image, MYCOMPLEX)
-        flat = self.flatten(im)
-        return tf.einsum("ij, ...j->...i", self.A, flat) # tensordot broadcasted on batch_size, divide by flux
+    def chi_squared(self, image, X, sigma):
+        return chisq.chi_squared[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
 
     def bispectrum(self, image):
-        im = tf.cast(image, MYCOMPLEX)
-        flat = self.flatten(im)
+        flat = cast_to_complex_flatten(image)
         V1 = tf.einsum("ij, ...j -> ...i", self.A1, flat)
         V2 = tf.einsum("ij, ...j -> ...i", self.A2, flat)
         V3 = tf.einsum("ij, ...j -> ...i", self.A3, flat)
-        return V1 * tf.math.conj(V2) * V3  # hack that works with baseline class! Be careful using other methods
+        return V1 * tf.math.conj(V2) * V3
 
-    def _gain(self, batch):
-        amp = np.random.normal(1, 1/self.SNR, size=[batch, self.p])
-        phase = np.exp(1j * np.random.normal(0, self.phase_std, size=[batch, self.p]))  # baseline intrinsic phase error
+    def visibility(self, image):
+        return tf.einsum("ij, ...j -> ...i", self.A, cast_to_complex_flatten(image))
+
+    def gain(self, batch, amplitude_noise_std, phase_noise_std):
+        amp = np.random.normal(1, amplitude_noise_std, size=[batch, self.nbuv])
+        phase = np.exp(1j * np.random.normal(0, phase_noise_std, size=[batch, self.nbuv]))
         return tf.constant(amp * phase, dtype=MYCOMPLEX)
 
-    def compute_plate_scale(self, B: Baselines, wavel) -> float:
-        # by default, use FOV/pixels and hope this satisfy Nyquist sampling criterion
-        rho = np.sqrt(B.UVC[:, 0]**2 + B.UVC[:, 1]**2) / wavel  # frequency in 1/RAD
+    def compute_plate_scale(self, wavel, oversampling_factor=None) -> float:
+        """ Compute the angular size of a pixel """
+        rho = np.sqrt(self.operators.UVC[:, 0]**2 + self.operators.UVC[:, 1]**2) / wavel  # frequency in 1/RAD
         fov = rad2mas(1/rho).max()
-        B = (1/rad2mas(1/rho)).max() # largest frequency in the signal in mas^{-1}
-        plate_scale = fov / self.pixels
-        if 1/plate_scale <= 2 * B:
-            print("Nyquist sampling criterion is not satisfied")
+        resolution = (rad2mas(1/2/rho)).min()  # Michelson criterion = lambda / 2b radians
+        if oversampling_factor is None:
+            oversampling_factor = self.pixels * resolution / fov
+        plate_scale = resolution / oversampling_factor
         return plate_scale

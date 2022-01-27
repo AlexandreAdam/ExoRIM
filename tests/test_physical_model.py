@@ -1,6 +1,6 @@
-from exorim.physical_model import PhysicalModel, GOLAY9, JWST_NIRISS_MASK
+from exorim.physical_model import GOLAY9, JWST_NIRISS_MASK
 from exorim.simulated_data import CenteredBinariesDataset
-from exorim.operators import Baselines
+from exorim import PhysicalModel, Operators
 from exorim.definitions import rad2mas
 import tensorflow as tf
 import numpy as np
@@ -8,16 +8,15 @@ import numpy as np
 
 def test_nyquist_sampling_criterion():
     pixels = 32
-    wavel = 0.5e-6
+    wavel = 3.8e-6
     mask_coordinates = tf.random.normal((12, 2))
-    phys = PhysicalModel(pixels, mask_coordinates)
+    phys = PhysicalModel(pixels, mask_coordinates, wavel, oversampling_factor=2)
     # get frequency sampled in Fourier space
-    B = Baselines(mask_coordinates)
+    B = Operators(mask_coordinates, wavel)
     uv = B.UVC/wavel
     rho = np.hypot(uv[:, 0], uv[:, 1])
     freq_sampled = 1/rad2mas(1/rho)
     sampling_frequency = 1/phys.plate_scale # 1/mas
-
 
     print(freq_sampled.max())
     print(sampling_frequency)
@@ -25,7 +24,7 @@ def test_nyquist_sampling_criterion():
 
     phys = PhysicalModel(pixels, GOLAY9) # GOLAY9 mask
     # get frequency sampled in Fourier space
-    B = Baselines(GOLAY9)
+    B = Operators(GOLAY9, wavel)
     uv = B.UVC/wavel
     rho = np.hypot(uv[:, 0], uv[:, 1])
     freq_sampled = 1/rad2mas(1/rho)
@@ -41,9 +40,9 @@ def test_fov():
     pixels = 32
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
-    phys = PhysicalModel(pixels, mask_coordinates)
+    phys = PhysicalModel(pixels, mask_coordinates, oversampling_factor=2)
     # get frequency sampled in Fourier space
-    B = Baselines(mask_coordinates)
+    B = Operators(mask_coordinates, wavel)
     uv = B.UVC/wavel
     rho = np.hypot(uv[:, 0], uv[:, 1])
     fov = rad2mas(1/rho.min())
@@ -51,12 +50,11 @@ def test_fov():
     assert np.round(fov, 5) <= np.round(reconstruction_fov, 5) # reconstruction should at least encapsulate largest scale
 
 
-
 def test_grad_likelihood():
     pixels = 32
     wavel = 0.5e-6
     mask_coordinates = tf.random.normal((12, 2))
-    phys = PhysicalModel(pixels, mask_coordinates)
+    phys = PhysicalModel(pixels, mask_coordinates, wavel, oversampling_factor=2)
 
     x = np.arange(pixels) - pixels//2 + 0.5
     xx, yy = np.meshgrid(x, x)
@@ -67,8 +65,9 @@ def test_grad_likelihood():
     image = tf.constant(image, dtype=tf.float32)
 
     X = phys.forward(image)
+    sigma = tf.ones_like(X) * 1e-2
 
-    grad = phys.grad_log_likelihood(image, X).numpy()
+    grad = phys.grad_log_likelihood(image, X, sigma).numpy()
     print(grad.max())
     print(grad.min())
     print(grad.mean())
@@ -98,8 +97,8 @@ def test_grad_likelihood2():
     image2 = tf.constant(image2, tf.float32)
 
     X = phys.forward(image)
-
-    grad = phys.grad_log_likelihood(image2, X).numpy()
+    sigma = tf.ones_like(X) * 1e-2
+    grad = phys.grad_log_likelihood(image2, X, sigma).numpy()
     print(grad.max())
     print(grad.min())
     print(grad.mean())
@@ -125,26 +124,23 @@ if __name__ == "__main__":
     # plt.colorbar()
     # plt.show()
 
-    phys = PhysicalModel(pixels=32, mask_coordinates=JWST_NIRISS_MASK, analytic=True, wavelength=3.8e-6)
+    pixels = 32
+    wavel = 3.8e-6
+    phys = PhysicalModel(pixels=pixels, mask_coordinates=JWST_NIRISS_MASK, wavelength=wavel, oversampling_factor=2)
     dataset = CenteredBinariesDataset(phys, total_items=1, batch_size=1, width=2)
-    X, image = dataset.generate_batch()
+    X, image = dataset.generate_batch(1)
     plt.imshow(image[0, ..., 0])
     plt.show()
 
     plt.figure()
     fft = np.abs(np.fft.fftshift(np.fft.fft2(image[0, ..., 0])))
-    pixels = 32
-    wavel = 8e-6
-    uv = phys.baselines.UVC
+    uv = phys.operators.UVC
     rho = np.hypot(uv[:, 0], uv[:, 1])
-    fov = rad2mas(wavel / rho).max()
-    plate_scale = fov / pixels  # mas
-    fftfreq = np.fft.fftshift(np.fft.fftfreq(pixels, plate_scale))
+    fftfreq = np.fft.fftshift(np.fft.fftfreq(pixels, phys.plate_scale))
 
     im = plt.imshow(np.abs(fft), cmap="hot", extent=[fftfreq.min(), fftfreq.max()] * 2)
-    baselines = Baselines(mask_coordinates=GOLAY9)
-    ufreq = 1 / rad2mas(1 / baselines.UVC[:, 0] * wavel)
-    vfreq = 1 / rad2mas(1 / baselines.UVC[:, 1] * wavel)
+    ufreq = 1 / rad2mas(1 / uv[:, 0] * wavel)
+    vfreq = 1 / rad2mas(1 / uv[:, 1] * wavel)
     plt.plot(ufreq, vfreq, "bo")
     plt.colorbar(im)
     plt.title("UV coverage")

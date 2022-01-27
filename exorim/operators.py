@@ -1,26 +1,30 @@
-from .definitions import mas2rad, pixel_grid
+from exorim.definitions import mas2rad, pixel_grid
 import numpy as np
 from scipy.linalg import inv as inverse, pinv as pseudo_inverse
-from scipy.sparse.linalg import svds as svd
 
 
-class Baselines:
+class Operators:
     """
-    Class that holds information about the Non uniformly spaced baselines.
-        nbap: Number of apertures in the mask
-        VAC: Virtual Aperture Coordinates
-        BLM: Baseline Model: shape = (nbap, nbap). It is the operator that transform aperture phase vector into
-            visibilities phases.
-        UVC: uv coordinates (in meter) - used to compute NDFTM
+    parameters:
+    ----------
+    - mask_coordinates : coordinates (in meters) of each apertures of the mask.
+    - precision : number of digits to consider when comparing uv coordinates of Fourier components.
+    - redundant: Use all triangles in the mask if True. Default is to use non-redundant triangles.
+
+    properties:
+    ----------
+    - nbap: number of apertures in the mask
+    - VAC: Virtual Aperture Coordinates (or just mask coordinates)
+    - BLM: Baseline Model. Operator that transform the aperture phase vector into visibility phases.
+    - UVC: uv coordinates (in meter) -> used to compute NDFTM
 
     """
-    def __init__(self, mask_coordinates, precision=5):
-        self.nbap = mask_coordinates.shape[0]
+    def __init__(self, mask_coordinates, wavelength, redundant=False):
+        self.nbap = mask_coordinates.shape[0] 
         self.VAC = mask_coordinates
-        self.precision = precision  # precision when rounding
-        self.build_uv_and_model()
+        self.wavelength = wavelength
 
-    def build_uv_and_model(self, verbose=0):
+        # Build BLM matrix (mapping from aperture to baselines)
         N = self.nbap
         mask = self.VAC
         p = N * (N-1) // 2
@@ -34,53 +38,94 @@ class Baselines:
                 BLM[k, i] += 1.0
                 BLM[k, j] -= 1.0
                 k += 1
-        # Find distinct u and v up to precision
-        _, ui = np.unique(np.round(UVC[:, 0], self.precision), return_index=True)
-        _, vi = np.unique(np.round(UVC[:, 1], self.precision), return_index=True)
-        # We keep only the rows of the operators corresponding to the union of u_index and v_index
-        # distinct_baselines = np.sort(np.array(list(set(ui).union(set(vi)))))  # sort to keep row order
-        distinct_baselines = np.ones_like(BLM[:, 0], dtype=bool)
-        self.BLM = BLM[distinct_baselines]
-        self.UVC = UVC[distinct_baselines]
-        self.nbuv = distinct_baselines.size
-        if verbose > 0:
-            print(f"{distinct_baselines.size} distinct baselines found. Mask has {p - distinct_baselines.size} redundant baselines")
+        self.BLM = BLM
+        self.UVC = UVC
+        self.nbuv = p
+
+        # Build CPO matrix (mapping from baselines to closure triangles)
+        self.CPO = self.closure_phase_operator(redundant=redundant)
+
+    def build_operators(self, pixels, plate_scale, return_bispectrum_operator=True):
+        """ Returns direct Fourier matrix operator for visibilities and bispectrum"""
+        A = self.ndftm_matrix(pixels, plate_scale)
+        if return_bispectrum_operator:
+            A1, A2, A3 = self.closure_fourier_matrices(A)
+            return A, A1, A2, A3
+        else:
+            return A
+
+    def ndftm_matrix(self, pixels, plate_scale, inv=False, dprec=True):
+        return NDFTM(self.UVC, self.wavelength, pixels=pixels, plate_scale=plate_scale, inv=inv, dprec=dprec)
+
+    def closure_phase_operator(self, redundant=False):
+        """
+        Compute the Closure Phase Operator that act on the visibility phase vector to compute
+         bispectra phases (or closure phases).
+        The redundancy is removed by fixing an aperture in the aperture mask when drawing all possible triangles.
+        If redundant=True, then we iterate over all possible triangle
+        """
+        N = self.nbap
+        q = (N - 1) * (N - 2) // 2 if not redundant else N * (N - 1) * (N - 2) // 6
+        p = self.nbuv
+        base_apertures = [0] if not redundant else list(range(N))
+        CPO = np.zeros((q, p))
+        CPO_index = 0
+        for i in base_apertures:
+            for j in range(i+1, N):
+                k = np.arange(j + 1, N)
+                k = np.delete(k, np.where(k == i))
+                if k.size == 0:
+                    break
+                # find baseline indices (b1,b2,b3) from triangle vertices (i,j,k)
+                b1 = np.nonzero((self.BLM[:, i] != 0) & (self.BLM[:, j] != 0))[0][0]
+                b1 = np.repeat(b1, k.size)
+                # b2k and b3k keep track of which k-vertice is associated with the baseline b2 and b3 respectively
+                b2, b2k = np.nonzero((self.BLM[:, k] != 0) & (self.BLM[:, j] != 0)[:, np.newaxis])
+                b3, b3k = np.nonzero((self.BLM[:, k] != 0) & (self.BLM[:, i] != 0)[:, np.newaxis])
+                diag = np.arange(CPO_index, CPO_index + k.size)
+                # signs are retrieved from Baseline Map in order to satisfy closure relation: (i - j) + (j - k) + (k - i)
+                CPO[diag, b1] += self.BLM[b1, i]
+                CPO[diag, b2] += self.BLM[b2, j]
+                CPO[diag, b3] += self.BLM[b3, k[b3k]]
+                CPO_index += k.size
+        return CPO
+
+    def closure_baseline_projectors(self):
+        return closure_baseline_projectors(self.CPO)
+
+    def closure_fourier_matrices(self, A):
+        return closure_fourier_matrices(A, self.CPO)
 
 
-# modified from F. Martinache Xara project
 def NDFTM(coords, wavelength, pixels, plate_scale, inv=False, dprec=True):
-    ''' ------------------------------------------------------------------
-    Computes the (one-sided) Non uniform 2D Discrete Fourier Transform Matrix to transform flattened 2D image into complex
-    Fourier coefficient. It takes as input baseline coordinate vectors (in meters) and convert them to spatial
-    frequency using wavelength (in meters also).
+    '''
+    (modified from F. Martinache Xara project)
+
+    Computes the Non uniform 2D Discrete Fourier Transform Matrix to transform flattened 2D image into complex
+    Fourier coefficient.
 
     parameters:
     ----------
-    - uv : vector of baseline (u,v) coordinates where to compute the FT
+    - coords : vector of baseline (u,v) coordinates where to compute the FT (usually coords=Baselines.UVC)
     - wavelength: wavelength of light observed (in meters)
     - pixels: number of pixels of mage grid (on a side)
     - plate_scale: Plate scale of the camera in mas/pixel (that is 206265/(1000 * f[mm] * pixel_density[pixel/mm])
         or simply FOV [mas] / pixels where FOV stands for field of view and f is the focal length)
-        # Note that plate scale should be of the order of the diffraction limit for FT to give acceptable results
-    Option:
+
+    Options:
     ------
     - inv    : Boolean (default=False) : True -> computes inverse DFT matrix
     - dprec  : double precision (default=True)
     For an image of size pixels^2, the computation requires what can be a
-    fairly large (N_UV x pixels^2) auxilliary matrix. Consider using pyNFFT for Non uniform Fast Fourier Transform
-    (tensorflow, numpy, scipy FFT implementations will not do).
-    -----------------------------------
-    Example of use, for an image of size isz:
+    fairly large (N_UV x pixels^2) auxilliary matrix. Consider using pyNFFT (or equivalent)
+    for Non uniform Fast Fourier Transform.
+
+    Example:
+    --------
     >> B = exorim.operators.Baselines(mask_coordinates)
-    >> FF = NDFTM(B.UVC, wavelength, pixels, FOV / pixels)
-    >> FT = FF.dot(img.flatten())
-    This last command returns a 1D vector FT of the img.
-    ------------------------------------------------------------------ '''
-    # e.g.
-    # cwavel = 0.5e-6 # Wavelength [m]
-    # ISZ = 128# Array size (number of pixel on a side)
-    # pscale = 0.1 # plate scale [mas/pixel]
-    m2pix = mas2rad(plate_scale) * pixels / wavelength
+    >> A = NDFTM(B.UVC, wavelength, pixels, FOV / pixels)
+    '''
+    m2pix = mas2rad(plate_scale) * pixels / wavelength # meter to pixels
     i2pi = 1j * 2 * np.pi
     mydtype = np.complex64
     if dprec is True:
@@ -103,28 +148,32 @@ def NDFTM(coords, wavelength, pixels, plate_scale, inv=False, dprec=True):
     return WW
 
 
-def closure_baselines_projectors(CPO):
-    (q, p) = CPO.shape
+def closure_baseline_projectors(CPO):
+    """
+    Construct projectors from visibility space to the legs of the bispectrum triangles.
+    """
     bisp_i = np.where(CPO != 0)
 
     # selects the first non-zero entry (column wise -- baseline wise) for each closure triangle (row)
     V1_i = (bisp_i[0][0::3], bisp_i[1][0::3])
-    # second non-zero entry
     V2_i = (bisp_i[0][1::3], bisp_i[1][1::3])
     V3_i = (bisp_i[0][2::3], bisp_i[1][2::3])
 
     # Projector matrices
-    V1 = np.zeros(shape=(q, p))
+    V1 = np.zeros(shape=CPO.shape)
     V1[V1_i] += 1.0
-    V2 = np.zeros(shape=(q, p))
+    V2 = np.zeros(shape=CPO.shape)
     V2[V2_i] += 1.0
-    V3 = np.zeros(shape=(q, p))
+    V3 = np.zeros(shape=CPO.shape)
     V3[V3_i] += 1.0
     return V1, V2, V3
 
 
 def closure_fourier_matrices(A, CPO):
-    V1, V2, V3 = closure_baselines_projectors(CPO)
+    """
+    Project the NDFT matrix on each leg of the bispectrum triangles.
+    """
+    V1, V2, V3 = closure_baseline_projectors(CPO)
     A1 = V1.dot(A)
     A2 = V2.dot(A)
     A3 = V3.dot(A)
@@ -148,173 +197,3 @@ def closure_phase_covariance_inverse(CPO, sigma):
 def closure_phase_operator_pseudo_inverse(CPO):
     return pseudo_inverse(CPO)
 
-
-#TODO this bugs if baselines had to cut redundant
-def closure_phase_operator(B: Baselines, fixed_aperture=0, verbose=0):
-    """
-    The phase closure operator (CPO) can act on visibilities phase vector and map them to bispectra phases. Its shape
-    is (q, p):
-        q: Number of independent closure phases
-        p: Number of independent visibilities
-    It is computed by drawing all possible triangles in the mask array from a fixed aperture (where phase is taken as
-     0).
-    Statistically independent bispectrum: each B must contain 1 and only 1 baseline which is not
-        contained in other triangles.
-    """
-    # There is a bug for a redundant baseline --> test with different arrays
-    N = B.nbap # number of apertures in the mask
-    BLM = B.BLM
-    q = (N-1) * (N-2) // 2
-    if verbose > 0:
-        print(f"There are {q} independant closure phases")
-    p = B.nbuv  # number of independant visibilities phases for non-redundant mask
-    A = np.zeros((q, p))  # closure phase operator satisfying A*(V phases) = (Closure Phases)
-    A_index = 0  # index for A_temp
-    for j in range(N): # i, j, and k select a triangle of apertures
-        if fixed_aperture == j:
-            continue
-        # k index is vectorized
-        k = np.arange(j + 1, N)
-        k = np.delete(k, np.where(k == fixed_aperture))
-        if k.size == 0:
-            break
-        # find baseline indices b1, b2 and b3 from triangle i,j,k by searching for the row index where two index were paired in Baseline Map
-        b1 = np.nonzero((BLM[:, fixed_aperture] != 0) & (BLM[:, j] != 0))[0][0] # should be a single index
-        b1 = np.repeat(b1, k.size) # therefore put in an array to match shape of b2 and b3
-        # b2k and b3k keep track of which triangle the baseline belongs to (since indices are returned ordered by numpy nonzero)
-        # in other words, the baselines b2 are associated with pairs of apertures j and k[b2k]
-        b2, b2k = np.nonzero((BLM[:, k] != 0) & (BLM[:, j] != 0)[:, np.newaxis]) # index is broadcasted to shape of k
-        b3, b3k = np.nonzero((BLM[:, k] != 0) & (BLM[:, fixed_aperture] != 0)[:, np.newaxis])
-        diag = np.arange(A_index, A_index + k.size)
-        # signs are retrieved from Baseline Map in order to satisfy closure relation: (i - j) + (j - k) + (k - i)
-        A[diag, b1] += BLM[b1, fixed_aperture]
-        A[diag, b2] += BLM[b2, j]
-        A[diag, b3] += BLM[b3, k[b3k]]
-        # Sanity check that this works: closure relation should always return 0 for any three objects (1,2,3) when gain is 1
-        assert np.array_equal(
-            np.sign(A[diag, b1]) * (np.sign(BLM[b1, fixed_aperture]) * 1 + np.sign(BLM[b1, j]) * 2) \
-               + np.sign(A[diag, b2]) * (np.sign(BLM[b2, j]) * 2 + np.sign(BLM[b2, k[b2k]]) * 3)\
-               + np.sign(A[diag, b3]) * (np.sign(BLM[b3, fixed_aperture]) * 1 + np.sign(BLM[b3, k[b3k]]) * 3),
-            np.zeros(k.size)
-        ), f"Closure relation is wrong!"
-        A_index += k.size
-    return A
-
-
-def redundant_phase_closure_operator(B: Baselines, verbose=0):
-    """
-    The phase closure operator (CPO) can act on visibilities phase vector and map them to bispectra phases. Its shape
-    is (q, p):
-        q: Number of independent closure phases
-        p: Number of independent visibilities
-    It is computed by drawing all possible triangles in the mask array from a fixed aperture (where phase is taken as
-     0).
-    Statistically independent bispectrum: each B must contain 1 and only 1 baseline which is not
-        contained in other triangles.
-    """
-    # There is a bug for a redundant baseline --> test with different arrays
-    N = B.nbap # number of apertures in the mask
-    BLM = B.BLM
-    q = N * (N - 1) * (N - 2) // 6
-    q_indep = (N-1) * (N-2) // 2
-    if verbose > 0:
-        print(f"There are {q_indep} independant closure phases and {q} total closure phases")
-    p = B.nbuv  # number of independant visibilities phases for non-redundant mask
-    A = np.zeros((q, p))  # closure phase operator satisfying A*(V phases) = (Closure Phases)
-    A_index = 0  # index for A_temp
-    for i in range(N):
-        for j in range(i+1, N): # i, j, and k select a triangle of apertures
-            # k index is vectorized
-            k = np.arange(j + 1, N)
-            k = np.delete(k, np.where(k == i))
-            if k.size == 0:
-                break
-            # find baseline indices b1, b2 and b3 from triangle i,j,k by searching for the row index where two index were paired in Baseline Map
-            b1 = np.nonzero((BLM[:, i] != 0) & (BLM[:, j] != 0))[0][0] # should be a single index
-            b1 = np.repeat(b1, k.size) # therefore put in an array to match shape of b2 and b3
-            # b2k and b3k keep track of which triangle the baseline belongs to (since indices are returned ordered by numpy nonzero)
-            # in other words, the baselines b2 are associated with pairs of apertures j and k[b2k]
-            b2, b2k = np.nonzero((BLM[:, k] != 0) & (BLM[:, j] != 0)[:, np.newaxis]) # index is broadcasted to shape of k
-            b3, b3k = np.nonzero((BLM[:, k] != 0) & (BLM[:, i] != 0)[:, np.newaxis])
-            diag = np.arange(A_index, A_index + k.size)
-            # signs are retrieved from Baseline Map in order to satisfy closure relation: (i - j) + (j - k) + (k - i)
-            A[diag, b1] += BLM[b1, i]
-            A[diag, b2] += BLM[b2, j]
-            A[diag, b3] += BLM[b3, k[b3k]]
-            # Sanity check that this works: closure relation should always return 0 for any three objects (1,2,3) when gain is 1
-            assert np.array_equal(
-                np.sign(A[diag, b1]) * (np.sign(BLM[b1, i]) * 1 + np.sign(BLM[b1, j]) * 2) \
-                   + np.sign(A[diag, b2]) * (np.sign(BLM[b2, j]) * 2 + np.sign(BLM[b2, k[b2k]]) * 3)\
-                   + np.sign(A[diag, b3]) * (np.sign(BLM[b3, i]) * 1 + np.sign(BLM[b3, k[b3k]]) * 3),
-                np.zeros(k.size)
-            ), f"Closure relation is wrong!"
-            A_index += k.size
-    return A
-
-
-def orthogonal_phase_closure_operator(B: Baselines, verbose=0):
-    # kept as reference --> this method does not seem to work,
-    # phase closure for unresolved source with basic noise model is not respected,
-    """
-    Function to work with xara KPI object, computes the phase closure operator.
-    BLM: Baseline Mapping: matrix of size (q, N) with +1 and -1 mapping V to a pair of aperture (kpi.BLM from xara package)
-    """
-    N = B.nbap # number of apertures in the mask
-    BLM = B.BLM
-    triangles = N * (N-1) * (N-2) // 6 # binomial coefficient (N, 3)
-    p = (N-1)*(N-2)//2 # number of independant closure phases
-    q = B.nbuv # number of independant visibilities phases
-    A = np.zeros((triangles, q)) # closure phase operator satisfying A*(V phases) = (Closure Phases)
-    A_index = 0 # index for A_temp
-    if verbose > 0:
-        print(f"There are {triangles} triangles to look at")
-        print(f"There are {p} independant closure phases")
-    for i in range(N):
-        for j in range(i + 1, N): # i, j, and k select a triangle of apertures
-            # k index is vectorized
-            k = np.arange(j + 1, N)
-            if k.size == 0:
-                break
-            # find baseline indices b1, b2 and b3 from triangle i,j,k by searching for the row index where two index were paired in Baseline Map
-            b1 = np.nonzero((BLM[:, i] != 0) & (BLM[:, j] != 0))[0][0] # should be a single index
-            b1 = np.repeat(b1, k.size) # therefore put in an array to match shape of b2 and b3
-            # b2k and b3k keep track of which triangle the baseline belongs to (since indices are returned ordered by numpy nonzero)
-            # in other words, the baselines b2 are associated with pairs of apertures j and k[b2k]
-            b2, b2k = np.nonzero((BLM[:, k] != 0) & (BLM[:, j] != 0)[:, np.newaxis]) # index is broadcasted to shape of k
-            b3, b3k = np.nonzero((BLM[:, k] != 0) & (BLM[:, i] != 0)[:, np.newaxis])
-            diag = np.arange(A_index, A_index + k.size)
-            # signs are retrieved from Baseline Map in order to satisfy closure relation: (i - j) + (j - k) + (k - i)
-            A[diag, b1] += BLM[b1, i]
-            A[diag, b2] += BLM[b2, j]
-            A[diag, b3] += BLM[b3, k[b3k]]
-            # Sanity check that this works: closure relation should always return 0 for any three objects (1,2,3)
-            assert np.array_equal(
-                A[diag, b1] * (BLM[b1, i] * 1 + BLM[b1, j] * 2) \
-                   + A[diag, b2] * (BLM[b2, j] * 2 + BLM[b2, k[b2k]] * 3)\
-                   + A[diag, b3] * (BLM[b3, i] * 1 + BLM[b3, k[b3k]] * 3),
-                np.zeros(k.size)
-            ), f"Closure relation is wrong!"
-            A_index += k.size
-    if verbose > 0:
-        print('Doing sparse svd')
-    rank = np.linalg.matrix_rank(A.astype('double'), tol=1e-6)
-    if verbose > 0:
-        print("Closure phase operator matrix rank:", rank)
-        print(f"Discards the {rank - p} smallest singular values")
-    u, s, vt = svd(A.astype('double').T, k=p)
-    if verbose > 0:
-        print(f"Closure phase projection operator U shape {u.T.shape}")
-    return u.T
-
-
-# Debugging
-if __name__ == "__main__":
-    N = 21
-    circle_mask = np.zeros((N, 2))
-    random_mask = 10 * np.random.normal(size=(N, 2))
-    for i in range(N):
-        circle_mask[i, 0] = (100 + 10 * np.random.normal()) * np.cos(2 * np.pi * i / 21)
-        circle_mask[i, 1] = (100 + 10 * np.random.normal()) * np.sin(2 * np.pi * i / 21)
-    B = Baselines(circle_mask)
-    closure_phase_operator(B, 0)
-    orthogonal_phase_closure_operator(B)

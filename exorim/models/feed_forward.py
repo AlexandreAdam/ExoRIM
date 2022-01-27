@@ -84,5 +84,4 @@ class FeedForwardModel(tf.keras.models.Model):
                 summary_histograms(layer, X)
         X = self.batch_norm[2](X)
         X = self.last_layer(X)
-        X = tf.keras.activations.softmax(X, axis=[1, 2])
         return X
