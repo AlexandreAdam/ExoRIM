@@ -50,6 +50,9 @@ class ConvDecodingLayer(tf.keras.layers.Layer):
                 **common_params
             )
 
+    def __call__(self, x):
+        return self.call(x)
+
     def call(self, x):
         x = self.upsampling_layer(x)
         for layer in self.conv_layers:

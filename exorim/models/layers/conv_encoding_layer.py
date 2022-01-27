@@ -46,6 +46,9 @@ class ConvEncodingLayer(tf.keras.layers.Layer):
             **common_params
         )
 
+    def __call__(self, x):
+        return self.call(x)
+
     def call(self, x):
         for layer in self.conv_layers:
             x = layer(x)

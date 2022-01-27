@@ -30,6 +30,9 @@ class ConvGRU(tf.keras.layers.Layer):
             kernel_initializer=tf.keras.initializers.GlorotUniform()
         )
 
+    def __call__(self, features, ht):
+        return self.call(features, ht)
+
     def call(self, features, ht):
         """
         Compute the new state tensor h_{t+1}.

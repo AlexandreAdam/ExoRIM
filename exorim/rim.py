@@ -27,8 +27,8 @@ class RIM:
         self.log_floor = log_floor
 
         if self.logim:
-            self.link_function = tf.keras.layers.Lambda(lambda x: tf.math.log(x + self.log_floor) / LOG10)
-            self.inverse_link_function = tf.keras.layers.Lambda(lambda x: 10**x)
+            self.inverse_link_function = tf.keras.layers.Lambda(lambda x: tf.math.log(x + self.log_floor) / LOG10)
+            self.link_function = tf.keras.layers.Lambda(lambda x: 10**x)
         else:
             self.link_function = tf.identity
             self.inverse_link_function = tf.identity

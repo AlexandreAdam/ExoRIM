@@ -122,6 +122,43 @@ def centroid(image, threshold=0, binarize=False):
     return (x0, y0)
 
 
+def super_gaussian(pixels, ps, sep, PA, w):
+    ''' Returns an 2D super-Gaussian function
+    ------------------------------------------
+    Parameters:
+    - (xs, ys) : array size
+    - (x0, y0) : center of the Super-Gaussian
+    - w        : width of the Super-Gaussian
+    ------------------------------------------ '''
+
+    coord = (np.arange(pixels) - pixels//2 + 1/2) * ps
+    xx, yy = np.meshgrid(coord, coord)
+
+    x0 = sep * np.cos(np.deg2rad(PA))
+    y0 = sep * np.sin(np.deg2rad(PA))
+
+    dist = np.sqrt((xx - x0)**2 + (yy - y0)**2)
+    gg = np.exp(-(dist/w)**4)
+    return gg
+
+
+def general_gamma_binary(uv, wavel, sep, PA, contrast):
+    """
+    Complex visibility for 2 delta function
+    """
+    x, y  = uv[:, 0], uv[:, 1]
+    k = 2 * np.pi / wavel
+    beta = mas2rad(sep)
+    th = np.deg2rad(PA)
+    i2 = 1
+    i1 = 1 / contrast
+    phi1 = k * x * beta * np.cos(th)/2
+    phi2 = k * y * beta * np.sin(th)/2
+    out = i1 * np.exp(-1j * (phi1 + phi2))
+    out += i2 * np.exp(1j * (phi1 + phi2))
+    return out / (i1 + i2)
+
+
 def triangle_pulse_f(omega, pdim):
     out = np.ones_like(omega)
     mask = omega != 0

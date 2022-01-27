@@ -17,3 +17,5 @@ wandb/*
 logs/*
 */wandb/*
 *.fits
+*.png
+*.txt

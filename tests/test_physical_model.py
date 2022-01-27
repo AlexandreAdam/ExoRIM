@@ -1,9 +1,49 @@
 from exorim.physical_model import GOLAY9, JWST_NIRISS_MASK
 from exorim.simulated_data import CenteredBinariesDataset
+from exorim.definitions import general_gamma_binary, super_gaussian
 from exorim import PhysicalModel, Operators
 from exorim.definitions import rad2mas
 import tensorflow as tf
 import numpy as np
+
+
+def test_binary():
+    pixels = 248
+    sep = 86  # mas
+    PA = 102  # degrees
+    contrast = 5
+    wavel = 1.7e-6  # hband, see Keck, Palomar
+
+    phys = PhysicalModel(pixels, GOLAY9, wavel)
+    B = phys.operators
+    V1, V2, V3 = phys.V1.numpy(), phys.V2.numpy(), phys.V3.numpy()
+
+    plate_scale = phys.plate_scale
+    image = np.zeros((pixels, pixels))
+    image += super_gaussian(pixels, plate_scale, sep/2, PA, 5) / contrast
+    image += super_gaussian(pixels, plate_scale, -sep/2, PA, 5)
+
+    # Compute the bispectrum and closure phase using our Physical Model
+    phase = np.angle(phys.visibility(image[None, ..., None]))[0]
+    bis = phys.bispectrum(image[None, ..., None])[0]
+    cp1 = np.angle(bis)
+
+    # Mathematical model for 2 delta functions
+    gamma_model = general_gamma_binary(B.UVC, wavel, sep, PA, contrast)
+    phase_model = np.angle(gamma_model)
+    g1 = V1 @ gamma_model
+    g2 = V2 @ gamma_model
+    g3 = V3 @ gamma_model
+    bis_model = g1 * g2.conj() * g3
+    cp_model = np.angle(bis_model)
+
+    # print(phase)
+    # print(phase_model)
+    assert np.allclose(phase, phase_model, rtol=1e-5)
+    # print(cp1)
+    # print(cp_model)
+    assert np.allclose(cp1, cp_model, rtol=1e-4)
+
 
 
 def test_nyquist_sampling_criterion():

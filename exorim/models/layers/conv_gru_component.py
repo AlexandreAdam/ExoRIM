@@ -24,6 +24,9 @@ class ConvGRUBlock(tf.keras.Model):
         self.gru1 = ConvGRU(gru_filters, kernel_size=kernel_size)
         self.gru2 = ConvGRU(gru_filters, kernel_size=kernel_size)
 
+    def __call__(self, inputs, state):
+        return self.call(inputs, state)
+
     def call(self, inputs, state):
         ht_11, ht_12 = tf.split(state, 2, axis=3)
         gru_1_out  = self.gru1(inputs, ht_11)
