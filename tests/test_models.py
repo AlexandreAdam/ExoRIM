@@ -8,7 +8,8 @@ def test_baseline_model():
     rim = RIM(model, phys, time_steps=3)
     image = tf.random.normal(shape=(1, 32, 32, 1))
     X = phys.forward(image)
-    rim(X)
+    sigma = tf.ones_like(X) * 1e-2
+    rim(X, sigma)
 
 
 def test_modelv1():
@@ -17,7 +18,8 @@ def test_modelv1():
     rim = RIM(model, phys, time_steps=3)
     image = tf.random.normal(shape=(1, 32, 32, 1))
     X = phys.forward(image)
-    rim(X)
+    sigma = tf.ones_like(X) * 1e-2
+    rim(X, sigma)
 
 
 def test_modelv2():
@@ -30,7 +32,8 @@ def test_modelv2():
     rim = RIM(model, phys, time_steps=3)
     image = tf.random.normal(shape=(1, 32, 32, 1))
     X = phys.forward(image)
-    rim(X)
+    sigma = tf.ones_like(X) * 1e-2
+    rim(X, sigma)
 
 
 def test_unet_model():
@@ -39,7 +42,8 @@ def test_unet_model():
     rim = RIM(model, phys, time_steps=3)
     image = tf.random.normal(shape=(1, 32, 32, 1))
     X = phys.forward(image)
-    rim(X)
+    sigma = tf.ones_like(X) * 1e-2
+    rim(X, sigma)
 
 
 if __name__ == '__main__':
