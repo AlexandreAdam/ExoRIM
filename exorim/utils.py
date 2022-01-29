@@ -3,7 +3,7 @@ import tensorflow as tf
 import collections
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from matplotlib.colors import CenteredNorm
+# from matplotlib.colors import CenteredNorm
 import io
 
 try:
