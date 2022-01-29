@@ -37,8 +37,8 @@ def choose_hparams():
                 "filters": choice([16, 32, 64, 128]),
                 "conv_layers": choice([1, 2, 3]),
                 "layers": choice([1, 2, 3]),
-                "activation": choice(["leaky_relu", "relu", "gelu", "elu", "bipolar_relu"]),
-                "initial_learning_rate": choice([1e-2, 1e-3, 1e-4]),
+                "activation": choice(["leaky_relu", "tanh"]),
+                "initial_learning_rate": choice([1e-2, 5e-3, 1e-3, 5e-4, 1e-4]),
             }
 
 
@@ -61,9 +61,22 @@ def main(args):
 
 
     phys = PhysicalModel(
+        pixels=args.pixels,
+        mask_coordinates=JWST_NIRISS_MASK,
+        wavelength=args.wavelength,
+        logim=True,
+        oversampling_factor=args.oversampling_factor,
+        # chi_squared="visibility" # comment to get visibility amplitude + closure phase problem
     )
 
     model = Modelv2(
+        filters=64,
+        filter_scaling=2,
+        kernel_size=3,
+        layers=2,
+        block_conv_layers=3,
+        strides=2,
+        activation="tanh"
     )
     rim = RIM(
     )
