@@ -5,8 +5,8 @@ from .physical_model import PhysicalModel
 import math
 
 
-def default_sigma_distribution(batch_size):
-    return np.random.uniform(low=1e-4, high=1e-2, size=batch_size)
+def default_sigma_distribution(batch_size, nbuv):
+    return np.ones(shape=nbuv)[None, :] * np.random.uniform(low=1e-4, high=1e-2, size=batch_size)[:, None]
 
 
 class CenteredBinariesDataset(tf.keras.utils.Sequence):
@@ -58,7 +58,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
 
         images = images / images.max(axis=(1, 2), keepdims=True)
         images = tf.constant(images, dtype=DTYPE)
-        sigma = self.sigma_distribution(self.batch_size)
+        sigma = self.sigma_distribution(self.batch_size, self.phys.nbuv)
         X, sigma = self.phys.noisy_forward(images, sigma)
         return X, images, sigma
 
