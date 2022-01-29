@@ -1,2 +1,2 @@
 # ExoRIM
-RIM to reconstruct images in optical interferometry from just visibilities and closure phases
+Recurrent Inference Machine to reconstruct images from visibility amplitudes and closure phases in optical interferometry.
