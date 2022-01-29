@@ -58,7 +58,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
 
         images = images / images.max(axis=(1, 2), keepdims=True)
         images = tf.constant(images, dtype=DTYPE)
-        sigma = self.amplitude_sigma_distribution(self.batch_size)
+        sigma = self.sigma_distribution(self.batch_size)
         X, sigma = self.phys.noisy_forward(images, sigma)
         return X, images, sigma
 
