@@ -15,8 +15,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
             phys: PhysicalModel,
             total_items=1000,
             batch_size=10,
-            amplitude_sigma_distribution=default_sigma_distribution,
-            phase_sigma_distribution=default_sigma_distribution,
+            sigma_distribution=default_sigma_distribution,
             width=2,  # sigma parameter of super gaussian
             min_separation=2,
             max_separation=None,
@@ -31,8 +30,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
         self.phys = phys
         self.min_separation = min_separation
 
-        self.amplitude_sigma_distribution = amplitude_sigma_distribution
-        self.phase_sigma_distribution = phase_sigma_distribution
+        self.sigma_distribution = sigma_distribution
 
         # make coordinate system
         x = np.arange(phys.pixels) - phys.pixels//2 + 0.5 * (phys.pixels%2)
@@ -60,10 +58,9 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
 
         images = images / images.max(axis=(1, 2), keepdims=True)
         images = tf.constant(images, dtype=DTYPE)
-        amp_noise = self.amplitude_sigma_distribution(self.batch_size)
-        phase_noise = self.phase_sigma_distribution(self.batch_size)
-        X = self.phys.noisy_forward(images, amp_noise, phase_noise)
-        return X, images
+        sigma = self.amplitude_sigma_distribution(self.batch_size)
+        X, sigma = self.phys.noisy_forward(images, sigma)
+        return X, images, sigma
 
     def super_gaussian(self, x0, y0):
         rho = np.hypot(self.x - x0, self.y - y0)
