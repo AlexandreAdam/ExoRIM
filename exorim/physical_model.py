@@ -81,7 +81,7 @@ class PhysicalModel:
         V = tf.einsum("ij, ...j->...i", self.A, cast_to_complex_flatten(image))
         gain = self.gain(batch, sigma)
         noisy_V = gain * V
-        X, sigma = chisq.v_transformation[self._chi_squared](noisy_V, self, sigma)
+        X, sigma = chisq.v_sigma_transformation[self._chi_squared](noisy_V, self, sigma)
         return X, sigma
 
     def bispectrum(self, image):
@@ -112,8 +112,3 @@ class PhysicalModel:
         plate_scale = resolution / oversampling_factor
         return plate_scale
 
-
-if __name__ == '__main__':
-    phys = PhysicalModel(32)
-    v = phys.gain(10, 1e-2, 1e-1)
-    print(chisq.v_transformation["closure_phasor"](v, phys))

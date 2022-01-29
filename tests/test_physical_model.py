@@ -106,7 +106,8 @@ def test_grad_likelihood():
     X = phys.forward(image)
     sigma = tf.ones_like(X) * 1e-2
 
-    grad = phys.grad_chi_squared(image, X, sigma).numpy()
+    grad, chi_squared = phys.grad_chi_squared(image, X, sigma)
+    grad = grad.numpy()
     print(grad.max())
     print(grad.min())
     print(grad.mean())
@@ -137,7 +138,8 @@ def test_grad_likelihood2():
 
     X = phys.forward(image)
     sigma = tf.ones_like(X) * 1e-2
-    grad = phys.grad_chi_squared(image2, X, sigma).numpy()
+    grad, chi_squared = phys.grad_chi_squared(image2, X, sigma)
+    grad = grad.numpy()
     print(grad.max())
     print(grad.min())
     print(grad.mean())
