@@ -100,10 +100,10 @@ chi_squared = {
 
 
 def chisq_gradient_complex_visibility(image, X, phys, sigma):
-    sigma = tf.cast(sigma, MYCOMPLEX)
     im = cast_to_complex_flatten(image)
     samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
     chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(X - samples) / sigma), axis=1)
+    sigma = tf.cast(sigma, MYCOMPLEX)
     grad = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), (X - samples)/sigma**2))
     grad = tf.reshape(grad, image.shape)
     return grad / X.shape[1], chisq
@@ -122,14 +122,14 @@ def chisq_gradient_amplitude(image, X, phys, sigma):
 
 
 def chisq_gradient_bispectra(image, X, phys, sigma):
-    sigma = tf.cast(sigma, MYCOMPLEX)
     im = cast_to_complex_flatten(image)
     V1 = tf.einsum("ij, ...j -> ...i", phys.A1, im)
     V2 = tf.einsum("ij, ...j -> ...i", phys.A2, im)
     V3 = tf.einsum("ij, ...j -> ...i", phys.A3, im)
     B_samples = V1 * tf.math.conj(V2) * V3
-    wdiff = tf.math.conj(X - B_samples) / sigma**2
     chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(X - B_samples)/sigma), axis=1)
+    sigma = tf.cast(sigma, MYCOMPLEX)
+    wdiff = tf.math.conj(X - B_samples) / sigma**2
     grad = tf.einsum("ji, ...j -> ...i", phys.A1, wdiff * V2 * V3)
     grad += tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A2), wdiff * tf.math.conj(V1 * V3))
     grad += tf.einsum("ji, ...j -> ...i", phys.A3, wdiff * V1 * V2)
