@@ -11,6 +11,7 @@ INTENSITY_SCALER = tf.constant(1e6, DTYPE)
 TWOPI = tf.constant(2 * np.pi, DTYPE)
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 LOG10 = tf.cast(tf.math.log(10.), DTYPE)
+COMPLEX_I = tf.constant(1j, MYCOMPLEX)
 
 
 def cast_to_complex_flatten(image):

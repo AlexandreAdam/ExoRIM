@@ -1,5 +1,5 @@
 import tensorflow as tf
-from .definitions import MYCOMPLEX, TWOPI, cast_to_complex_flatten
+from .definitions import MYCOMPLEX, TWOPI, COMPLEX_I, cast_to_complex_flatten
 
 
 # ==========================================================================================
@@ -94,10 +94,10 @@ def chisq_gradient_complex_visibility(image, X, phys, sigma):
     sigma = tf.cast(sigma, MYCOMPLEX)
     im = cast_to_complex_flatten(image)
     samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
-    wdiff = (X - samples)/sigma**2
-    out = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), wdiff))
-    out = tf.reshape(out, image.shape)
-    return out / X.shape[1]
+    chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(X - samples) / sigma), axis=1)
+    grad = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), (X - samples)/sigma**2))
+    grad = tf.reshape(grad, image.shape)
+    return grad / X.shape[1], chisq
 
 
 def chisq_gradient_amplitude(image, X, phys, sigma):
@@ -106,9 +106,10 @@ def chisq_gradient_amplitude(image, X, phys, sigma):
     amp_samples = tf.math.abs(V_samples)
     product = (X - amp_samples) / sigma**2 / amp_samples
     product = tf.cast(product, MYCOMPLEX)
-    out = - 2.0 * tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), V_samples * product))
-    out = tf.reshape(out, shape=image.shape)
-    return out / X.shape[1]
+    chisq = tf.math.reduce_mean(((X - amp_samples) / sigma) ** 2, axis=1)
+    grad = - 2.0 * tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), V_samples * product))
+    grad = tf.reshape(grad, shape=image.shape)
+    return grad / X.shape[1], chisq
 
 
 def chisq_gradient_bispectra(image, X, phys, sigma):
@@ -119,12 +120,13 @@ def chisq_gradient_bispectra(image, X, phys, sigma):
     V3 = tf.einsum("ij, ...j -> ...i", phys.A3, im)
     B_samples = V1 * tf.math.conj(V2) * V3
     wdiff = tf.math.conj(X - B_samples) / sigma**2
-    out = tf.einsum("ji, ...j -> ...i", phys.A1, wdiff * V2 * V3)
-    out += tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A2), wdiff * tf.math.conj(V1 * V3))
-    out += tf.einsum("ji, ...j -> ...i", phys.A3, wdiff * V1 * V2)
-    out = -tf.math.real(out) / X.shape[1]
-    out = tf.reshape(out, shape=image.shape)
-    return out
+    chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(X - B_samples)/sigma), axis=1)
+    grad = tf.einsum("ji, ...j -> ...i", phys.A1, wdiff * V2 * V3)
+    grad += tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A2), wdiff * tf.math.conj(V1 * V3))
+    grad += tf.einsum("ji, ...j -> ...i", phys.A3, wdiff * V1 * V2)
+    grad = -tf.math.real(grad) / X.shape[1]
+    grad = tf.reshape(grad, shape=image.shape)
+    return grad, chisq
 
 
 def chisq_gradient_closure_phasor(image, X, phys, sigma):
@@ -135,43 +137,52 @@ def chisq_gradient_closure_phasor(image, X, phys, sigma):
     B = V1 * tf.math.conj(V2) * V3
     clphase_samples = tf.math.angle(B)
     wdiff = tf.cast(tf.math.sin(X - clphase_samples) / sigma ** 2, MYCOMPLEX)
-    out = tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A1), wdiff / tf.math.conj(V1))
-    out = out + tf.einsum("ji, ...j -> ...i", phys.A2, wdiff / V2)
-    out = out + tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A3), wdiff / tf.math.conj(V3))
-    out = -2. * tf.math.imag(out) / B.shape[1]
-    out = tf.reshape(out, shape=image.shape)
-    return out
+    chisq = tf.reduce_mean(((1 - tf.math.cos(X - clphase_samples)) / sigma)**2, axis=1)
+    grad = tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A1), wdiff / tf.math.conj(V1))
+    grad = grad + tf.einsum("ji, ...j -> ...i", phys.A2, wdiff / V2)
+    grad = grad + tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A3), wdiff / tf.math.conj(V3))
+    grad = -2. * tf.math.imag(grad) / B.shape[1]
+    grad = tf.reshape(grad, shape=image.shape)
+    return grad, chisq
 
 
 def chisq_gradient_append_amplitude_closure_phase(image, X, phys, sigma):
-    grad = chisq_gradient_amplitude(image, X[..., :phys.nbuv], phys, sigma[..., :phys.nbuv])
-    grad += chisq_gradient_closure_phasor(image, X[..., phys.nbuv:], phys, sigma[..., phys.nbuv:])
-    return grad
+    grad_a, chisq_a = chisq_gradient_amplitude(image, X[..., :phys.nbuv], phys, sigma[..., :phys.nbuv])
+    grad_cp, chisq_cp = chisq_gradient_closure_phasor(image, X[..., phys.nbuv:], phys, sigma[..., phys.nbuv:])
+    return grad_a + grad_cp, chisq_a + chisq_cp
 
 
 # ==========================================================================================
 # Complex Visibility Transformations
 # ==========================================================================================
 
-def v_to_bispectra(V, phys):
+def v_to_bispectra(V, phys, sigma):
     V1 = tf.einsum("ij, ...j -> ...i", phys.V1, V)
     V2 = tf.einsum("ij, ...j -> ...i", phys.V2, V)
     V3 = tf.einsum("ij, ...j -> ...i", phys.V3, V)
-    return V1 * tf.math.conj(V2) * V3
+    B = V1 * tf.math.conj(V2) * V3
+    sigma = tf.math.abs(B) * sigma * tf.sqrt(1 / V1**2 + 1 / V2**2 + 1 / V3**2)
+    return B, sigma
 
 
-def v_to_closure_phasor(V, phys):
+def v_to_closure_phasor(V, phys, sigma):
     V1 = tf.einsum("ij, ...j -> ...i", phys.V1, V)
     V2 = tf.einsum("ij, ...j -> ...i", phys.V2, V)
     V3 = tf.einsum("ij, ...j -> ...i", phys.V3, V)
-    return tf.math.angle(V1 * tf.math.conj(V2) * V3)
+    B = V1 * tf.math.conj(V2) * V3
+    sigma = sigma * tf.sqrt(1 / tf.math.abs(V1)**2 + 1 / tf.math.abs(V1)**2 + 1 / tf.math.abs(V1)**2)
+    return tf.math.angle(B), sigma
 
 
-def v_to_closure_phase(V, phys):
-    return tf.einsum("ij, ...j -> ...i", phys.CPO, tf.math.angle(V) % TWOPI) % TWOPI
+def v_to_closure_phase(V, phys, sigma):
+    psi = tf.einsum("ij, ...j -> ...i", phys.CPO, tf.math.angle(V) % TWOPI) % TWOPI
+    cov = tf.eye(phys.CPO.shape[1])[tf.newaxis, ...] * sigma[..., tf.newaxis] ** 2
+    sigma = tf.matmul(phys.CPO, cov)
+    sigma = tf.matmul(sigma, tf.transpose(phys.CPO))
+    return psi, tf.linalg.diag_part(sigma)
 
 
-def append_amp_closure_phases(V, phys):
+def append_amp_closure_phases(V, phys, sigma):
     amp = tf.math.abs(V)
     closure_phase = v_to_closure_phase(V, phys)
     return tf.concat([amp, closure_phase], axis=1)
@@ -200,9 +211,9 @@ chisq_gradients = {
 }
 
 v_transformation = {
-    "visibility": lambda V, phys: V,
-    "visibility_phase": lambda V, phys: tf.math.angle(V),
-    "visibility_amplitude": lambda V, phys: tf.math.abs(V),
+    "visibility": lambda V, phys, sigma: (V, sigma),
+    "visibility_phase": lambda V, phys, sigma: (tf.math.angle(V), sigma / tf.math.abs(V)),
+    "visibility_amplitude": lambda V, phys, sigma: (tf.math.abs(V), sigma),
     "closure_phasor": v_to_closure_phasor,
     "closure_phase": v_to_closure_phase,
     "bispectra": v_to_bispectra,

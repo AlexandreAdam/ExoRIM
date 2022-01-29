@@ -1,5 +1,5 @@
-from .operators import Operators
-from .definitions import rad2mas, DTYPE, MYCOMPLEX, cast_to_complex_flatten, LOG10
+from exorim.operators import Operators
+from exorim.definitions import rad2mas, DTYPE, MYCOMPLEX, cast_to_complex_flatten, LOG10
 import exorim.inference as chisq
 import numpy as np
 import tensorflow as tf
@@ -62,26 +62,27 @@ class PhysicalModel:
             self.image_link = lambda image: image
             self.gradient_link = lambda image, grad: grad
 
-    def grad_log_likelihood(self, image, X, sigma):
+    def grad_chi_squared(self, image, X, sigma):
         image = self.image_link(image)
-        grad = chisq.chisq_gradients[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
-        return self.gradient_link(image, grad)
+        grad, chi_squared = chisq.chisq_gradients[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
+        return self.gradient_link(image, grad), chi_squared
+
+    def chi_squared(self, image, X, sigma):
+        image = self.image_link(image)
+        return chisq.chi_squared[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
 
     def forward(self, image):
         V = tf.einsum("ij, ...j->...i", self.A, cast_to_complex_flatten(image))
         X = chisq.v_transformation[self._chi_squared](V, self)
         return X
 
-    def noisy_forward(self, image, amplitude_noise_std, phase_noise_std):
+    def noisy_forward(self, image, sigma):
         batch = image.shape[0]
         V = tf.einsum("ij, ...j->...i", self.A, cast_to_complex_flatten(image))
-        gain = self.gain(batch, amplitude_noise_std, phase_noise_std) # TODO find principled way to add noise and infer closure phase noise from it
+        gain = self.gain(batch, sigma)
         noisy_V = gain * V
-        X = chisq.v_transformation[self._chi_squared](noisy_V, self)
-        return X
-
-    def chi_squared(self, image, X, sigma):
-        return chisq.chi_squared[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
+        X, sigma = chisq.v_transformation[self._chi_squared](noisy_V, self, sigma)
+        return X, sigma
 
     def bispectrum(self, image):
         flat = cast_to_complex_flatten(image)
@@ -93,10 +94,13 @@ class PhysicalModel:
     def visibility(self, image):
         return tf.einsum("ij, ...j -> ...i", self.A, cast_to_complex_flatten(image))
 
-    def gain(self, batch, amplitude_noise_std, phase_noise_std):
-        amp = np.random.normal(1, amplitude_noise_std, size=[batch, self.nbuv])
-        phase = np.exp(1j * np.random.normal(0, phase_noise_std, size=[batch, self.nbuv]))
-        return tf.constant(amp * phase, dtype=MYCOMPLEX)
+    def gain(self, batch_size, sigma):
+        center = tf.cast(1., MYCOMPLEX)
+        z = tf.cast(tf.complex(
+            real=tf.random.normal(shape=[batch_size, self.nbuv], stddev=sigma),
+            imag=tf.random.normal(shape=[batch_size, self.nbuv], stddev=sigma)
+        ), MYCOMPLEX)
+        return center + z
 
     def compute_plate_scale(self, wavel, oversampling_factor=None) -> float:
         """ Compute the angular size of a pixel """
@@ -107,3 +111,9 @@ class PhysicalModel:
             oversampling_factor = self.pixels * resolution / fov
         plate_scale = resolution / oversampling_factor
         return plate_scale
+
+
+if __name__ == '__main__':
+    phys = PhysicalModel(32)
+    v = phys.gain(10, 1e-2, 1e-1)
+    print(chisq.v_transformation["closure_phasor"](v, phys))

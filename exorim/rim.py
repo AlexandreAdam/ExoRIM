@@ -56,20 +56,16 @@ class RIM:
         return self.call(X, sigma, outer_tape)
 
     def call(self, X, sigma, outer_tape=nulltape):
-        """
-        Method used in training to get model predictions.
-
-        :param X: Vector of complex visibilities amplitude and closure phases.
-        :return: 5D Tensor of shape (steps, batch_size, pixels, pixels, channels)
-        """
         batch_size = X.shape[0]
         xt, ht = self.initial_states(batch_size)
 
         image_series = tf.TensorArray(DTYPE, size=self.steps)
+        chi_squared_series = tf.TensorArray(DTYPE, size=self.steps)
         for current_step in range(self.steps):
             with outer_tape.stop_recording():
-                grad = self.physical_model.grad_log_likelihood(image=xt, X=X, sigma=sigma)
+                grad, chi_squared = self.physical_model.grad_chi_squared(image=xt, X=X, sigma=sigma)
                 grad = self.grad_update(grad, time_step=current_step)
             xt, ht = self.model(xt, ht, grad)
             image_series = image_series.write(index=current_step, value=xt)
-        return image_series.stack()
+            chi_squared_series = chi_squared_series.write(index=current_step, value=chi_squared)
+        return image_series.stack(), chi_squared_series.stack()

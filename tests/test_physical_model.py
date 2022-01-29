@@ -45,7 +45,6 @@ def test_binary():
     assert np.allclose(cp1, cp_model, rtol=1e-4)
 
 
-
 def test_nyquist_sampling_criterion():
     pixels = 32
     wavel = 3.8e-6
@@ -107,7 +106,7 @@ def test_grad_likelihood():
     X = phys.forward(image)
     sigma = tf.ones_like(X) * 1e-2
 
-    grad = phys.grad_log_likelihood(image, X, sigma).numpy()
+    grad = phys.grad_chi_squared(image, X, sigma).numpy()
     print(grad.max())
     print(grad.min())
     print(grad.mean())
@@ -138,7 +137,7 @@ def test_grad_likelihood2():
 
     X = phys.forward(image)
     sigma = tf.ones_like(X) * 1e-2
-    grad = phys.grad_log_likelihood(image2, X, sigma).numpy()
+    grad = phys.grad_chi_squared(image2, X, sigma).numpy()
     print(grad.max())
     print(grad.min())
     print(grad.mean())

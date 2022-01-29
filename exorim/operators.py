@@ -1,6 +1,5 @@
 from exorim.definitions import mas2rad, pixel_grid
 import numpy as np
-from scipy.linalg import inv as inverse, pinv as pseudo_inverse
 
 
 class Operators:
@@ -178,22 +177,4 @@ def closure_fourier_matrices(A, CPO):
     A2 = V2.dot(A)
     A3 = V3.dot(A)
     return A1, A2, A3
-
-
-def closure_phase_covariance(CPO, sigma):
-    if isinstance(sigma, np.ndarray):
-        assert sigma.size == CPO.shape[1], f"Baseline error vector should be of length {CPO.shape[1]}"
-    sigma_operator = np.eye(CPO.shape[1]) * sigma**2
-    cp_operator = CPO.dot(sigma_operator).dot(CPO.T)
-    return cp_operator
-
-
-def closure_phase_covariance_inverse(CPO, sigma):
-    cp_operator = closure_phase_covariance(CPO, sigma)
-    inv = inverse(cp_operator)
-    return inv
-
-
-def closure_phase_operator_pseudo_inverse(CPO):
-    return pseudo_inverse(CPO)
 
