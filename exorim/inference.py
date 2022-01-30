@@ -173,6 +173,7 @@ chisq_gradients = {
 # Complex Visibility Transformations
 # ==========================================================================================
 
+
 def v_to_bispectra(V, phys):
     V1 = tf.einsum("ij, ...j -> ...i", phys.V1, V)
     V2 = tf.einsum("ij, ...j -> ...i", phys.V2, V)

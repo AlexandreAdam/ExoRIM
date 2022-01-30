@@ -1,12 +1,17 @@
 import numpy as np
 import tensorflow as tf
-from .definitions import DTYPE
-from .physical_model import PhysicalModel
+from exorim.definitions import DTYPE
+from exorim.physical_model import PhysicalModel
 import math
 
 
 def default_sigma_distribution(batch_size, nbuv):
     return np.ones(shape=nbuv)[None, :] * np.random.uniform(low=1e-4, high=1e-2, size=batch_size)[:, None]
+
+
+def default_contrast_distribution(batch_size):
+    # log-uniform distribution
+    return 10**np.random.uniform(low=-4, high=0, size=batch_size)
 
 
 class CenteredBinariesDataset(tf.keras.utils.Sequence):
@@ -16,8 +21,9 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
             total_items=1000,
             batch_size=10,
             sigma_distribution=default_sigma_distribution,
+            contrast_distribution=default_contrast_distribution,
             width=2,  # sigma parameter of super gaussian
-            min_separation=2,
+            min_separation=4,
             max_separation=None,
             seed=None
     ):
@@ -31,6 +37,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
         self.min_separation = min_separation
 
         self.sigma_distribution = sigma_distribution
+        self.contrast_distribution = contrast_distribution
 
         # make coordinate system
         x = np.arange(phys.pixels) - phys.pixels//2 + 0.5 * (phys.pixels%2)
@@ -49,21 +56,35 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
             np.random.seed(self.seed + idx)
         separation = np.random.uniform(size=[self.batch_size], low=self.min_separation, high=self.max_separation)
         angle = np.random.uniform(size=[self.batch_size], low=0, high=np.pi)
+        contrast = self.contrast_distribution(self.batch_size)
         images = np.zeros(shape=[self.batch_size, self.pixels, self.pixels, 1])
         for i in range(self.batch_size):
             for j in range(2): # make a 180 rotation for j=1
                 x0 = separation[i] * np.cos(angle[i] + j * np.pi)/2
                 y0 = separation[i] * np.sin(angle[i] + j * np.pi)/2
-                images[i, ..., 0] += self.super_gaussian(x0, y0)
+                images[i, ..., 0] += self.super_gaussian(1. if j == 0 else contrast[i], x0, y0)
 
-        images = images / images.max(axis=(1, 2), keepdims=True)
+        images = images / images.max(axis=(1, 2), keepdims=True)  # renormalize in the range [0, 1]
         images = tf.constant(images, dtype=DTYPE)
         sigma = self.sigma_distribution(self.batch_size, self.phys.nbuv)
         X, sigma = self.phys.noisy_forward(images, sigma)
         return X, images, sigma
 
-    def super_gaussian(self, x0, y0):
+    def super_gaussian(self, I, x0, y0):
         rho = np.hypot(self.x - x0, self.y - y0)
-        return np.exp(-0.5 * (rho/self.width)**4)
+        im = np.exp(-0.5 * (rho/self.width)**4)
+        im /= im.sum()
+        im *= I
+        return im
 
 
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
+    from exorim import PhysicalModel
+    phys = PhysicalModel(32)
+    D = CenteredBinariesDataset(phys, 1, 1)
+    x, y, _ = D.generate_batch(0)
+    plt.imshow(y[0, ..., 0], cmap="hot", norm=LogNorm(vmin=1e-6, vmax=1))
+    plt.colorbar()
+    plt.show()
