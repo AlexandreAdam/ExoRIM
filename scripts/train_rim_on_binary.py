@@ -3,7 +3,6 @@ from exorim.definitions import DTYPE
 from exorim.simulated_data import CenteredBinariesDataset
 from exorim.models import Model
 from exorim.utils import residual_plot, plot_to_image
-from argparse import ArgumentParser
 from datetime import datetime
 import os, time, json, math
 import tensorflow as tf
@@ -12,7 +11,7 @@ from exorim.utils import nullwriter
 
 
 RIM_HPARAMS = [
-    "time_steps",
+    "steps",
     "log_floor",
 ]
 
@@ -323,6 +322,7 @@ def main(args):
 
 
 if __name__ == '__main__':
+    from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument("--model_id",           default="None",                 help="Start from this model id checkpoint. None means start from scratch")
 
