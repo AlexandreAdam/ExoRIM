@@ -77,18 +77,18 @@ def residual_plot(dataset, rim, N):
     label = [1, 2, rim.steps]
     for j in range(N):
         X, Y, noise_std = dataset[j]
-        y = Y[0, ..., 0]
+        y = rim.inverse_link_function(Y[0, ..., 0])
         out, chi_squared = rim.call(X, noise_std)
-        out = rim.link_function(out[:, 0, ..., 0])
+        out = out[:, 0, ..., 0]
         for plot_i, i in enumerate(index):
-            axs[j, plot_i].imshow(out[i], cmap="bone", origin="lower", vmin=0, vmax=1)
+            axs[j, plot_i].imshow(out[i], cmap="bone", origin="lower", vmin=np.log10(rim.log_floor), vmax=0)
             axs[j, plot_i].axis("off")
             if j == 0:
                 axs[j, plot_i].set_title(f"Step {label[i]} \n" + fr"$\chi^2_\nu$ = {chi_squared[i, 0]:.1e}")
             else:
                 axs[j, plot_i].set_title(fr"$\chi^2_\nu$ = {chi_squared[i, 0]:.1e}")
 
-        axs[j, 3].imshow(y, cmap="bone", origin="lower", vmin=0, vmax=1)
+        axs[j, 3].imshow(y, cmap="bone", origin="lower", vmin=np.log10(rim.log_floor), vmax=0)
         axs[j, 3].axis("off")
 
         im = axs[j, 4].imshow(out[-1] - y, cmap="seismic", norm=CenteredNorm(), origin="lower")
@@ -110,7 +110,7 @@ def residual_plot(dataset, rim, N):
 #     phys = PhysicalModel(pixels=32)
 #     dataset = CenteredBinariesDataset(phys, total_items=10, batch_size=1)
 #     model = Model()
-#     rim = RIM(model, phys, time_steps=3)
+#     rim = RIM(model, phys, steps=3)
 #     N = 2
 #     residual_plot(dataset, rim, N)
 #     plt.show()
