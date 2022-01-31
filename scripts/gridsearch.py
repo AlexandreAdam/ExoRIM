@@ -157,7 +157,7 @@ if __name__ == '__main__':
 
     # Binary dataset parameters
     parser.add_argument("--total_items",        default=1000,  nargs="+",   type=int,       help="Total items in an epoch")
-    parser.add_argument("--train_split",        default=0.9,    type=int,       help="Total items in an epoch")
+    parser.add_argument("--train_split",        default=0.9,    type=float,       help="Total items in an epoch")
     parser.add_argument("--batch_size",         default=1,     nargs="+",   type=int)
     parser.add_argument("--width",              default=3,         type=float,     help="Sigma parameter of super-gaussian in pixel units")
 
