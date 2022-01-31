@@ -54,15 +54,7 @@ def main(args):
         phys=phys,
         total_items=int(args.train_split * args.total_items),
         batch_size=args.batch_size,
-        width=args.width,
-        seed=args.seed
-    )
-
-    val_dataset = CenteredBinariesDataset(
-        phys=phys,
-        total_items=int((1-args.train_split) * args.total_items),
-        batch_size=args.batch_size,
-        width=args.width,
+        width=args.width
     )
 
     model = Model(
@@ -203,14 +195,10 @@ def main(args):
     # ====== Training loop ============================================================================================
     time_per_step = tf.metrics.Mean()
     epoch_loss = tf.metrics.Mean()
-    val_loss = tf.metrics.Mean()
     epoch_chi_squared = tf.metrics.Mean()
-    val_chi_squared = tf.metrics.Mean()
     history = {  # recorded at the end of an epoch only
-        "train_cost": [],
-        "val_cost": [],
+        "cost": [],
         "train_chi_squared": [],
-        "val_chi_squared": [],
         "learning_rate": [],
         "time_per_step": [],
         "step": [],
@@ -250,45 +238,23 @@ def main(args):
                                          args.n_residuals
                                      )), step=step)
 
-            # ========== Validation set ===================
-            val_loss.reset_states()
-            val_chi_squared.reset_states()
-            for X, Y, noise_rms in val_dataset:
-                cost, chi_squared = test_step(X, Y, noise_rms)
-                val_loss.update_state([cost])
-                val_chi_squared.update_state([chi_squared])
-
-            if args.n_residuals > 0 and math.ceil((1 - args.train_split) * args.total_items) > 0:  # validation set not empty set not empty
-                    tf.summary.image(f"Val Residuals",
-                                     plot_to_image(
-                                         residual_plot(
-                                             train_dataset,
-                                             rim,
-                                             args.n_residuals
-                                         )), step=step)
-            val_cost = val_loss.result().numpy()
             train_cost = epoch_loss.result().numpy()
-            val_chi_sq = val_chi_squared.result().numpy()
             train_chi_sq = epoch_chi_squared.result().numpy()
             tf.summary.scalar("Time per step", time_per_step.result(), step=step)
             tf.summary.scalar("Chi Squared", train_chi_sq, step=step)
             tf.summary.scalar("MSE", train_cost, step=step)
-            tf.summary.scalar("Val MSE", val_cost, step=step)
             tf.summary.scalar("Learning Rate", optim.lr(step), step=step)
-            tf.summary.scalar("Val Chi Squared", val_chi_sq, step=step)
-        print(f"epoch {epoch} | train loss {train_cost:.3e} | val loss {val_cost:.3e} "
+        print(f"epoch {epoch} | train loss {train_cost:.3e} "
               f"| lr {optim.lr(step).numpy():.2e} | time per step {time_per_step.result().numpy():.2e} s"
               f"| chi sq {train_chi_sq:.2e}")
         history["train_cost"].append(train_cost)
-        history["val_cost"].append(val_cost)
         history["learning_rate"].append(optim.lr(step).numpy())
         history["train_chi_squared"].append(train_chi_sq)
-        history["val_chi_squared"].append(val_chi_sq)
         history["time_per_step"].append(time_per_step.result().numpy())
         history["step"].append(step)
         history["wall_time"].append(time.time() - global_start)
 
-        cost = train_cost if args.track_train else val_cost
+        cost = train_cost
         if np.isnan(cost):
             print("Training broke the Universe")
             break

@@ -129,9 +129,7 @@ def distributed_strategy(args):
         params_dict.update({
             "experiment_id": run_args.logname,
             "train_cost": history["train_cost"][-1],
-            "val_cost": history["val_cost"][-1],
             "train_chi_squared": history["train_chi_squared"][-1],
-            "val_chi_squared": history["val_chi_squared"][-1],
             "best_score": best_score,
         })
         # Save hyperparameters and scores in shared csv for this gridsearch

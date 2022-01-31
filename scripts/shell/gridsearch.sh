@@ -22,7 +22,7 @@ python $EXORIM_PATH/scripts/gridsearch.py\
   --filter_scaling 1 2\
   --kernel_size 3\
   --layers 2 3\
-  --blocK_conv_layers 1 2\
+  --block_conv_layers 1 2\
   --input_kernel_size 3 5 7\
   --activation leaky_relu tanh\
   --epochs 200\
