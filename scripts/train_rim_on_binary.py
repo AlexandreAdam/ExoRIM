@@ -198,8 +198,8 @@ def main(args):
     epoch_loss = tf.metrics.Mean()
     epoch_chi_squared = tf.metrics.Mean()
     history = {  # recorded at the end of an epoch only
-        "cost": [],
         "train_chi_squared": [],
+        "train_cost": [],
         "learning_rate": [],
         "time_per_step": [],
         "step": [],
