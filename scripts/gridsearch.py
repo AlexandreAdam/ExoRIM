@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 import copy
 import pandas as pd
-from .train_rim_on_binary import main, RIM_HPARAMS, MODEL_HPARAMS
+from scripts.train_rim_on_binary import main, RIM_HPARAMS, MODEL_HPARAMS
 
 
 # total number of slurm workers detected
