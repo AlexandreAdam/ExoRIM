@@ -17,6 +17,7 @@ RIM_HPARAMS = [
 
 MODEL_HPARAMS = [
     "filters",
+    "filter_scaling",
     "kernel_size",
     "input_kernel_size",
     "layers",
