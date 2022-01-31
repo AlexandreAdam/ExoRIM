@@ -11,6 +11,7 @@
 source $HOME/environments/exorim3.8/bin/activate
 python $EXORIM_PATH/scripts/gridsearch.py\
   --n_models=32\
+  --max_time=9.5\
   --strategy=uniform\
   --total_items 1000 10000\
   --train_split=0.95\
