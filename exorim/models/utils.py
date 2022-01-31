@@ -16,14 +16,14 @@ def global_step():
         return -1
 
 
-def get_activation(activation_name, alpha=0.03):
+def get_activation(activation_name):
     if activation_name == "leaky_relu":
-        return tf.keras.layers.LeakyReLU(alpha=alpha)
+        return tf.nn.leaky_relu
     elif activation_name == "gelu":
         return tf.keras.activations.gelu
     elif activation_name == "bipolar_elu":
         return tf.keras.layers.Lambda(lambda x: bipolar_elu(x))
     elif activation_name == "bipolar_leaky_relu":
-        return tf.keras.layers.Lambda(lambda x: bipolar_leaky_relu(x, alpha=alpha))
+        return tf.keras.layers.Lambda(lambda x: bipolar_leaky_relu(x))
     else:
         return tf.keras.layers.Activation(activation_name)

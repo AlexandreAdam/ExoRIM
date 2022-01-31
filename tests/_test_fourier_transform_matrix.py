@@ -1,10 +1,9 @@
-# Stated objective: Compare NDFTM with analytical solution of the Fourier Transform for known objectex
 import numpy as np
 from scipy.special import j1
 from scipy.interpolate import interp1d
 from scipy.stats import mode
 import matplotlib.pyplot as plt
-from exorim.operators import NDFTM, Baselines
+from exorim.operators import NDFTM, Operators
 from exorim.definitions import mas2rad, rad2mas
 from matplotlib.ticker import FuncFormatter
 import os
@@ -30,7 +29,7 @@ def main():
     # selected_mask = circle_mask
     selected_mask = mask
 
-    B = Baselines(selected_mask)
+    B = Operators(selected_mask, wavel)
     rho = np.sqrt(B.UVC[:, 0]**2 + B.UVC[:, 1]**2)/wavel
 
     theta = rad2mas(1/rho)

@@ -8,7 +8,7 @@ class RIM:
     def __init__(self,
                  model,
                  physical_model: PhysicalModel,
-                 time_steps=8,
+                 steps=8,
                  adam=True,
                  beta_1=0.9,
                  beta_2=0.99,
@@ -19,7 +19,7 @@ class RIM:
         self.pixels = physical_model.pixels
         self.model = model
         self.physical_model = physical_model
-        self.steps = time_steps
+        self.steps = steps
         self.adam = adam
         self.beta_1 = beta_1
         self.beta_2 = beta_2
@@ -52,6 +52,12 @@ class RIM:
         self._grad_var = tf.zeros_like(source)
         return source, states
 
+    def time_step(self, xt, grad, states):
+        delta_xt = tf.concat([xt, grad], axis=3)  # concat along channel dimension
+        delta_xt, states = self.model(delta_xt, states)
+        xt = xt + delta_xt  # RIM update
+        return xt, states
+
     def __call__(self, X, sigma, outer_tape=nulltape):
         return self.call(X, sigma, outer_tape)
 
@@ -65,7 +71,7 @@ class RIM:
             with outer_tape.stop_recording():
                 grad, chi_squared = self.physical_model.grad_chi_squared(image=xt, X=X, sigma=sigma)
                 grad = self.grad_update(grad, time_step=current_step)
-            xt, ht = self.model(xt, ht, grad)
+            xt, ht = self.time_step(xt, grad, ht)
             image_series = image_series.write(index=current_step, value=xt)
             chi_squared_series = chi_squared_series.write(index=current_step, value=chi_squared)
         return image_series.stack(), chi_squared_series.stack()

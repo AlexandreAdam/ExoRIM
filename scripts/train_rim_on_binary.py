@@ -1,50 +1,33 @@
-from numpy.random import choice
 from exorim import RIM, PhysicalModel
-from exorim.definitions import DTYPE, AUTOTUNE
+from exorim.definitions import DTYPE
 from exorim.simulated_data import CenteredBinariesDataset
-from exorim.models import Modelv2
-from exorim.utils import residual_plots, plot_to_image
-from argparse import ArgumentParser
+from exorim.models import Model
+from exorim.utils import residual_plot, plot_to_image
 from datetime import datetime
 import os, time, json, math
 import tensorflow as tf
 import numpy as np
-import pandas as pd
 from exorim.utils import nullwriter
 
 
-# total number of slurm workers detected
-# defaults to 1 if not running under SLURM
-N_WORKERS = int(os.getenv('SLURM_ARRAY_TASK_COUNT', 1))
-
-# this worker's array index. Assumes slurm array job is zero-indexed
-# defaults to zero if not running under SLURM
-this_worker = int(os.getenv('SLURM_ARRAY_TASK_ID', 0))
-
 RIM_HPARAMS = [
-    "adam",
     "steps",
-]
-UNET_MODEL_HPARAMS = [
-
+    "log_floor",
 ]
 
-
-def choose_hparams():
-        return {
-                "logim": choice([True, False]),
-                "time_steps": choice([6, 8, 10, 12]),
-                "filters": choice([16, 32, 64, 128]),
-                "conv_layers": choice([1, 2, 3]),
-                "layers": choice([1, 2, 3]),
-                "activation": choice(["leaky_relu", "tanh"]),
-                "initial_learning_rate": choice([1e-2, 5e-3, 1e-3, 5e-4, 1e-4]),
-            }
+MODEL_HPARAMS = [
+    "filters",
+    "kernel_size",
+    "input_kernel_size",
+    "layers",
+    "block_conv_layers",
+    "activation",
+    "upsampling_interpolation",
+    "strides"
+]
 
 
 def main(args):
-    date = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
-    hparams = choose_hparams()
     if args.seed is not None:
         tf.random.set_seed(args.seed)
         np.random.seed(args.seed)
@@ -59,26 +42,47 @@ def main(args):
             args_dict = vars(args)
             args_dict.update(json_override)
 
-
-    phys = PhysicalModel(
+    phys = PhysicalModel(  # Assumes jwst mask for now
         pixels=args.pixels,
-        mask_coordinates=JWST_NIRISS_MASK,
         wavelength=args.wavelength,
         logim=True,
         oversampling_factor=args.oversampling_factor,
-        # chi_squared="visibility" # comment to get visibility amplitude + closure phase problem
+        chi_squared=args.chi_squared
     )
 
-    model = Modelv2(
-        filters=64,
-        filter_scaling=2,
-        kernel_size=3,
-        layers=2,
-        block_conv_layers=3,
-        strides=2,
-        activation="tanh"
+    train_dataset = CenteredBinariesDataset(
+        phys=phys,
+        total_items=int(args.train_split * args.total_items),
+        batch_size=args.batch_size,
+        width=args.width,
+        seed=args.seed
     )
+
+    val_dataset = CenteredBinariesDataset(
+        phys=phys,
+        total_items=int((1-args.train_split) * args.total_items),
+        batch_size=args.batch_size,
+        width=args.width,
+    )
+
+    model = Model(
+        filters=args.filters,
+        kernel_size=args.kernel_size,
+        filter_scaling=args.filter_scaling,
+        input_kernel_size=args.input_kernel_size,
+        layers=args.layers,
+        block_conv_layers=args.block_conv_layers,
+        strides=args.strides,
+        activation=args.activation,
+        upsampling_interpolation=args.upsampling_interpolation
+    )
+
     rim = RIM(
+        model=model,
+        physical_model=phys,
+        steps=args.steps,
+        log_floor=args.log_floor,
+        adam=True,
     )
 
     learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
@@ -107,11 +111,11 @@ def main(args):
     if args.residual_weights == "uniform":
         w = tf.keras.layers.Lambda(lambda s: tf.ones_like(s, dtype=DTYPE) / tf.cast(tf.math.reduce_prod(s.shape[1:]), DTYPE))
     elif args.residual_weights == "linear":
-        w = tf.keras.layers.Lambda(lambda s: s / tf.reduce_sum(s, axis=(1, 2, 3), keepdims=True))
+        w = tf.keras.layers.Lambda(lambda s: (s + args.log_floor) / tf.reduce_sum(s + args.log_floor, axis=(1, 2, 3), keepdims=True))
     elif args.residual_weights == "quadratic":
-        w = tf.keras.layers.Lambda(lambda s: tf.square(s) / tf.reduce_sum(tf.square(s), axis=(1, 2, 3), keepdims=True))
+        w = tf.keras.layers.Lambda(lambda s: tf.square(s + args.log_floor) / tf.reduce_sum(tf.square(s + args.log_floor), axis=(1, 2, 3), keepdims=True))
     elif args.residual_weights == "sqrt":
-        w = tf.keras.layers.Lambda(lambda s: tf.sqrt(s) / tf.reduce_sum(tf.sqrt(s), axis=(1, 2, 3), keepdims=True))
+        w = tf.keras.layers.Lambda(lambda s: tf.sqrt(s + args.log_floor) / tf.reduce_sum(tf.sqrt(s + args.log_floor), axis=(1, 2, 3), keepdims=True))
     else:
         raise ValueError("residual_weights must be in ['uniform', 'linear', 'quadratic', 'sqrt']")
 
@@ -121,13 +125,13 @@ def main(args):
             logname = args.model_id + "_" + args.logname
             model_id = args.model_id
         else:
-            logname = args.model_id + "_" + date
+            logname = args.model_id + "_" + datetime.now().strftime("%y-%m-%d_%H-%M-%S")
             model_id = args.model_id
     elif args.logname is not None:
         logname = args.logname
         model_id = logname
     else:
-        logname = args.logname_prefixe + "_" + date
+        logname = args.logname_prefixe + "_" + datetime.now().strftime("%y-%m-%d_%H-%M-%S")
         model_id = logname
     if args.logdir.lower() != "none":
         logdir = os.path.join(args.logdir, logname)
@@ -144,8 +148,8 @@ def main(args):
             os.mkdir(checkpoints_dir)
             with open(os.path.join(checkpoints_dir, "script_params.json"), "w") as f:
                 json.dump(vars(args), f, indent=4)
-            with open(os.path.join(checkpoints_dir, "unet_hparams.json"), "w") as f:
-                hparams_dict = {key: vars(args)[key] for key in UNET_MODEL_HPARAMS}
+            with open(os.path.join(checkpoints_dir, "model_hparams.json"), "w") as f:
+                hparams_dict = {key: vars(args)[key] for key in MODEL_HPARAMS}
                 json.dump(hparams_dict, f, indent=4)
             with open(os.path.join(checkpoints_dir, "rim_hparams.json"), "w") as f:
                 hparams_dict = {key: vars(args)[key] for key in RIM_HPARAMS}
@@ -197,12 +201,10 @@ def main(args):
         return cost, chi_squared
 
     # ====== Training loop ============================================================================================
-    epoch_loss = tf.metrics.Mean()
     time_per_step = tf.metrics.Mean()
+    epoch_loss = tf.metrics.Mean()
     val_loss = tf.metrics.Mean()
     epoch_chi_squared = tf.metrics.Mean()
-    epoch_source_loss = tf.metrics.Mean()
-    epoch_kappa_loss = tf.metrics.Mean()
     val_chi_squared = tf.metrics.Mean()
     history = {  # recorded at the end of an epoch only
         "train_cost": [],
@@ -231,7 +233,7 @@ def main(args):
         with writer.as_default():
             for batch, (X, Y, noise_rms) in enumerate(train_dataset):
                 start = time.time()
-                cost, chi_squared, source_cost, kappa_cost = train_step(X, Y, noise_rms)
+                cost, chi_squared = train_step(X, Y, noise_rms)
                 # ========== Summary and logs =========================================================================
                 _time = time.time() - start
                 time_per_step.update_state([_time])
@@ -240,52 +242,30 @@ def main(args):
                 step += 1
             # last batch we make a summary of residuals
             if args.n_residuals > 0:
-                source_pred, kappa_pred, chi_squared = rim.predict(X, noise_rms, psf)
-                lens_pred = phys.forward(source_pred[-1], kappa_pred[-1], psf)
-            for res_idx in range(min(args.n_residuals, args.batch_size)):
-                try:
-                    tf.summary.image(f"Residuals {res_idx}",
-                                     plot_to_image(
-                                         residual_plot(
-                                             X[res_idx],
-                                             source[res_idx],
-                                             kappa[res_idx],
-                                             lens_pred[res_idx],
-                                             source_pred[-1][res_idx],
-                                             kappa_pred[-1][res_idx],
-                                             chi_squared[-1][res_idx]
-                                         )), step=step)
-                except ValueError:
-                    continue
+                tf.summary.image(f"Residuals",
+                                 plot_to_image(
+                                     residual_plot(
+                                         train_dataset,
+                                         rim,
+                                         args.n_residuals
+                                     )), step=step)
 
             # ========== Validation set ===================
             val_loss.reset_states()
             val_chi_squared.reset_states()
             for X, Y, noise_rms in val_dataset:
-                cost, chi_squared, source_cost, kappa_cost = test_step(X, Y, noise_rms)
+                cost, chi_squared = test_step(X, Y, noise_rms)
                 val_loss.update_state([cost])
                 val_chi_squared.update_state([chi_squared])
 
-            if args.n_residuals > 0 and math.ceil(
-                    (1 - args.train_split) * args.total_items) > 0:  # validation set not empty set not empty
-                source_pred, kappa_pred, chi_squared = rim.predict(X, noise_rms, psf)
-                lens_pred = phys.forward(source_pred[-1], kappa_pred[-1], psf)
-            for res_idx in range(
-                    min(args.n_residuals, args.batch_size, math.ceil((1 - args.train_split) * args.total_items))):
-                try:
-                    tf.summary.image(f"Val Residuals {res_idx}",
+            if args.n_residuals > 0 and math.ceil((1 - args.train_split) * args.total_items) > 0:  # validation set not empty set not empty
+                    tf.summary.image(f"Val Residuals",
                                      plot_to_image(
                                          residual_plot(
-                                             X[res_idx],  # rescale intensity like it is done in the likelihood
-                                             source[res_idx],
-                                             kappa[res_idx],
-                                             lens_pred[res_idx],
-                                             source_pred[-1][res_idx],
-                                             kappa_pred[-1][res_idx],
-                                             chi_squared[-1][res_idx]
+                                             train_dataset,
+                                             rim,
+                                             args.n_residuals
                                          )), step=step)
-                except ValueError:
-                    continue
             val_cost = val_loss.result().numpy()
             train_cost = epoch_loss.result().numpy()
             val_chi_sq = val_chi_squared.result().numpy()
@@ -326,8 +306,7 @@ def main(args):
                     np.savetxt(f, np.array([[lastest_checkpoint, cost]]))
                 lastest_checkpoint += 1
                 checkpoint_manager.save()
-                print("Saved checkpoint for step {}: {}".format(int(checkpoint_manager.checkpoint.step),
-                                                                checkpoint_manager.latest_checkpoint))
+                print("Saved checkpoint for step {}: {}".format(int(checkpoint_manager.checkpoint.step), checkpoint_manager.latest_checkpoint))
         if patience == 0:
             print("Reached patience")
             break
@@ -339,10 +318,42 @@ def main(args):
             print("Reached learning rate limit")
             break
     print(f"Finished training after {(time.time() - global_start) / 3600:.3f} hours.")
+    return history, best_loss
 
 
 if __name__ == '__main__':
+    from argparse import ArgumentParser
     parser = ArgumentParser()
+    parser.add_argument("--model_id",           default="None",                 help="Start from this model id checkpoint. None means start from scratch")
+
+    # Binary dataset parameters
+    parser.add_argument("--total_items",        default=1000,   type=int,       help="Total items in an epoch")
+    parser.add_argument("--train_split",        default=1,      type=int,       help="Total items in an epoch")
+    parser.add_argument("--batch_size",         default=1,      type=int)
+    parser.add_argument("--width",              default=2,      type=float,     help="Sigma parameter of super-gaussian in pixel units")
+
+    # Physical Model parameters
+    parser.add_argument("--wavelength",         default=3.8e-6,     type=float,     help="Wavelength in meters")
+    parser.add_argument("--oversampling_factor", default=2,         type=float,     help="Set the pixels size = resolution / oversampling_factor. Resolution is set by Michelson criteria")
+    parser.add_argument("--chi_squared",        default="append_visibility_amplitude_closure_phase",    help="One of 'visibility' or 'append_visibility_amplitude_closure_phase'. Default is the latter.")
+    parser.add_argument("--pixels",             default=32,         type=int)
+
+    # RIM hyper parameters
+    parser.add_argument("--steps",              default=4,          type=int,       help="Number of recurrent steps in the model")
+    parser.add_argument("--log_floor",          default=1e-3,       type=float,     help="Set the dynamical range of the predicted intensity of a pixel.")
+
+    # Neural network hyper parameters
+    parser.add_argument("--filters",                                    default=32,     type=int)
+    parser.add_argument("--filter_scaling",                             default=2,      type=float)
+    parser.add_argument("--kernel_size",                                default=3,      type=int)
+    parser.add_argument("--layers",                                     default=2,      type=int)
+    parser.add_argument("--block_conv_layers",                          default=2,      type=int)
+    parser.add_argument("--strides",                                    default=2,      type=int)
+    parser.add_argument("--input_kernel_size",                          default=7,      type=int)
+    parser.add_argument("--upsampling_interpolation",                   action="store_true")
+    parser.add_argument("--activation",                                 default="tanh")
+    parser.add_argument("--initializer",                                default="glorot_normal")
+
     # Optimization params
     parser.add_argument("--epochs",                 default=100,     type=int,      help="Number of epochs for training.")
     parser.add_argument("--optimizer",              default="Adamax",               help="Class name of the optimizer (e.g. 'Adam' or 'Adamax')")
@@ -356,7 +367,7 @@ if __name__ == '__main__':
     parser.add_argument("--max_time",               default=np.inf, type=float,     help="Time allowed for the training, in hours.")
     parser.add_argument("--time_weights",           default="uniform",              help="uniform: w_t=1 for all t, linear: w_t~t, quadratic: w_t~t^2")
     parser.add_argument("--reset_optimizer_states",  action="store_true",           help="When training from pre-trained weights, reset states of optimizer.")
-    parser.add_argument("--residual_weights",        default="uniform",              help="Options are ['uniform', 'linear', 'quadratic']")
+    parser.add_argument("--residual_weights",        default="sqrt",                help="Options are ['uniform', 'linear', 'quadratic', 'sqrt']")
 
     # logs
     parser.add_argument("--logdir",                  default="None",                help="Path of logs directory. Default if None, no logs recorded.")
@@ -365,7 +376,7 @@ if __name__ == '__main__':
     parser.add_argument("--logname_prefixe",         default="RIM",                 help="If name of the log is not provided, this prefix is prepended to the date")
     parser.add_argument("--checkpoints",             default=10,    type=int,       help="Save a checkpoint of the models each {%} iteration.")
     parser.add_argument("--max_to_keep",             default=3,     type=int,       help="Max model checkpoint to keep.")
-    parser.add_argument("--n_residuals",             default=1,     type=int,       help="Number of residual plots to save. Add overhead at the end of an epoch only.")
+    parser.add_argument("--n_residuals",             default=2,     type=int,       help="Number of residual plots to save. Add overhead at the end of an epoch only. Should be >= 2.")
 
     # Reproducibility params
     parser.add_argument("--seed",                   default=42,      type=int,      help="Random seed for numpy and tensorflow.")

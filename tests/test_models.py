@@ -1,28 +1,8 @@
 import tensorflow as tf
-from exorim import RIM, PhysicalModel, BaselineModel, Model, Modelv1, UnetModel
+from exorim import RIM, PhysicalModel, Model
 
 
-def test_baseline_model():
-    model = BaselineModel()
-    phys = PhysicalModel(pixels=32)
-    rim = RIM(model, phys, time_steps=3)
-    image = tf.random.normal(shape=(1, 32, 32, 1))
-    X = phys.forward(image)
-    sigma = tf.ones_like(X) * 1e-2
-    rim(X, sigma)
-
-
-def test_modelv1():
-    model = Modelv1()
-    phys = PhysicalModel(pixels=32)
-    rim = RIM(model, phys, time_steps=3)
-    image = tf.random.normal(shape=(1, 32, 32, 1))
-    X = phys.forward(image)
-    sigma = tf.ones_like(X) * 1e-2
-    rim(X, sigma)
-
-
-def test_modelv2():
+def test_model_pipeline():
     model = Model(
         filters=32,
         filter_scaling=2,
@@ -36,8 +16,12 @@ def test_modelv2():
     rim(X, sigma)
 
 
-def test_unet_model():
-    model = UnetModel()
+    model = Model(
+        filters=32,
+        filter_scaling=1,
+        layers=2,
+        block_conv_layers=3
+    )
     phys = PhysicalModel(pixels=32)
     rim = RIM(model, phys, time_steps=3)
     image = tf.random.normal(shape=(1, 32, 32, 1))
@@ -45,6 +29,3 @@ def test_unet_model():
     sigma = tf.ones_like(X) * 1e-2
     rim(X, sigma)
 
-
-if __name__ == '__main__':
-    test_modelv2()

@@ -3,7 +3,7 @@ import tensorflow as tf
 import collections
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-# from matplotlib.colors import CenteredNorm
+from matplotlib.colors import CenteredNorm
 import io
 
 try:
@@ -84,12 +84,14 @@ def residual_plot(dataset, rim, N):
             axs[j, plot_i].imshow(out[i], cmap="bone", origin="lower", vmin=0, vmax=1)
             axs[j, plot_i].axis("off")
             if j == 0:
-                axs[j, plot_i].set_title(fr"Step {label[i]}: $\chi^2_\nu = {chi_squared[i, 0]:.1f}$")
+                axs[j, plot_i].set_title(f"Step {label[i]} \n" + fr"$\chi^2_\nu$ = {chi_squared[i, 0]:.1e}")
+            else:
+                axs[j, plot_i].set_title(fr"$\chi^2_\nu$ = {chi_squared[i, 0]:.1e}")
 
         axs[j, 3].imshow(y, cmap="bone", origin="lower", vmin=0, vmax=1)
         axs[j, 3].axis("off")
 
-        im = axs[j, 4].imshow(out[-1] - y, cmap="seismic", origin="lower")
+        im = axs[j, 4].imshow(out[-1] - y, cmap="seismic", norm=CenteredNorm(), origin="lower")
         divider = make_axes_locatable(axs[j, 4])
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plt.colorbar(im, cax=cax)
@@ -97,18 +99,18 @@ def residual_plot(dataset, rim, N):
         if j == 0:
             axs[j, 3].set_title(f"Ground Truth")
             axs[j, 4].set_title(f"Residuals")
-    plt.subplots_adjust(wspace=.4, hspace=.2)
+    plt.subplots_adjust(wspace=.1, hspace=0)
     return fig
 
 
-if __name__ == '__main__':
-    from exorim.simulated_data import CenteredBinariesDataset
-    from exorim import RIM, PhysicalModel, Model
-
-    phys = PhysicalModel(pixels=32)
-    dataset = CenteredBinariesDataset(phys, total_items=10, batch_size=1)
-    model = Model()
-    rim = RIM(model, phys, time_steps=3)
-    N = 2
-    residual_plot(dataset, rim, N)
-    plt.show()
+# if __name__ == '__main__':
+#     from exorim.simulated_data import CenteredBinariesDataset
+#     from exorim import RIM, PhysicalModel, Model
+#
+#     phys = PhysicalModel(pixels=32)
+#     dataset = CenteredBinariesDataset(phys, total_items=10, batch_size=1)
+#     model = Model()
+#     rim = RIM(model, phys, time_steps=3)
+#     N = 2
+#     residual_plot(dataset, rim, N)
+#     plt.show()
