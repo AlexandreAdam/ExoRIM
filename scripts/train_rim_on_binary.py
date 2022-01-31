@@ -53,7 +53,7 @@ def main(args):
 
     train_dataset = CenteredBinariesDataset(
         phys=phys,
-        total_items=int(args.train_split * args.total_items),
+        total_items=args.total_items,
         batch_size=args.batch_size,
         width=args.width
     )
@@ -295,7 +295,6 @@ if __name__ == '__main__':
 
     # Binary dataset parameters
     parser.add_argument("--total_items",        default=1000,   type=int,       help="Total items in an epoch")
-    parser.add_argument("--train_split",        default=1,      type=int,       help="Total items in an epoch")
     parser.add_argument("--batch_size",         default=1,      type=int)
     parser.add_argument("--width",              default=2,      type=float,     help="Sigma parameter of super-gaussian in pixel units")
 
