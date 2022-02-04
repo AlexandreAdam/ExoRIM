@@ -4,7 +4,7 @@ from exorim.simulated_data import CenteredBinariesDataset
 from exorim.models import Model
 from exorim.utils import residual_plot, plot_to_image
 from datetime import datetime
-import os, time, json, math
+import os, time, json
 import tensorflow as tf
 import numpy as np
 from exorim.utils import nullwriter
