@@ -27,7 +27,8 @@ EXTRA_PARAMS = [
     "time_weights",
     "residual_weights",
     "oversampling_factor",
-    "pixels"
+    "pixels",
+    "redundant"
 ]
 
 PARAMS_NICKNAME = {
@@ -54,7 +55,8 @@ PARAMS_NICKNAME = {
     "activation": "NL",
 
     "steps": "TS",
-    "log_floor": "LF"
+    "log_floor": "LF",
+    "redundant": "Rcp"
 }
 
 
@@ -134,8 +136,8 @@ def distributed_strategy(args):
         })
         # Save hyperparameters and scores in shared csv for this gridsearch
         df = pd.DataFrame(params_dict, index=[gridsearch_id])
-        grid_csv_path = os.path.join(os.getenv("CENSAI_PATH"), "results", f"{args.logname_prefixe}.csv")
-        this_run_csv_path = os.path.join(os.getenv("CENSAI_PATH"), "results", f"{run_args.logname}.csv")
+        grid_csv_path = os.path.join(os.getenv("EXORIM_PATH"), "results", f"{args.logname_prefixe}.csv")
+        this_run_csv_path = os.path.join(os.getenv("EXORIM_PATH"), "results", f"{run_args.logname}.csv")
         if not os.path.exists(grid_csv_path):
             mode = "w"
             header = True
@@ -163,6 +165,7 @@ if __name__ == '__main__':
     parser.add_argument("--oversampling_factor", default=2,  nargs="+",       type=float,     help="Set the pixels size = resolution / oversampling_factor. Resolution is set by Michelson criteria")
     parser.add_argument("--chi_squared",        default="append_visibility_amplitude_closure_phase",    help="One of 'visibility' or 'append_visibility_amplitude_closure_phase'. Default is the latter.")
     parser.add_argument("--pixels",             default=32,  nargs="+",       type=int)
+    parser.add_argument("--redundant",          default=0,   nargs="+",       type=int,       help="Whether to use redundant closure phase in likelihood or not")
 
     # RIM hyper parameters
     parser.add_argument("--steps",              default=4,    nargs="+",      type=int,       help="Number of recurrent steps in the model")

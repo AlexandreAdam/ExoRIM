@@ -35,12 +35,13 @@ class PhysicalModel:
             wavelength=3.8e-6,
             chi_squared="append_visibility_amplitude_closure_phase",
             oversampling_factor=None,
-            logim=True
+            logim=True,
+            redundant=False  # closure phases
     ):
         assert chi_squared in ["append_visibility_amplitude_closure_phase", "visibility", "visibility_amplitude"]
         self._chi_squared = chi_squared
         self.pixels = pixels
-        self.operators = Operators(mask_coordinates=mask_coordinates, wavelength=wavelength)
+        self.operators = Operators(mask_coordinates=mask_coordinates, wavelength=wavelength, redundant=redundant)
         self.CPO = tf.constant(self.operators.CPO, DTYPE)
         self.plate_scale = self.compute_plate_scale(wavelength, oversampling_factor)
         A, A1, A2, A3 = self.operators.build_operators(pixels, self.plate_scale)

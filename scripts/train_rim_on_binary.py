@@ -4,7 +4,7 @@ from exorim.simulated_data import CenteredBinariesDataset
 from exorim.models import Model
 from exorim.utils import residual_plot, plot_to_image
 from datetime import datetime
-import os, time, json, math
+import os, time, json
 import tensorflow as tf
 import numpy as np
 from exorim.utils import nullwriter
@@ -303,6 +303,7 @@ if __name__ == '__main__':
     parser.add_argument("--oversampling_factor", default=2,         type=float,     help="Set the pixels size = resolution / oversampling_factor. Resolution is set by Michelson criteria")
     parser.add_argument("--chi_squared",        default="append_visibility_amplitude_closure_phase",    help="One of 'visibility' or 'append_visibility_amplitude_closure_phase'. Default is the latter.")
     parser.add_argument("--pixels",             default=32,         type=int)
+    parser.add_argument("--redundant",          action="store_true",                help="Whether to use redundant closure phase in likelihood or not")
 
     # RIM hyper parameters
     parser.add_argument("--steps",              default=4,          type=int,       help="Number of recurrent steps in the model")
