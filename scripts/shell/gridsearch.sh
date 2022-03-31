@@ -13,22 +13,22 @@ python $EXORIM_PATH/scripts/gridsearch.py\
   --n_models=32\
   --max_time=9.5\
   --strategy=uniform\
-  --total_items 1000 10000\
-  --train_split=0.95\
+  --total_items 1000\
+  --width=2\
   --batch_size 1 10\
-  --steps 4 8 12\
+  --steps 6 8 10\
   --log_floor 1e-4\
-  --filters 16 32 64 128\
+  --filters 64 128 256\
   --filter_scaling 1 2\
   --kernel_size 3\
   --layers 2 3\
-  --block_conv_layers 1 2\
+  --block_conv_layers 2\
   --input_kernel_size 3 5 7\
   --activation leaky_relu tanh\
   --epochs 200\
-  --initial_learning_rate 1e-3 5e-5 1e-4 1e-5\
+  --initial_learning_rate 1e-4\
   --residual_weights uniform sqrt\
   --logdir=$EXORIM_PATH/logs/\
   --model_dir=$EXORIM_PATH/models/\
-  --logname_prefixe=RIMB_wide_search1\
+  --logname_prefixe=RIMB_wide_search2\
   --seed 42
