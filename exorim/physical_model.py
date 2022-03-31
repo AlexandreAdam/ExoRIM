@@ -71,7 +71,7 @@ class PhysicalModel:
             xi = self.image_link(image)
             x_pred = self.forward(xi)
             chi_squared = tf.reduce_sum((x_pred[..., :self.nbuv] - X[..., :self.nbuv])**2 / sigma[:, :self.nbuv], axis=1)
-            chi_squared += tf.reduce_sum((1 - tf.cos(x_pred[..., self.nbuv:] - X[..., self.nbuv]))**2 / sigma[..., self.nbuv:], axis=1)
+            chi_squared += 2*tf.reduce_sum((1 - tf.cos(x_pred[..., self.nbuv:] - X[..., self.nbuv])) / sigma[..., self.nbuv:], axis=1)
             cost = tf.reduce_mean(chi_squared)
         grad = tape.gradient(cost, image)
         return grad, chi_squared
