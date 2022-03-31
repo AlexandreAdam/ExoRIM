@@ -6,12 +6,12 @@ import math
 
 
 def default_sigma_distribution(batch_size, nbuv):
-    return np.ones(shape=nbuv)[None, :] * np.random.uniform(low=1e-4, high=1e-2, size=batch_size)[:, None]
+    return np.ones(shape=[batch_size, nbuv]) * 1e-8
 
 
 def default_contrast_distribution(batch_size):
     # log-uniform distribution
-    return 10**np.random.uniform(low=-4, high=0, size=batch_size)
+    return 10**np.random.uniform(low=-1, high=0, size=batch_size)
 
 
 class CenteredBinariesDataset(tf.keras.utils.Sequence):
@@ -25,7 +25,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
             width=2,  # sigma parameter of super gaussian
             min_separation=4,
             max_separation=None,
-            seed=None
+            seed=None,
     ):
         self.seed = seed
         self.total_items = total_items
@@ -55,7 +55,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
         if self.seed is not None:
             np.random.seed(self.seed + idx)
         separation = np.random.uniform(size=[self.batch_size], low=self.min_separation, high=self.max_separation)
-        angle = np.random.uniform(size=[self.batch_size], low=0, high=np.pi)
+        angle = np.random.uniform(size=[self.batch_size], low=0, high=2*np.pi)
         contrast = self.contrast_distribution(self.batch_size)
         images = np.zeros(shape=[self.batch_size, self.pixels, self.pixels, 1])
         for i in range(self.batch_size):
@@ -64,7 +64,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
                 y0 = separation[i] * np.sin(angle[i] + j * np.pi)/2
                 images[i, ..., 0] += self.super_gaussian(1. if j == 0 else contrast[i], x0, y0)
 
-        images = images / images.max(axis=(1, 2), keepdims=True)  # renormalize in the range [0, 1]
+        images = images / images.sum(axis=(1, 2), keepdims=True)
         images = tf.constant(images, dtype=DTYPE)
         sigma = self.sigma_distribution(self.batch_size, self.phys.nbuv)
         X, sigma = self.phys.noisy_forward(images, sigma)
@@ -72,7 +72,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
 
     def super_gaussian(self, I, x0, y0):
         rho = np.hypot(self.x - x0, self.y - y0)
-        im = np.exp(-0.5 * (rho/self.width)**4)
+        im = np.exp(-0.5 * (rho/self.width)**2)
         im /= im.sum()
         im *= I
         return im
@@ -82,9 +82,32 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     from matplotlib.colors import LogNorm
     from exorim import PhysicalModel
-    phys = PhysicalModel(32)
-    D = CenteredBinariesDataset(phys, 1, 1)
-    x, y, _ = D.generate_batch(0)
+    phys = PhysicalModel(32, oversampling_factor=3, logim=False)
+    D = CenteredBinariesDataset(phys, 1, 1, width=2)
+    x, y, sigma = D.generate_batch(0)
+    x_true = phys.forward(y)
+
+    plt.figure()
+    Ainv = phys.operators.ndftm_matrix(32, phys.plate_scale, inv=True)
+    dirty_beam = np.real((Ainv @ x[0, :phys.nbuv].numpy()).reshape([32, 32]))
+    plt.imshow(dirty_beam, cmap="hot", norm=LogNorm(vmin=1e-6, vmax=1))
+    plt.colorbar()
+    plt.show()
+    print(phys.chi_squared(y, x, sigma))
+    print(x_true[0, :phys.nbuv])
+    # print(sigma[0, phys.nbuv:])
+    plt.figure()
     plt.imshow(y[0, ..., 0], cmap="hot", norm=LogNorm(vmin=1e-6, vmax=1))
     plt.colorbar()
     plt.show()
+    X = phys.forward(y)
+    plt.figure()
+    plt.plot(X[0], "k-")
+    plt.plot(x[0], "r--", lw=3)
+    plt.show()
+
+    plt.figure()
+    plt.plot((x - x_true)[0]**2 / sigma[0]**2)
+    plt.title(np.sum((x - x_true)[0]**2 / sigma[0]**2))
+    plt.show()
+

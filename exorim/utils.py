@@ -81,14 +81,14 @@ def residual_plot(dataset, rim, N):
         out, chi_squared = rim.call(X, noise_std)
         out = out[:, 0, ..., 0]
         for plot_i, i in enumerate(index):
-            axs[j, plot_i].imshow(out[i], cmap="bone", origin="lower", vmin=np.log10(rim.log_floor), vmax=0)
+            axs[j, plot_i].imshow(out[i], cmap="hot", origin="lower", vmin=np.log10(rim.log_floor), vmax=0)
             axs[j, plot_i].axis("off")
             if j == 0:
                 axs[j, plot_i].set_title(f"Step {label[i]} \n" + fr"$\chi^2_\nu$ = {chi_squared[i, 0]:.1e}")
             else:
                 axs[j, plot_i].set_title(fr"$\chi^2_\nu$ = {chi_squared[i, 0]:.1e}")
 
-        axs[j, 3].imshow(y, cmap="bone", origin="lower", vmin=np.log10(rim.log_floor), vmax=0)
+        axs[j, 3].imshow(y, cmap="hot", origin="lower", vmin=np.log10(rim.log_floor), vmax=0)
         axs[j, 3].axis("off")
 
         im = axs[j, 4].imshow(out[-1] - y, cmap="seismic", norm=CenteredNorm(), origin="lower")
@@ -99,7 +99,7 @@ def residual_plot(dataset, rim, N):
         if j == 0:
             axs[j, 3].set_title(f"Ground Truth")
             axs[j, 4].set_title(f"Residuals")
-    plt.subplots_adjust(wspace=.1, hspace=0)
+    # plt.subplots_adjust(wspace=.1, hspace=0)
     return fig
 
 

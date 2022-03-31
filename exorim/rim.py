@@ -46,11 +46,10 @@ class RIM:
         return m_hat / (tf.sqrt(v_hat) + self.epsilon)
 
     def initial_states(self, batch_size):
-        source = tf.zeros(shape=[batch_size, self.pixels, self.pixels, 1])
         states = self.model.init_hidden_states(input_pixels=self.pixels, batch_size=batch_size)
-        self._grad_mean = tf.zeros_like(source)
-        self._grad_var = tf.zeros_like(source)
-        return source, states
+        self._grad_mean = tf.zeros(shape=[batch_size, self.pixels, self.pixels, 1])
+        self._grad_var = tf.zeros(shape=[batch_size, self.pixels, self.pixels, 1])
+        return states
 
     def time_step(self, xt, grad, states):
         delta_xt = tf.concat([xt, grad], axis=3)  # concat along channel dimension
@@ -63,8 +62,11 @@ class RIM:
 
     def call(self, X, sigma, outer_tape=nulltape):
         batch_size = X.shape[0]
-        xt, ht = self.initial_states(batch_size)
-
+        ht = self.initial_states(batch_size)
+        # Start from dirty beam
+        with outer_tape.stop_recording():
+            xt = self.physical_model.inverse(X)
+            xt = self.inverse_link_function(xt) # get to prediction space
         image_series = tf.TensorArray(DTYPE, size=self.steps)
         chi_squared_series = tf.TensorArray(DTYPE, size=self.steps)
         for current_step in range(self.steps):

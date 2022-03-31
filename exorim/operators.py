@@ -47,11 +47,12 @@ class Operators:
     def build_operators(self, pixels, plate_scale, return_bispectrum_operator=True):
         """ Returns direct Fourier matrix operator for visibilities and bispectrum"""
         A = self.ndftm_matrix(pixels, plate_scale)
+        Ainv = self.ndftm_matrix(pixels, plate_scale, inv=True)
         if return_bispectrum_operator:
             A1, A2, A3 = self.closure_fourier_matrices(A)
-            return A, A1, A2, A3
+            return A, Ainv, A1, A2, A3
         else:
-            return A
+            return A, Ainv
 
     def ndftm_matrix(self, pixels, plate_scale, inv=False, dprec=True):
         return NDFTM(self.UVC, self.wavelength, pixels=pixels, plate_scale=plate_scale, inv=inv, dprec=dprec)

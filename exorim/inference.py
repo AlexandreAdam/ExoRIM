@@ -12,7 +12,7 @@ def chi_squared_complex_visibility(image, X, phys, sigma):
     samples = tf.einsum("ij, ...j -> ...i", A, im)
     diff = X - samples
     # if len(sigma.shape) < 2:
-    chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(diff) / sigma), axis=1)
+    chisq = 0.5 * tf.reduce_sum(tf.math.square(tf.math.abs(diff) / sigma), axis=1)
     # else:
     #     sigma = tf.cast(sigma, MYCOMPLEX)
     #     chisq = 0.5 * tf.einsum("...j, ...j -> ...", tf.einsum("...i, ij,  -> ...j", sigma, diff), tf.math.conj(diff))
@@ -26,7 +26,7 @@ def chi_squared_visibility_phases(image, X, phys, sigma):
     vphases_samples = tf.math.angle(tf.einsum("ij, ...j -> ...i", A, im)) % TWOPI
     diff = X - vphases_samples
     # if len(sigma.shape) < 2:
-    chisq = tf.reduce_mean(tf.math.square(diff / sigma), axis=1)
+    chisq = tf.reduce_sum(tf.math.square(diff / sigma), axis=1)
     # else:
     #     chisq = tf.einsum("...i, ...i -> ...", tf.einsum("...i, ij -> ...j", diff, sigma), diff)
     #     chisq /= X.shape[1]
@@ -37,19 +37,19 @@ def chi_squared_amplitude(image, X, phys, sigma):
     A = phys.A
     im = cast_to_complex_flatten(image)
     amp_samples = tf.math.abs(tf.einsum("ij, ...j -> ...i", A, im))
-    return tf.math.reduce_mean(((X - amp_samples)/sigma)**2, axis=1)
+    return tf.reduce_sum(((X - amp_samples)/sigma)**2, axis=1)
 
 
 def chi_squared_amplitude_squared(image, X, phys, sigma):
     A = phys.A
     im = cast_to_complex_flatten(image)
     amp_samples = tf.math.abs(tf.einsum("ij, ...j -> ...i", A, im))
-    return tf.math.reduce_mean(((X - amp_samples)/sigma)**2, axis=1)
+    return tf.reduce_sum(((X - amp_samples)/sigma)**2, axis=1)
 
 
 def chi_squared_bispectra(image, X, phys, sigma):
     B_sample = phys.bispectrum(image)
-    chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(X - B_sample)/sigma), axis=1)
+    chisq = 0.5 * tf.reduce_sum(tf.math.square(tf.math.abs(X - B_sample)/sigma), axis=1)
     return chisq
 
 
@@ -60,7 +60,7 @@ def chi_squared_closure_phasor(image, X, phys, sigma):
     |e^(i*psi) - e^(i*psi')|^2.
     """
     clphase_samples = tf.math.angle(phys.bispectrum(image))
-    chisq = tf.reduce_mean(((1 - tf.math.cos(X - clphase_samples)) / sigma)**2, axis=1)
+    chisq = tf.reduce_sum(((1 - tf.math.cos(X - clphase_samples)) / sigma)**2, axis=1)
     return chisq
 
 
@@ -73,7 +73,7 @@ def chi_squared_closure_phase(image, X, phys, sigma):
     clphase_sample = tf.einsum("ij, ...j -> ...i", phys.CPO, phi) % TWOPI
     diff = X - clphase_sample
     # if len(sigma.shape) < 2:
-    chisq = 0.5 * tf.reduce_mean((diff/sigma)**2, axis=1)
+    chisq = 0.5 * tf.reduce_sum((diff/sigma)**2, axis=1)
     # else:
     #     chisq = 0.5 * tf.einsum("...i, ...i -> ...", tf.einsum("...i, ij -> ...j", diff, sigma), diff)
     return chisq

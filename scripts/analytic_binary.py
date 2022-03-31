@@ -15,7 +15,7 @@ def binary(xx, yy, sep, i1, i2):
     # put z axis between point stars
     out = i1 * ((xx - sep/2) == 0) * (yy == 0)
     out += i2 * ((xx - sep/2) == 0) * (yy == 0)
-    return out 
+    return out
 
 
 def gamma_binary(x, y, i1, i2):
@@ -34,7 +34,7 @@ def general_gamma_binary(x, y, i1, i2):
     phi2 = k * y * beta * np.sin(th)/2
     out = i1 * np.exp(-1j * (phi1 + phi2))
     out += i2 * np.exp(1j * (phi1 + phi2))
-    return out/ (i1 + i2)
+    return out / (i1 + i2)
 
 
 def imshow(image, ax):
@@ -47,14 +47,14 @@ def imshow(image, ax):
 
 def main():
     i1 = 1
-    i2 = 0.2 
+    i2 = 0.01
     x = np.linspace(-4, 4, N)
     xx, yy = np.meshgrid(x, x)
     gam = gamma_binary(xx, yy, i1, i2)
     gam = general_gamma_binary(xx, yy, i1, i2)
     fig, ((axv, axr), (axi, axphi)) = plt.subplots(2, 2, figsize=(10, 6))
     fig.suptitle(rf"$I_1$={i1}, $I_2$={i2}, $\beta$={sep} mas")
-    imshow(2 * i1 * i2 / (i1**2 + i2**2) * np.abs(gam), axv)
+    imshow(np.abs(gam), axv)
     axv.set_title("Visbility")
     imshow(gam.real, axr)
     axr.set_title(r"$\Re(\gamma)$")

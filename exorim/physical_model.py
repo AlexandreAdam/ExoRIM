@@ -44,9 +44,10 @@ class PhysicalModel:
         self.operators = Operators(mask_coordinates=mask_coordinates, wavelength=wavelength, redundant=redundant)
         self.CPO = tf.constant(self.operators.CPO, DTYPE)
         self.plate_scale = self.compute_plate_scale(wavelength, oversampling_factor)
-        A, A1, A2, A3 = self.operators.build_operators(pixels, self.plate_scale)
+        A, Ainv, A1, A2, A3 = self.operators.build_operators(pixels, self.plate_scale)
         V1, V2, V3 = self.operators.closure_baseline_projectors()
         self.A = tf.constant(A, MYCOMPLEX)
+        self.Ainv = tf.constant(Ainv, MYCOMPLEX)
         self.A1 = tf.constant(A1, MYCOMPLEX)
         self.A2 = tf.constant(A2, MYCOMPLEX)
         self.A3 = tf.constant(A3, MYCOMPLEX)
@@ -56,6 +57,7 @@ class PhysicalModel:
         self.logim = logim
         self.nbuv = self.operators.nbuv
 
+
         if self.logim:
             self.image_link = lambda image: 10**image
             self.gradient_link = lambda image, grad: image * grad * LOG10
@@ -64,9 +66,17 @@ class PhysicalModel:
             self.gradient_link = lambda image, grad: grad
 
     def grad_chi_squared(self, image, X, sigma):
-        image = self.image_link(image)
-        grad, chi_squared = chisq.chisq_gradients[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
-        return self.gradient_link(image, grad), chi_squared
+        with tf.GradientTape() as tape:
+            tape.watch(image)
+            xi = self.image_link(image)
+            x_pred = self.forward(xi)
+            chi_squared = tf.reduce_sum((x_pred[..., :self.nbuv] - X[..., :self.nbuv])**2 / sigma[:, :self.nbuv], axis=1)
+            chi_squared += tf.reduce_sum((1 - tf.cos(x_pred[..., self.nbuv:] - X[..., self.nbuv]))**2 / sigma[..., self.nbuv:], axis=1)
+            cost = tf.reduce_mean(chi_squared)
+        grad = tape.gradient(cost, image)
+        return grad, chi_squared
+        # grad, chi_squared = chisq.chisq_gradients[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
+        # return self.gradient_link(image, grad), chi_squared
 
     def chi_squared(self, image, X, sigma):
         image = self.image_link(image)
@@ -77,11 +87,18 @@ class PhysicalModel:
         X = chisq.v_transformation[self._chi_squared](V, self)
         return X
 
+    def inverse(self, X):
+        batch_size = X.shape[0]
+        V = X[..., :self.nbuv]
+        im = tf.math.abs(tf.einsum("ij, ...j->...i", self.Ainv, tf.cast(V, MYCOMPLEX)))
+        im = tf.reshape(im, shape=[batch_size, self.pixels, self.pixels, 1])
+        return im
+
     def noisy_forward(self, image, sigma):
         batch = image.shape[0]
         V = tf.einsum("ij, ...j->...i", self.A, cast_to_complex_flatten(image))
-        gain = self.gain(batch, sigma)
-        noisy_V = gain * V
+        epsilon = self.circularly_gaussian_random_variable(batch, sigma)
+        noisy_V = V + epsilon
         X, sigma = chisq.v_sigma_transformation[self._chi_squared](noisy_V, self, sigma)
         return X, sigma
 
@@ -95,13 +112,12 @@ class PhysicalModel:
     def visibility(self, image):
         return tf.einsum("ij, ...j -> ...i", self.A, cast_to_complex_flatten(image))
 
-    def gain(self, batch_size, sigma):
-        center = tf.cast(1., MYCOMPLEX)
+    def circularly_gaussian_random_variable(self, batch_size, sigma):
         z = tf.cast(tf.complex(
             real=tf.random.normal(shape=[batch_size, self.nbuv], stddev=sigma),
             imag=tf.random.normal(shape=[batch_size, self.nbuv], stddev=sigma)
         ), MYCOMPLEX)
-        return center + z
+        return z
 
     def compute_plate_scale(self, wavel, oversampling_factor=None) -> float:
         """ Compute the angular size of a pixel """

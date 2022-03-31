@@ -185,14 +185,6 @@ def main(args):
         chi_squared = tf.reduce_mean(chi_squared[-1])
         return cost, chi_squared
 
-    def test_step(X, Y, noise_rms):
-        y_pred_series, chi_squared = rim.call(X, noise_rms)
-        cost1 = tf.reduce_sum(w(Y) * tf.square(y_pred_series - rim.inverse_link_function(Y)), axis=(2, 3, 4))
-        cost = tf.reduce_sum(wt * cost1, axis=0)
-        cost = tf.reduce_mean(cost)
-        chi_squared = tf.reduce_mean(chi_squared[-1])
-        return cost, chi_squared
-
     # ====== Training loop ============================================================================================
     time_per_step = tf.metrics.Mean()
     epoch_loss = tf.metrics.Mean()
@@ -294,9 +286,9 @@ if __name__ == '__main__':
     parser.add_argument("--model_id",           default="None",                 help="Start from this model id checkpoint. None means start from scratch")
 
     # Binary dataset parameters
-    parser.add_argument("--total_items",        default=1000,   type=int,       help="Total items in an epoch")
+    parser.add_argument("--total_items",        default=10,     type=int,       help="Total items in an epoch")
     parser.add_argument("--batch_size",         default=1,      type=int)
-    parser.add_argument("--width",              default=2,      type=float,     help="Sigma parameter of super-gaussian in pixel units")
+    parser.add_argument("--width",              default=1,      type=float,     help="Sigma parameter of super-gaussian in pixel units")
 
     # Physical Model parameters
     parser.add_argument("--wavelength",         default=3.8e-6,     type=float,     help="Wavelength in meters")
@@ -306,8 +298,8 @@ if __name__ == '__main__':
     parser.add_argument("--redundant",          action="store_true",                help="Whether to use redundant closure phase in likelihood or not")
 
     # RIM hyper parameters
-    parser.add_argument("--steps",              default=4,          type=int,       help="Number of recurrent steps in the model")
-    parser.add_argument("--log_floor",          default=1e-3,       type=float,     help="Set the dynamical range of the predicted intensity of a pixel.")
+    parser.add_argument("--steps",              default=6,          type=int,       help="Number of recurrent steps in the model")
+    parser.add_argument("--log_floor",          default=1e-6,       type=float,     help="Set the dynamical range of the predicted intensity of a pixel.")
 
     # Neural network hyper parameters
     parser.add_argument("--filters",                                    default=32,     type=int)
