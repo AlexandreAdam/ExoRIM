@@ -11,6 +11,7 @@ from exorim.utils import nullwriter
 
 
 def main(args):
+    print(args)
     if args.seed is not None:
         tf.random.set_seed(args.seed)
         np.random.seed(args.seed)
