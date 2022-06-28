@@ -47,7 +47,7 @@ def imshow(image, ax):
 
 def main():
     i1 = 1
-    i2 = 0.01
+    i2 = 1
     x = np.linspace(-4, 4, N)
     xx, yy = np.meshgrid(x, x)
     gam = gamma_binary(xx, yy, i1, i2)

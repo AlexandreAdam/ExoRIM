@@ -15,7 +15,6 @@ data = np.loadtxt("martinache/gj_164_9_hole_martinache_data.csv", delimiter=",")
 print(mask)
 
 
-
 def main():
     phys = PhysicalModel(pixels, mask, wavel, oversampling_factor=None)
     B = phys.operators

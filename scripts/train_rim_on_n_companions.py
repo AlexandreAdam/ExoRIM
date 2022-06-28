@@ -1,6 +1,6 @@
 from exorim import RIM, PhysicalModel
-from exorim.definitions import DTYPE
-from exorim.datasets.centered_binary_toy_dataset import CenteredBinariesDataset
+from exorim.definitions import DTYPE, LOGFLOOR
+from exorim.datasets import NCompanions
 from exorim.models import Model
 from exorim.utils import residual_plot, plot_to_image
 from datetime import datetime
@@ -26,6 +26,29 @@ MODEL_HPARAMS = [
     "strides"
 ]
 
+UNET_MODEL_HPARAMS = [
+    "filters",
+    "filter_scaling",
+    "kernel_size",
+    "layers",
+    "block_conv_layers",
+    "strides",
+    "bottleneck_kernel_size",
+    "resampling_kernel_size",
+    "input_kernel_size",
+    "gru_kernel_size",
+    "upsampling_interpolation",
+    "batch_norm",
+    "dropout_rate",
+    "kernel_l2_amp",
+    "bias_l2_amp",
+    "kernel_l1_amp",
+    "bias_l1_amp",
+    "activation",
+    "initializer",
+    "filter_cap"
+]
+
 
 def main(args):
     if args.seed is not None:
@@ -42,7 +65,7 @@ def main(args):
             args_dict = vars(args)
             args_dict.update(json_override)
 
-    phys = PhysicalModel(  # Assumes jwst mask for now
+    phys = PhysicalModel(
         pixels=args.pixels,
         wavelength=args.wavelength,
         logim=True,
@@ -50,7 +73,7 @@ def main(args):
         chi_squared=args.chi_squared
     )
 
-    train_dataset = CenteredBinariesDataset(
+    train_dataset = NCompanions(
         phys=phys,
         total_items=args.total_items,
         batch_size=args.batch_size,
@@ -102,7 +125,7 @@ def main(args):
     if args.residual_weights == "uniform":
         w = tf.keras.layers.Lambda(lambda s: tf.ones_like(s, dtype=DTYPE) / tf.cast(tf.math.reduce_prod(s.shape[1:]), DTYPE))
     elif args.residual_weights == "linear":
-        w = tf.keras.layers.Lambda(lambda s: (s) / tf.reduce_sum(s, axis=(1, 2, 3), keepdims=True))
+        w = tf.keras.layers.Lambda(lambda s: s / tf.reduce_sum(s, axis=(1, 2, 3), keepdims=True))
     elif args.residual_weights == "quadratic":
         w = tf.keras.layers.Lambda(lambda s: tf.square(s) / tf.reduce_sum(tf.square(s), axis=(1, 2, 3), keepdims=True))
     elif args.residual_weights == "sqrt":
@@ -170,10 +193,10 @@ def main(args):
         with tf.GradientTape() as tape:
             tape.watch(rim.model.trainable_variables)
             y_pred_series, chi_squared = rim.call(X, noise_rms, outer_tape=tape)
-            # mean over image residuals
-            cost1 = tf.reduce_sum(w(Y) * tf.square(y_pred_series - rim.inverse_link_function(Y)), axis=(2, 3, 4))
+            # weighted mean over image residuals
+            cost = tf.reduce_sum(w(Y) * tf.square(y_pred_series - rim.inverse_link_function(Y)), axis=(2, 3, 4))
             # weighted mean over time steps
-            cost = tf.reduce_sum(wt * cost1, axis=0)
+            cost = tf.reduce_sum(wt * cost, axis=0)
             # final cost is mean over global batch size
             cost = tf.reduce_mean(cost)
         gradient = tape.gradient(cost, rim.model.trainable_variables)
@@ -286,13 +309,13 @@ if __name__ == '__main__':
     # Binary dataset parameters
     parser.add_argument("--total_items",        default=10,     type=int,       help="Total items in an epoch")
     parser.add_argument("--batch_size",         default=1,      type=int)
-    parser.add_argument("--width",              default=1,      type=float,     help="Sigma parameter of super-gaussian in pixel units")
+    parser.add_argument("--width",              default=2,      type=float,     help="Sigma parameter of super-gaussian in pixel units")
 
     # Physical Model parameters
     parser.add_argument("--wavelength",         default=3.8e-6,     type=float,     help="Wavelength in meters")
-    parser.add_argument("--oversampling_factor", default=2,         type=float,     help="Set the pixels size = resolution / oversampling_factor. Resolution is set by Michelson criteria")
+    parser.add_argument("--oversampling_factor", default=None,         type=float,  help="Set the pixels size = resolution / oversampling_factor. Resolution is set by Michelson criteria")
     parser.add_argument("--chi_squared",        default="append_visibility_amplitude_closure_phase",    help="One of 'visibility' or 'append_visibility_amplitude_closure_phase'. Default is the latter.")
-    parser.add_argument("--pixels",             default=32,         type=int)
+    parser.add_argument("--pixels",             default=127,        type=int)
     parser.add_argument("--redundant",          action="store_true",                help="Whether to use redundant closure phase in likelihood or not")
 
     # RIM hyper parameters
@@ -311,7 +334,7 @@ if __name__ == '__main__':
     parser.add_argument("--initializer",                                default="glorot_normal")
 
     # Optimization params
-    parser.add_argument("--epochs",                 default=100,     type=int,      help="Number of epochs for training.")
+    parser.add_argument("--epochs",                 default=10,     type=int,      help="Number of epochs for training.")
     parser.add_argument("--optimizer",              default="Adamax",               help="Class name of the optimizer (e.g. 'Adam' or 'Adamax')")
     parser.add_argument("--initial_learning_rate",  default=1e-3,   type=float,     help="Initial learning rate.")
     parser.add_argument("--decay_rate",             default=1.,     type=float,     help="Exponential decay rate of learning rate (1=no decay).")

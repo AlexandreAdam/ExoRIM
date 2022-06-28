@@ -2,16 +2,35 @@ from scipy.special import factorial
 import tensorflow as tf
 import numpy as np
 
-tf.keras.backend.set_floatx('float32')
 DTYPE = tf.float32
 MYCOMPLEX = tf.complex64
-initializer = tf.random_normal_initializer(stddev=0.1)
-DEGREE = tf.constant(3.14159265358979323 / 180., DTYPE)
-INTENSITY_SCALER = tf.constant(1e6, DTYPE)
+PI = tf.constant(np.pi, DTYPE)
 TWOPI = tf.constant(2 * np.pi, DTYPE)
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 LOG10 = tf.cast(tf.math.log(10.), DTYPE)
-COMPLEX_I = tf.constant(1j, MYCOMPLEX)
+LOGFLOOR = tf.constant(1e-6, DTYPE)  # sets the dynamic range of the images, defined at 1e-6 to include the detection limit of JWST at 1e-4
+
+
+class SGConv(tf.keras.layers.Layer):
+    def __init__(self, pixels, width, in_channels=1, out_channels=1):
+        super(SGConv, self).__init__()
+        self.kernel = super_gaussian_filter(pixels, width, in_channels, out_channels)
+
+    def __call__(self, x):
+        return self.call(x)
+
+    def call(self, x):
+        return tf.nn.conv2d(x, self.kernel, strides=[1, 1, 1, 1], padding='SAME')
+
+
+def super_gaussian_filter(pixels, width, in_channels=1, out_channels=1):
+    assert pixels % 2 == 1
+    x = tf.range(pixels, dtype=DTYPE) - pixels//2
+    xx, yy = tf.meshgrid(x, x)
+    rho = xx**2 + yy**2
+    kernel = tf.exp(-0.5 * rho**2 / width**4)
+    kernel /= tf.reduce_sum(kernel, keepdims=True)
+    return tf.tile(kernel[..., None, None], [1, 1, in_channels, out_channels])
 
 
 def cast_to_complex_flatten(image):

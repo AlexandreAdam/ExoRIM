@@ -3,7 +3,7 @@ from .definitions import MYCOMPLEX, TWOPI, cast_to_complex_flatten
 
 
 # ==========================================================================================
-# (Reduced) Chi squared functions -- modified to assume diagonal covariance
+# Chi squared functions -- modified to assume diagonal covariance
 # ==========================================================================================
 
 def chi_squared_complex_visibility(image, X, phys, sigma):
@@ -102,7 +102,7 @@ chi_squared = {
 def chisq_gradient_complex_visibility(image, X, phys, sigma):
     im = cast_to_complex_flatten(image)
     samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
-    chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(X - samples) / sigma), axis=1)
+    chisq = 0.5 * tf.reduce_sum(tf.math.square(tf.math.abs(X - samples) / sigma), axis=1)
     sigma = tf.cast(sigma, MYCOMPLEX)
     grad = -tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), (X - samples)/sigma**2))
     grad = tf.reshape(grad, image.shape)
@@ -115,7 +115,7 @@ def chisq_gradient_amplitude(image, X, phys, sigma):
     amp_samples = tf.math.abs(V_samples)
     product = (X - amp_samples) / sigma**2 / amp_samples
     product = tf.cast(product, MYCOMPLEX)
-    chisq = tf.math.reduce_mean(((X - amp_samples) / sigma) ** 2, axis=1)
+    chisq = tf.reduce_sum(((X - amp_samples) / sigma) ** 2, axis=1)
     grad = - 2.0 * tf.math.real(tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A), V_samples * product))
     grad = tf.reshape(grad, shape=image.shape)
     return grad / X.shape[1], chisq
@@ -127,7 +127,7 @@ def chisq_gradient_bispectra(image, X, phys, sigma):
     V2 = tf.einsum("ij, ...j -> ...i", phys.A2, im)
     V3 = tf.einsum("ij, ...j -> ...i", phys.A3, im)
     B_samples = V1 * tf.math.conj(V2) * V3
-    chisq = 0.5 * tf.reduce_mean(tf.math.square(tf.math.abs(X - B_samples)/sigma), axis=1)
+    chisq = 0.5 * tf.reduce_sum(tf.math.square(tf.math.abs(X - B_samples)/sigma), axis=1)
     sigma = tf.cast(sigma, MYCOMPLEX)
     wdiff = tf.math.conj(X - B_samples) / sigma**2
     grad = tf.einsum("ji, ...j -> ...i", phys.A1, wdiff * V2 * V3)
@@ -146,7 +146,7 @@ def chisq_gradient_closure_phasor(image, X, phys, sigma):
     B = V1 * tf.math.conj(V2) * V3
     clphase_samples = tf.math.angle(B)
     wdiff = tf.cast(tf.math.sin(X - clphase_samples) / sigma ** 2, MYCOMPLEX)
-    chisq = tf.reduce_mean(((1 - tf.math.cos(X - clphase_samples)) / sigma)**2, axis=1)
+    chisq = tf.reduce_sum(((1 - tf.math.cos(X - clphase_samples)) / sigma)**2, axis=1)
     grad = tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A1), wdiff / tf.math.conj(V1))
     grad = grad + tf.einsum("ji, ...j -> ...i", phys.A2, wdiff / V2)
     grad = grad + tf.einsum("ji, ...j -> ...i", tf.math.conj(phys.A3), wdiff / tf.math.conj(V3))

@@ -1,5 +1,5 @@
 from exorim.operators import Operators
-from exorim.definitions import rad2mas, DTYPE, MYCOMPLEX, cast_to_complex_flatten, LOG10
+from exorim.definitions import rad2mas, DTYPE, MYCOMPLEX, cast_to_complex_flatten, LOG10, LOGFLOOR
 import exorim.inference as chisq
 import numpy as np
 import tensorflow as tf
@@ -34,16 +34,20 @@ class PhysicalModel:
             mask_coordinates=JWST_NIRISS_MASK,
             wavelength=3.8e-6,
             chi_squared="append_visibility_amplitude_closure_phase",
-            oversampling_factor=None,
             logim=True,
-            redundant=False  # closure phases
+            redundant=False,  # closure phases
+            oversampling_factor=None,
+            plate_scale=None  # in mas units
     ):
         assert chi_squared in ["append_visibility_amplitude_closure_phase", "visibility", "visibility_amplitude"]
         self._chi_squared = chi_squared
         self.pixels = pixels
         self.operators = Operators(mask_coordinates=mask_coordinates, wavelength=wavelength, redundant=redundant)
         self.CPO = tf.constant(self.operators.CPO, DTYPE)
-        self.plate_scale = self.compute_plate_scale(wavelength, oversampling_factor)
+        if plate_scale is None:
+            self.plate_scale = self.compute_plate_scale(wavelength, oversampling_factor)
+        else:
+            self.plate_scale = plate_scale
         A, Ainv, A1, A2, A3 = self.operators.build_operators(pixels, self.plate_scale)
         V1, V2, V3 = self.operators.closure_baseline_projectors()
         self.A = tf.constant(A, MYCOMPLEX)
@@ -57,26 +61,19 @@ class PhysicalModel:
         self.logim = logim
         self.nbuv = self.operators.nbuv
 
-
         if self.logim:
-            self.image_link = lambda image: 10**image
+            self.image_link = lambda xi: 10**xi  # xi to image
+            self.image_inverse_link = lambda image: tf.math.log(tf.maximum(image, LOGFLOOR)) / LOG10  # image to xi
             self.gradient_link = lambda image, grad: image * grad * LOG10
         else:
             self.image_link = lambda image: image
+            self.image_inverse_link = lambda image: image
             self.gradient_link = lambda image, grad: grad
 
-    def grad_chi_squared(self, image, X, sigma):
-        with tf.GradientTape() as tape:
-            tape.watch(image)
-            xi = self.image_link(image)
-            x_pred = self.forward(xi)
-            chi_squared = tf.reduce_sum((x_pred[..., :self.nbuv] - X[..., :self.nbuv])**2 / sigma[:, :self.nbuv], axis=1)
-            chi_squared += 2*tf.reduce_sum((1 - tf.cos(x_pred[..., self.nbuv:] - X[..., self.nbuv])) / sigma[..., self.nbuv:], axis=1)
-            cost = tf.reduce_mean(chi_squared)
-        grad = tape.gradient(cost, image)
-        return grad, chi_squared
-        # grad, chi_squared = chisq.chisq_gradients[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
-        # return self.gradient_link(image, grad), chi_squared
+    def grad_chi_squared(self, xi, X, sigma):
+        image = self.image_link(xi)
+        grad, chi_squared = chisq.chisq_gradients[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
+        return self.gradient_link(image, grad), chi_squared
 
     def chi_squared(self, image, X, sigma):
         image = self.image_link(image)
@@ -125,7 +122,60 @@ class PhysicalModel:
         fov = rad2mas(1/rho).max()
         resolution = (rad2mas(1/2/rho)).min()  # Michelson criterion = lambda / 2b radians
         if oversampling_factor is None:
-            oversampling_factor = self.pixels * resolution / fov
+            oversampling_factor = 0.25 * self.pixels * resolution / fov
         plate_scale = resolution / oversampling_factor
         return plate_scale
 
+
+if __name__ == '__main__':
+    from exorim.datasets import CenteredBinariesDataset
+    from exorim import PhysicalModel
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import CenteredNorm
+    from exorim import PhysicalModel
+
+    phys = PhysicalModel(32, oversampling_factor=None, logim=False)
+    D = CenteredBinariesDataset(phys, 1, 1, width=2)
+    X, y, sigma = next(D)
+    x_true = phys.forward(y)
+    plt.figure()
+    plt.title("True image")
+    plt.imshow(y[0, ..., 0], cmap="hot")
+    plt.colorbar()
+
+    y_pred = phys.inverse(X)
+    # _, y_pred, _ = next(D)
+
+    plt.figure()
+    plt.title("Pred image")
+    plt.imshow(y_pred[0, ..., 0], cmap="hot")
+    plt.colorbar()
+
+    # Tensorflow backprop gradient wrt model parameters
+    self = phys
+    xi = self.image_inverse_link(y_pred)
+    with tf.GradientTape() as tape:
+        tape.watch(xi)
+        image = self.image_link(xi)
+        x_pred = self.forward(image)
+        chi_squared = tf.reduce_sum((x_pred[..., :self.nbuv] - X[..., :self.nbuv]) ** 2 / sigma[:, :self.nbuv]**2, axis=1)
+        chi_squared += 2 * tf.reduce_sum((1 - tf.cos(x_pred[..., self.nbuv:] - X[..., self.nbuv:])) / sigma[..., self.nbuv:]**2, axis=1)
+        cost = tf.reduce_mean(chi_squared)
+    grad = tape.gradient(cost, xi)
+
+    print(chi_squared)
+    plt.figure()
+    plt.title("Autodiff grad")
+    plt.imshow(grad[0, ..., 0], cmap="seismic", norm=CenteredNorm())
+    plt.colorbar()
+    # plt.show()
+
+    grad, chi_squared = chisq.chisq_gradients[self._chi_squared](image=self.image_link(xi), X=X, phys=self, sigma=sigma)
+    grad = self.gradient_link(self.image_link(xi), grad)
+
+    print(chi_squared)
+    plt.figure()
+    plt.title("Analytical grad")
+    plt.imshow(grad[0, ..., 0], cmap="seismic", norm=CenteredNorm())
+    plt.colorbar()
+    plt.show()

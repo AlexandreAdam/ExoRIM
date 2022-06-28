@@ -1,5 +1,5 @@
 from exorim.physical_model import GOLAY9, JWST_NIRISS_MASK
-from exorim.simulated_data import CenteredBinariesDataset
+from exorim.datasets.centered_binary_toy_dataset import CenteredBinariesDataset
 from exorim.definitions import general_gamma_binary, super_gaussian
 from exorim import PhysicalModel, Operators
 from exorim.definitions import rad2mas

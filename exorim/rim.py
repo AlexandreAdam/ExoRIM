@@ -1,4 +1,4 @@
-from .definitions import DTYPE, LOG10
+from .definitions import DTYPE
 from .utils import nulltape
 from .physical_model import PhysicalModel
 import tensorflow as tf
@@ -13,7 +13,6 @@ class RIM:
                  beta_1=0.9,
                  beta_2=0.99,
                  epsilon=1e-8,
-                 log_floor=1e-6  # sets the dynamic range of the model
                  ):
         self.logim = physical_model.logim
         self.pixels = physical_model.pixels
@@ -24,14 +23,9 @@ class RIM:
         self.beta_1 = beta_1
         self.beta_2 = beta_2
         self.epsilon = epsilon
-        self.log_floor = log_floor
 
-        if self.logim:
-            self.inverse_link_function = tf.keras.layers.Lambda(lambda x: tf.math.log(x + self.log_floor) / LOG10)
-            self.link_function = tf.keras.layers.Lambda(lambda x: 10**x)
-        else:
-            self.link_function = tf.identity
-            self.inverse_link_function = tf.identity
+        self.inverse_link_function = physical_model.image_inverse_link
+        self.link_function = physical_model.image_link
 
         if self.adam:
             self.grad_update = lambda grad, time_step: self.adam_update(grad, time_step)
@@ -65,13 +59,13 @@ class RIM:
         ht = self.initial_states(batch_size)
         # Start from dirty beam
         with outer_tape.stop_recording():
-            xt = self.physical_model.inverse(X)
-            xt = self.inverse_link_function(xt) # get to prediction space
+            xt = self.physical_model.inverse(X)  # image space
+            xt = self.inverse_link_function(xt)  # prediction space (xi)
         image_series = tf.TensorArray(DTYPE, size=self.steps)
         chi_squared_series = tf.TensorArray(DTYPE, size=self.steps)
         for current_step in range(self.steps):
             with outer_tape.stop_recording():
-                grad, chi_squared = self.physical_model.grad_chi_squared(image=xt, X=X, sigma=sigma)
+                grad, chi_squared = self.physical_model.grad_chi_squared(xi=xt, X=X, sigma=sigma)
                 grad = self.grad_update(grad, time_step=current_step)
             xt, ht = self.time_step(xt, grad, ht)
             image_series = image_series.write(index=current_step, value=xt)

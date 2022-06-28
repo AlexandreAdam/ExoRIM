@@ -1,12 +1,12 @@
 import numpy as np
 import tensorflow as tf
-from exorim.definitions import DTYPE
+from exorim.definitions import DTYPE, LOGFLOOR
 from exorim.physical_model import PhysicalModel
 import math
 
 
 def default_sigma_distribution(batch_size, nbuv):
-    return np.ones(shape=[batch_size, nbuv]) * 1e-8
+    return np.ones(shape=[batch_size, nbuv]) * 1e-6
 
 
 def default_contrast_distribution(batch_size):
@@ -31,9 +31,9 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
         self.total_items = total_items
         self.pixels = phys.pixels
         self.width = width
-        self.max_separation = phys.pixels/2 if max_separation is None else max_separation
         self.batch_size = batch_size
         self.phys = phys
+        self.max_separation = phys.pixels/2 if max_separation is None else max_separation
         self.min_separation = min_separation
 
         self.sigma_distribution = sigma_distribution
@@ -51,6 +51,9 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
     def __getitem__(self, idx):
         return self.generate_batch(idx)
 
+    def __next__(self):
+        return self.generate_batch(None)
+
     def generate_batch(self, idx):
         if self.seed is not None:
             np.random.seed(self.seed + idx)
@@ -64,7 +67,8 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
                 y0 = separation[i] * np.sin(angle[i] + j * np.pi)/2
                 images[i, ..., 0] += self.super_gaussian(1. if j == 0 else contrast[i], x0, y0)
 
-        images = images / images.sum(axis=(1, 2), keepdims=True)
+        # images = images / images.sum(axis=(1, 2), keepdims=True)
+        images = tf.maximum(images, LOGFLOOR)
         images = tf.constant(images, dtype=DTYPE)
         sigma = self.sigma_distribution(self.batch_size, self.phys.nbuv)
         X, sigma = self.phys.noisy_forward(images, sigma)
@@ -72,7 +76,7 @@ class CenteredBinariesDataset(tf.keras.utils.Sequence):
 
     def super_gaussian(self, I, x0, y0):
         rho = np.hypot(self.x - x0, self.y - y0)
-        im = np.exp(-0.5 * (rho/self.width)**2)
+        im = np.exp(-0.5 * (rho/self.width)**4)
         im /= im.sum()
         im *= I
         return im
@@ -82,7 +86,7 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     from matplotlib.colors import LogNorm
     from exorim import PhysicalModel
-    phys = PhysicalModel(32, oversampling_factor=3, logim=False)
+    phys = PhysicalModel(128, oversampling_factor=None, logim=True)
     D = CenteredBinariesDataset(phys, 1, 1, width=2)
     x, y, sigma = D.generate_batch(0)
     x_true = phys.forward(y)
@@ -100,9 +104,9 @@ if __name__ == '__main__':
     plt.imshow(y[0, ..., 0], cmap="hot", norm=LogNorm(vmin=1e-6, vmax=1))
     plt.colorbar()
     plt.show()
-    X = phys.forward(y)
+
     plt.figure()
-    plt.plot(X[0], "k-")
+    plt.plot(x_true[0], "k-")
     plt.plot(x[0], "r--", lw=3)
     plt.show()
 
