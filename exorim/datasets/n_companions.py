@@ -11,7 +11,7 @@ def sigma_distribution(batch_size, nbuv):
 
 
 def n_distribution(batch_size):
-    return np.atleast_1d(poisson.rvs(1, batch_size))
+    return np.atleast_1d(poisson.rvs(1, size=batch_size))
 
 
 class NCompanions(tf.keras.utils.Sequence):
