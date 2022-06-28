@@ -10,6 +10,7 @@
 #SBATCH --output=%x-%j.out
 source $HOME/environments/exorim3.8/bin/activate
 python $EXORIM_PATH/scripts/gridsearch.py\
+  --dataset n_companions\
   --architecture unet hourglass\
   --n_models=100\
   --max_time=23.5\
