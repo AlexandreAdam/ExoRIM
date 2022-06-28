@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 import copy
 import pandas as pd
-from scripts.train_rim_on_binary import main, RIM_HPARAMS, MODEL_HPARAMS
+from exorim.definitions import RIM_HPARAMS, MODEL_HPARAMS
 
 
 # total number of slurm workers detected
@@ -12,7 +12,7 @@ N_WORKERS = int(os.getenv('SLURM_ARRAY_TASK_COUNT', 1))
 
 # this worker's array index. Assumes slurm array job is zero-indexed
 # defaults to zero if not running under SLURM
-THIS_WORKER = int(os.getenv('SLURM_ARRAY_TASK_ID', 0)) ## it starts from 1!!
+THIS_WORKER = int(os.getenv('SLURM_ARRAY_TASK_ID', 1))
 
 DATE = datetime.now().strftime("%y%m%d%H%M%S")
 
@@ -28,10 +28,12 @@ EXTRA_PARAMS = [
     "residual_weights",
     "oversampling_factor",
     "pixels",
-    "redundant"
+    "redundant",
+    "architecture"
 ]
 
 PARAMS_NICKNAME = {
+    "architecture": "",
     "total_items": "TI",
     "optimizer": "O",
     "seed": "",
@@ -113,16 +115,23 @@ def exhaustive_grid_search(args):
                 if len(args_dict[p]) > 1:
                     args_dict[p] = lex[i]
                     i += 1
-                    nicknames.append(PARAMS_NICKNAME[p])
-                    params.append(args_dict[p])
+                    if p != "architecture":
+                        nicknames.append(PARAMS_NICKNAME[p])
+                        params.append(args_dict[p])
                 else:
                     args_dict[p] = args_dict[p][0]
         param_str = "_" + "_".join([f"{nickname}{param}" for nickname, param in zip(nicknames, params)])
-        args_dict.update({"logname": args.logname_prefixe + "_" + f"{gridsearch_id:03d}" + param_str + "_" + DATE})
+        args_dict.update({"logname":  args.logname_prefixe + "_" + f"{gridsearch_id:03d}" + "_" + args.architecture + "_" + param_str + "_" + DATE})
         yield new_args
 
 
 def distributed_strategy(args):
+    if args.dataset == "n_companions":
+        from train_rim_on_n_companions import main
+    elif args.dataset == "binary":
+        from train_rim_on_binary import main
+    else:
+        raise ValueError("dataset argument should be in ['binary', 'n_companions']")
     gridsearch_args = list(single_instance_args_generator(args))
     for gridsearch_id in range((THIS_WORKER - 1), len(gridsearch_args), N_WORKERS):
         run_args = gridsearch_args[gridsearch_id]
@@ -151,25 +160,26 @@ def distributed_strategy(args):
 if __name__ == '__main__':
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument("--n_models",           default=10,     type=int,       help="Models to train")
+    parser.add_argument("--dataset",            default="n_companions")
+    parser.add_argument("--architecture",       default="unet",  nargs="+",     help="Argument should be in ['hourglass', 'unet']")
+    parser.add_argument("--n_models",           default=1,      type=int,       help="Models to train")
     parser.add_argument("--strategy",           default="uniform",              help="Allowed startegies are 'uniform' and 'exhaustive'.")
     parser.add_argument("--model_id",           default="None",                 help="Start from this model id checkpoint. None means start from scratch")
 
     # Binary dataset parameters
-    parser.add_argument("--total_items",        default=1000,  nargs="+",   type=int,       help="Total items in an epoch")
+    parser.add_argument("--total_items",        default=10,  nargs="+",   type=int,       help="Total items in an epoch")
     parser.add_argument("--batch_size",         default=1,     nargs="+",   type=int)
-    parser.add_argument("--width",              default=3,         type=float,     help="Sigma parameter of super-gaussian in pixel units")
+    parser.add_argument("--width",              default=2,         type=float,     help="Sigma parameter of super-gaussian in pixel units")
 
     # Physical Model parameters
     parser.add_argument("--wavelength",         default=3.8e-6,     type=float,     help="Wavelength in meters")
-    parser.add_argument("--oversampling_factor", default=2,  nargs="+",       type=float,     help="Set the pixels size = resolution / oversampling_factor. Resolution is set by Michelson criteria")
+    parser.add_argument("--oversampling_factor", default=None,  nargs="+",       type=float,     help="Set the pixels size = resolution / oversampling_factor. Resolution is set by Michelson criteria")
     parser.add_argument("--chi_squared",        default="append_visibility_amplitude_closure_phase",    help="One of 'visibility' or 'append_visibility_amplitude_closure_phase'. Default is the latter.")
-    parser.add_argument("--pixels",             default=32,  nargs="+",       type=int)
+    parser.add_argument("--pixels",             default=128,  nargs="+",       type=int)
     parser.add_argument("--redundant",          default=0,   nargs="+",       type=int,       help="Whether to use redundant closure phase in likelihood or not")
 
     # RIM hyper parameters
-    parser.add_argument("--steps",              default=4,    nargs="+",      type=int,       help="Number of recurrent steps in the model")
-    parser.add_argument("--log_floor",          default=1e-3, nargs="+",      type=float,     help="Set the dynamical range of the predicted intensity of a pixel.")
+    parser.add_argument("--steps",              default=6,    nargs="+",      type=int,       help="Number of recurrent steps in the model")
 
     # Neural network hyper parameters
     parser.add_argument("--filters",                                    default=32, nargs="+",     type=int)
@@ -184,7 +194,7 @@ if __name__ == '__main__':
     parser.add_argument("--initializer",                                default="glorot_normal", nargs="+")
 
     # Optimization params
-    parser.add_argument("--epochs",                 default=100,     type=int,      help="Number of epochs for training.")
+    parser.add_argument("--epochs",                 default=10,     type=int,      help="Number of epochs for training.")
     parser.add_argument("--optimizer",              default="Adamax", nargs="+",               help="Class name of the optimizer (e.g. 'Adam' or 'Adamax')")
     parser.add_argument("--initial_learning_rate",  default=1e-3, nargs="+",   type=float,     help="Initial learning rate.")
     parser.add_argument("--decay_rate",             default=1.,   nargs="+",   type=float,     help="Exponential decay rate of learning rate (1=no decay).")

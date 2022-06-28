@@ -9,6 +9,20 @@ TWOPI = tf.constant(2 * np.pi, DTYPE)
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 LOG10 = tf.cast(tf.math.log(10.), DTYPE)
 LOGFLOOR = tf.constant(1e-6, DTYPE)  # sets the dynamic range of the images, defined at 1e-6 to include the detection limit of JWST at 1e-4
+RIM_HPARAMS = [
+    "steps"
+]
+MODEL_HPARAMS = [
+    "filters",
+    "filter_scaling",
+    "kernel_size",
+    "input_kernel_size",
+    "layers",
+    "block_conv_layers",
+    "activation",
+    "upsampling_interpolation",
+    "strides"
+]
 
 
 class SGConv(tf.keras.layers.Layer):

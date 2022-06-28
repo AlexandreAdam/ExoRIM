@@ -1,53 +1,13 @@
 from exorim import RIM, PhysicalModel
-from exorim.definitions import DTYPE, LOGFLOOR
+from exorim.definitions import DTYPE, RIM_HPARAMS, MODEL_HPARAMS
 from exorim.datasets import NCompanions
-from exorim.models import Model
+from exorim.models import Model, UnetModel
 from exorim.utils import residual_plot, plot_to_image
 from datetime import datetime
 import os, time, json
 import tensorflow as tf
 import numpy as np
 from exorim.utils import nullwriter
-
-
-RIM_HPARAMS = [
-    "steps"
-]
-
-MODEL_HPARAMS = [
-    "filters",
-    "filter_scaling",
-    "kernel_size",
-    "input_kernel_size",
-    "layers",
-    "block_conv_layers",
-    "activation",
-    "upsampling_interpolation",
-    "strides"
-]
-
-UNET_MODEL_HPARAMS = [
-    "filters",
-    "filter_scaling",
-    "kernel_size",
-    "layers",
-    "block_conv_layers",
-    "strides",
-    "bottleneck_kernel_size",
-    "resampling_kernel_size",
-    "input_kernel_size",
-    "gru_kernel_size",
-    "upsampling_interpolation",
-    "batch_norm",
-    "dropout_rate",
-    "kernel_l2_amp",
-    "bias_l2_amp",
-    "kernel_l1_amp",
-    "bias_l1_amp",
-    "activation",
-    "initializer",
-    "filter_cap"
-]
 
 
 def main(args):
@@ -79,18 +39,32 @@ def main(args):
         batch_size=args.batch_size,
         width=args.width
     )
-
-    model = Model(
-        filters=args.filters,
-        kernel_size=args.kernel_size,
-        filter_scaling=args.filter_scaling,
-        input_kernel_size=args.input_kernel_size,
-        layers=args.layers,
-        block_conv_layers=args.block_conv_layers,
-        strides=args.strides,
-        activation=args.activation,
-        upsampling_interpolation=args.upsampling_interpolation
-    )
+    if args.architecture == "unet":
+        model = UnetModel(
+            filters=args.filters,
+            kernel_size=args.kernel_size,
+            filter_scaling=args.filter_scaling,
+            input_kernel_size=args.input_kernel_size,
+            layers=args.layers,
+            block_conv_layers=args.block_conv_layers,
+            strides=args.strides,
+            activation=args.activation,
+            upsampling_interpolation=args.upsampling_interpolation
+        )
+    elif args.architecture == "hourglass":
+        model = Model(
+            filters=args.filters,
+            kernel_size=args.kernel_size,
+            filter_scaling=args.filter_scaling,
+            input_kernel_size=args.input_kernel_size,
+            layers=args.layers,
+            block_conv_layers=args.block_conv_layers,
+            strides=args.strides,
+            activation=args.activation,
+            upsampling_interpolation=args.upsampling_interpolation
+        )
+    else:
+        raise ValueError("architecture parameters must be in ['hourglass', 'unet']")
 
     rim = RIM(
         model=model,
@@ -305,6 +279,7 @@ if __name__ == '__main__':
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument("--model_id",           default="None",                 help="Start from this model id checkpoint. None means start from scratch")
+    parser.add_argument("--architecture",       default="unet",                 help="Argument must be one of ['hourglass', 'unet']")
 
     # Binary dataset parameters
     parser.add_argument("--total_items",        default=10,     type=int,       help="Total items in an epoch")
@@ -315,7 +290,7 @@ if __name__ == '__main__':
     parser.add_argument("--wavelength",         default=3.8e-6,     type=float,     help="Wavelength in meters")
     parser.add_argument("--oversampling_factor", default=None,         type=float,  help="Set the pixels size = resolution / oversampling_factor. Resolution is set by Michelson criteria")
     parser.add_argument("--chi_squared",        default="append_visibility_amplitude_closure_phase",    help="One of 'visibility' or 'append_visibility_amplitude_closure_phase'. Default is the latter.")
-    parser.add_argument("--pixels",             default=127,        type=int)
+    parser.add_argument("--pixels",             default=128,        type=int)
     parser.add_argument("--redundant",          action="store_true",                help="Whether to use redundant closure phase in likelihood or not")
 
     # RIM hyper parameters

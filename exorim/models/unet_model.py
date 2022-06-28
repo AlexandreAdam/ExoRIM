@@ -100,7 +100,7 @@ class UnetModel(tf.keras.Model):
         )
 
         self.output_layer = tf.keras.layers.Conv2D(
-            filters=2,  # source and kappa
+            filters=1,
             kernel_size=(1, 1),
             activation="linear",
             **common_params

@@ -1,5 +1,5 @@
 from exorim import RIM, PhysicalModel
-from exorim.definitions import DTYPE
+from exorim.definitions import DTYPE, RIM_HPARAMS, MODEL_HPARAMS
 from exorim.datasets.centered_binary_toy_dataset import CenteredBinariesDataset
 from exorim.models import Model
 from exorim.utils import residual_plot, plot_to_image
@@ -8,23 +8,6 @@ import os, time, json
 import tensorflow as tf
 import numpy as np
 from exorim.utils import nullwriter
-
-
-RIM_HPARAMS = [
-    "steps"
-]
-
-MODEL_HPARAMS = [
-    "filters",
-    "filter_scaling",
-    "kernel_size",
-    "input_kernel_size",
-    "layers",
-    "block_conv_layers",
-    "activation",
-    "upsampling_interpolation",
-    "strides"
-]
 
 
 def main(args):
