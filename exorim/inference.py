@@ -23,7 +23,7 @@ def chi_squared_complex_visibility(image, X, phys, sigma):
 def chi_squared_visibility_phases(image, X, phys, sigma):
     A = phys.A
     im = cast_to_complex_flatten(image)
-    vphases_samples = tf.math.angle(tf.einsum("ij, ...j -> ...i", A, im)) % TWOPI
+    vphases_samples = tf.math.angle(tf.einsum("ij, ...j -> ...i", A, im))
     diff = X - vphases_samples
     # if len(sigma.shape) < 2:
     chisq = tf.reduce_sum(tf.math.square(diff / sigma), axis=1)
@@ -69,8 +69,8 @@ def chi_squared_closure_phase(image, X, phys, sigma):
     The phase wrapping in the range [0, 2pi) is enforced by the modulo operation.
     """
     im = cast_to_complex_flatten(image)
-    phi = tf.math.angle(tf.einsum("ij, ...j -> ...i", phys.A, im)) % TWOPI
-    clphase_sample = tf.einsum("ij, ...j -> ...i", phys.CPO, phi) % TWOPI
+    phi = tf.math.angle(tf.einsum("ij, ...j -> ...i", phys.A, im))
+    clphase_sample = tf.einsum("ij, ...j -> ...i", phys.CPO, phi)
     diff = X - clphase_sample
     # if len(sigma.shape) < 2:
     chisq = 0.5 * tf.reduce_sum((diff/sigma)**2, axis=1)
@@ -183,7 +183,7 @@ def v_to_bispectra(V, phys):
 
 
 def v_to_closure_phase(V, phys):
-    psi = tf.einsum("ij, ...j -> ...i", phys.CPO, tf.math.angle(V) % TWOPI) % TWOPI
+    psi = tf.einsum("ij, ...j -> ...i", phys.CPO, tf.math.angle(V))
     return psi
 
 
@@ -203,7 +203,7 @@ v_transformation = {
 
 
 def v_and_sigma_to_closure_phase(V, phys, sigma):
-    psi = tf.einsum("ij, ...j -> ...i", phys.CPO, tf.math.angle(V) % TWOPI) % TWOPI
+    psi = tf.einsum("ij, ...j -> ...i", phys.CPO, tf.math.angle(V))
     sigma /= tf.abs(V)
     cov = tf.eye(phys.CPO.shape[1])[tf.newaxis, ...] * sigma[..., tf.newaxis] ** 2
     sigma = tf.matmul(phys.CPO, cov)
