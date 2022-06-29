@@ -1,4 +1,4 @@
-numpy
+numpy # < 1.23, since webbpsf and morphine do not work with 1.23 (1.22 works)
 tensorflow
 matplotlib
 astropy
@@ -7,4 +7,4 @@ scipy
 #xara
 #morphine-optics
 #poppy
-
+#webbpsf

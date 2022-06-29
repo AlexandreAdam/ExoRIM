@@ -31,7 +31,8 @@ def main(args):
         wavelength=args.wavelength,
         logim=True,
         oversampling_factor=args.oversampling_factor,
-        chi_squared=args.chi_squared
+        chi_squared=args.chi_squared,
+        plate_scale=args.plate_scale
     )
 
     train_dataset = NCompanions(
@@ -293,6 +294,8 @@ if __name__ == '__main__':
     parser.add_argument("--chi_squared",        default="append_visibility_amplitude_closure_phase",    help="One of 'visibility' or 'append_visibility_amplitude_closure_phase'. Default is the latter.")
     parser.add_argument("--pixels",             default=128,        type=int)
     parser.add_argument("--redundant",          action="store_true",                help="Whether to use redundant closure phase in likelihood or not")
+    parser.add_argument("--plate_scale",        default=5,          type=float,     help="Size of a pixel, in mas")
+    parser.add_argument("--beta",               default=1,          type=float,     help="Lagrange multiplier for the closure phase term.")
 
     # RIM hyper parameters
     parser.add_argument("--steps",              default=6,          type=int,       help="Number of recurrent steps in the model")

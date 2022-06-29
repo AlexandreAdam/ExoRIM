@@ -96,10 +96,12 @@ chi_squared = {
 }
 # ==========================================================================================
 # Analytical Chi squared gradients
+# - all functions must have the same signature
+#  -beta is used to weigh amplitude and closure phase term.
 # ==========================================================================================
 
 
-def chisq_gradient_complex_visibility(image, X, phys, sigma):
+def chisq_gradient_complex_visibility(image, X, phys, sigma, beta=1):
     im = cast_to_complex_flatten(image)
     samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
     chisq = 0.5 * tf.reduce_sum(tf.math.square(tf.math.abs(X - samples) / sigma), axis=1)
@@ -109,7 +111,7 @@ def chisq_gradient_complex_visibility(image, X, phys, sigma):
     return grad / X.shape[1], chisq
 
 
-def chisq_gradient_amplitude(image, X, phys, sigma):
+def chisq_gradient_amplitude(image, X, phys, sigma, beta=1):
     im = cast_to_complex_flatten(image)
     V_samples = tf.einsum("ij, ...j -> ...i", phys.A, im)
     amp_samples = tf.math.abs(V_samples)
@@ -121,7 +123,7 @@ def chisq_gradient_amplitude(image, X, phys, sigma):
     return grad / X.shape[1], chisq
 
 
-def chisq_gradient_bispectra(image, X, phys, sigma):
+def chisq_gradient_bispectra(image, X, phys, sigma, beta=1):
     im = cast_to_complex_flatten(image)
     V1 = tf.einsum("ij, ...j -> ...i", phys.A1, im)
     V2 = tf.einsum("ij, ...j -> ...i", phys.A2, im)
@@ -138,7 +140,7 @@ def chisq_gradient_bispectra(image, X, phys, sigma):
     return grad, chisq
 
 
-def chisq_gradient_closure_phasor(image, X, phys, sigma):
+def chisq_gradient_closure_phasor(image, X, phys, sigma, beta=1):
     im = cast_to_complex_flatten(image)
     V1 = tf.einsum("ij, ...j -> ...i", phys.A1, im)
     V2 = tf.einsum("ij, ...j -> ...i", phys.A2, im)
@@ -155,10 +157,10 @@ def chisq_gradient_closure_phasor(image, X, phys, sigma):
     return grad, chisq
 
 
-def chisq_gradient_append_amplitude_closure_phase(image, X, phys, sigma):
+def chisq_gradient_append_amplitude_closure_phase(image, X, phys, sigma, beta=1):
     grad_a, chisq_a = chisq_gradient_amplitude(image, X[..., :phys.nbuv], phys, sigma[..., :phys.nbuv])
     grad_cp, chisq_cp = chisq_gradient_closure_phasor(image, X[..., phys.nbuv:], phys, sigma[..., phys.nbuv:])
-    return grad_a + grad_cp, chisq_a + chisq_cp
+    return grad_a + beta * grad_cp, chisq_a + beta * chisq_cp
 
 
 chisq_gradients = {

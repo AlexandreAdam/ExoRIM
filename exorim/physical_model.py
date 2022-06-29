@@ -37,7 +37,8 @@ class PhysicalModel:
             logim=True,
             redundant=False,  # closure phases
             oversampling_factor=None,
-            plate_scale=None  # in mas units
+            plate_scale=None,  # in mas units
+            beta=1.
     ):
         assert chi_squared in ["append_visibility_amplitude_closure_phase", "visibility", "visibility_amplitude"]
         self._chi_squared = chi_squared
@@ -60,6 +61,7 @@ class PhysicalModel:
         self.V3 = tf.constant(V3, MYCOMPLEX)
         self.logim = logim
         self.nbuv = self.operators.nbuv
+        self.beta = beta
 
         if self.logim:
             self.image_link = lambda xi: 10**xi  # xi to image
@@ -72,7 +74,7 @@ class PhysicalModel:
 
     def grad_chi_squared(self, xi, X, sigma):
         image = self.image_link(xi)
-        grad, chi_squared = chisq.chisq_gradients[self._chi_squared](image=image, X=X, phys=self, sigma=sigma)
+        grad, chi_squared = chisq.chisq_gradients[self._chi_squared](image=image, X=X, phys=self, sigma=sigma, beta=self.beta)
         return self.gradient_link(image, grad), chi_squared
 
     def chi_squared(self, image, X, sigma):
@@ -122,25 +124,26 @@ class PhysicalModel:
         fov = rad2mas(1/rho).max()
         resolution = (rad2mas(1/2/rho)).min()  # Michelson criterion = lambda / 2b radians
         if oversampling_factor is None:
-            oversampling_factor = 0.25 * self.pixels * resolution / fov
+            oversampling_factor = self.pixels * resolution / fov
         plate_scale = resolution / oversampling_factor
         return plate_scale
 
 
 if __name__ == '__main__':
-    from exorim.datasets import CenteredBinariesDataset
+    from exorim.datasets import NCompanions
     from exorim import PhysicalModel
     import matplotlib.pyplot as plt
     from matplotlib.colors import CenteredNorm
     from exorim import PhysicalModel
 
-    phys = PhysicalModel(32, oversampling_factor=None, logim=False)
-    D = CenteredBinariesDataset(phys, 1, 1, width=2)
+    phys = PhysicalModel(128, oversampling_factor=None, logim=False, plate_scale=5)
+    extent = [*[-phys.plate_scale * phys.pixels, phys.plate_scale * phys.pixels]*2]
+    D = NCompanions(phys, 1, 1, width=2)
     X, y, sigma = next(D)
     x_true = phys.forward(y)
     plt.figure()
     plt.title("True image")
-    plt.imshow(y[0, ..., 0], cmap="hot")
+    plt.imshow(y[0, ..., 0], cmap="hot", extent=extent)
     plt.colorbar()
 
     y_pred = phys.inverse(X)

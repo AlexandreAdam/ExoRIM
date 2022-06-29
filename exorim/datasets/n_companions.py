@@ -7,11 +7,11 @@ from scipy.stats import poisson
 
 
 def sigma_distribution(batch_size, nbuv):
-    return np.ones(shape=[batch_size, nbuv]) * 1e-7
+    return np.ones(shape=[batch_size, nbuv]) * 1e-6
 
 
 def n_distribution(batch_size):
-    return np.atleast_1d(poisson.rvs(1, size=batch_size))
+    return np.atleast_1d(poisson.rvs(2, size=batch_size))
 
 
 class NCompanions(tf.keras.utils.Sequence):
@@ -22,9 +22,9 @@ class NCompanions(tf.keras.utils.Sequence):
             batch_size=10,
             sigma_distribution=sigma_distribution,
             n_distribution=n_distribution,
-            width=2,  # sigma parameter of super gaussian
+            width=2,  # sigma parameter of gaussian
             max_separation=None,
-            seed=None,
+            seed=None
     ):
         self.seed = seed
         self.total_items = total_items
@@ -54,7 +54,7 @@ class NCompanions(tf.keras.utils.Sequence):
     def generate_batch(self, idx):
         ns = self.n_distribution(batch_size=self.batch_size)
         images = np.zeros(shape=[self.batch_size, self.pixels, self.pixels, 1])
-        images[..., 0] += self.super_gaussian(1., 0., 0.)
+        images[..., 0] += self.gaussian(1., 0., 0.)
         for j in range(self.batch_size):
             n = ns[j]
             if n == 0:
@@ -65,7 +65,7 @@ class NCompanions(tf.keras.utils.Sequence):
             for i in range(n):
                 x0 = separation[i] * np.cos(angle[i] + j * np.pi)/2
                 y0 = separation[i] * np.sin(angle[i] + j * np.pi)/2
-                images[j, ..., 0] += self.super_gaussian(contrast[i], x0, y0)  # place a companion
+                images[j, ..., 0] += self.gaussian(contrast[i], x0, y0)  # place a companion
         images = tf.constant(images, DTYPE)
         # images = images / tf.reduce_sum(images, axis=(1, 2), keepdims=True)
         images = tf.maximum(images, LOGFLOOR)
@@ -73,9 +73,9 @@ class NCompanions(tf.keras.utils.Sequence):
         X, sigma = self.phys.noisy_forward(images, sigma)
         return X, images, sigma
 
-    def super_gaussian(self, I, x0, y0):
+    def gaussian(self, I, x0, y0):
         rho = tf.sqrt((self.x - x0)**2 + (self.y - y0)**2)
-        im = np.exp(-0.5 * (rho/self.width)**4)
+        im = np.exp(-0.5 * (rho/self.width)**2)
         im /= im.sum()
         im *= I
         return im
